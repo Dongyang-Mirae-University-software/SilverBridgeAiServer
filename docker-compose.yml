@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  ai-server:
+    build: .
+    container_name: silverbridge-ai-server
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    env_file:
+      - .env
+    volumes:
+      - ./models:/app/models
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - ./data:/app/data
