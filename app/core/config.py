@@ -29,6 +29,16 @@ def _as_int(name: str, default: int) -> int:
         return default
 
 
+def _as_float(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 class Settings(BaseModel):
     app_name: str = os.getenv("APP_NAME", "SilverBridge AI Server")
     app_env: str = os.getenv("APP_ENV", "development")
@@ -38,9 +48,14 @@ class Settings(BaseModel):
 
     database_url: str = os.getenv(
         "DATABASE_URL",
-        f"sqlite:///{(_PROJECT_ROOT / 'data' / 'ai_server.db').as_posix()}",
+        f"postgresql+psycopg2://"
+        f"{os.getenv('POSTGRES_USER', 'silverbridge_ai')}:"
+        f"{os.getenv('POSTGRES_PASSWORD', 'silverbridge_ai_pw')}@"
+        f"{os.getenv('POSTGRES_HOST', 'localhost')}:"
+        f"{_as_int('POSTGRES_PORT', 5432)}/"
+        f"{os.getenv('POSTGRES_DB', 'silverbridge_ai')}",
     )
-    api_key: str = os.getenv("API_KEY", "change-me")
+    api_key: str = os.getenv("API_KEY", "silverbridge_live_7XqP2mKa9LdR4tYu")
 
     model_base_path: str = os.getenv("MODEL_BASE_PATH", str(_PROJECT_ROOT / "models"))
     upload_base_path: str = os.getenv("UPLOAD_BASE_PATH", str(_PROJECT_ROOT / "uploads"))
@@ -49,23 +64,6 @@ class Settings(BaseModel):
         str(_PROJECT_ROOT / "uploads" / "snapshots"),
     )
     default_detection_threshold: float = float(os.getenv("DEFAULT_DETECTION_THRESHOLD", "0.75"))
-
-    default_chat_model: str = os.getenv("DEFAULT_CHAT_MODEL", "google/medgemma-1.5-4b-it")
-    chat_model_path: str = os.getenv("CHAT_MODEL_PATH", "")
-    hf_token: str = os.getenv("HF_TOKEN", "")
-
-    docs_path: str = os.getenv("DOCS_PATH", "/docs")
-    openapi_path: str = os.getenv("OPENAPI_PATH", "/openapi.json")
-    redoc_path: str = os.getenv("REDOC_PATH", "/redoc")
-
-    stream_sample_every_n_frames: int = _as_int("STREAM_SAMPLE_EVERY_N_FRAMES", 15)
-    stream_fallback_interval_sec: int = _as_int("STREAM_FALLBACK_INTERVAL_SEC", 2)
-    save_normal_results: bool = _as_bool("SAVE_NORMAL_RESULTS", True)
-
-
-@lru_cache
-def get_settings() -> Settings:
-    return Settings()
     fire_smoke_enabled: bool = _as_bool("FIRE_SMOKE_ENABLED", True)
     fire_smoke_model_path: str = os.getenv("FIRE_SMOKE_MODEL_PATH", "fire_smoke.pt")
     fire_smoke_conf_threshold: float = _as_float("FIRE_SMOKE_CONF_THRESHOLD", 0.35)
