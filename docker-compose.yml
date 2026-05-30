@@ -1,16 +1,46 @@
 version: "3.9"
 
 services:
+  postgres:
+    image: postgres:17
+    container_name: silverbridge-ai-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-6019}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-silverbridge_ai}
+      POSTGRES_USER: ${POSTGRES_USER:-silverbridge_ai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-silverbridge_ai_pw}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - default
+
   ai-server:
     build: .
     container_name: silverbridge-ai-server
     restart: unless-stopped
-    ports:
-      - "9000:9000"
+    gpus: all
+    depends_on:
+      postgres:
+        condition: service_healthy
+    network_mode: host
     env_file:
       - .env
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      HF_HOME: /root/.cache/huggingface
+      TRANSFORMERS_CACHE: /root/.cache/huggingface/hub
     volumes:
       - ./models:/app/models
       - ./uploads:/app/uploads
       - ./logs:/app/logs
       - ./data:/app/data
+      - ./data/huggingface:/root/.cache/huggingface
+    shm_size: "2gb"
