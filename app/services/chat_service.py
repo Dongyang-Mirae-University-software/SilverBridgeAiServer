@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.schemas.chat_schema import ChatRequest
 from app.services.reservation_api_client import get_reservation_api_client
 from app.services.reservation_credential_service import get_reservation_credential_service
+from app.services.chat_router_service import get_chat_router_service
 from app.services.chat_upstream_service import get_chat_upstream_service
 from app.services.medical_llm_service import get_medical_llm_service
 from app.services.reservation_orchestrator import get_reservation_orchestrator
@@ -45,8 +46,12 @@ class ChatService:
 
     EMERGENCY_KEYWORDS = ("숨이 안 쉬어", "호흡곤란", "가슴 통증", "의식 없음", "쓰러짐", "피가 멈추지", "경련")
     HIGH_RISK_KEYWORDS = ("가슴", "호흡곤란", "숨이", "의식", "실신", "출혈", "마비")
-    MEDIUM_RISK_KEYWORDS = ("어지럽", "복통", "발열", "기침", "두통", "구토")
-    RESERVATION_KEYWORDS = ("예약", "병원 찾아", "근처 병원", "진료 가능한", "응급실")
+    MEDIUM_RISK_KEYWORDS = (
+        "어지럽", "어지러", "어지럼", "복통", "발열", "기침", "두통", "구토", "아파", "아프", "통증", "더부룩", "속이", "소화",
+        "무릎", "허리", "관절", "저리", "붓", "당뇨", "혈압", "혈당", "불면", "잠이", "수면", "약을", "약 먹", "복용",
+        "설사", "변비", "가려", "피부", "기운", "피곤", "식욕",
+    )
+    RESERVATION_KEYWORDS = ("예약", "병원 찾아", "근처 병원", "진료 가능한", "응급실", "잡아", "접수", "병원 좀", "병원 추천", "진료 받")
 
     def process_message(self, db: Session, payload: ChatRequest) -> dict:
         message = (payload.message or "").strip()
@@ -77,10 +82,44 @@ class ChatService:
                 "time",
                 "patient_name",
                 "phone",
+                "location",
+                "location_confirm",
                 "reservation_followup",
                 "reservation_id",
             }
-            reservation_flow_hint = self.classify_intent(message) == "hospital_reservation" or bool(
+            # 1차 감별: GPT 라우터. 실패하면 키워드 분류로 내려간다.
+            route_info: dict = {}
+            if message:
+                try:
+                    route_info = get_chat_router_service().route(
+                        message, history, user_context,
+                        prev_reservation=self._last_reservation_state(db, payload.userId, session_id),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    _LOG.warning("chat router fallback to keywords: %s", exc)
+            if not route_info and not message and ui_selection and ui_selection["field"] in reservation_ui_fields:
+                # UI 블록 선택 턴: 직전 규격화 문장에 선택값을 붙여 상태를 이어간다.
+                prev = self._last_reservation_state(db, payload.userId, session_id) or "병원 예약:"
+                value = ui_selection["value"]
+                carry = ui_selection["field"] in {"location", "location_confirm", "department", "hospital", "hospital_confirm", "date", "time"} and value != "__other__"
+                route_info = {
+                    "route": "reservation",
+                    "normalized_message": f"{prev} / {value}" if carry else prev,
+                    "symptom_summary": "",
+                    "emergency": False,
+                    "engine": "ui",
+                }
+            if not route_info:
+                kw_intent = self.classify_intent(message)
+                route_info = {
+                    "route": {"hospital_reservation": "reservation", "medical_advice": "symptom", "emergency_guidance": "symptom"}.get(kw_intent, "general"),
+                    "normalized_message": message,
+                    "symptom_summary": message,
+                    "emergency": kw_intent == "emergency_guidance",
+                    "engine": "keyword",
+                }
+            _LOG.info("[라우터] route=%s engine=%s normalized=%s", route_info["route"], route_info.get("engine"), route_info.get("normalized_message") if route_info["route"] == "reservation" else route_info.get("symptom_summary"))
+            reservation_flow_hint = route_info["route"] == "reservation" or bool(
                 ui_selection and ui_selection["field"] in reservation_ui_fields
             )
             reservation_api_key = None
@@ -93,8 +132,10 @@ class ChatService:
                 )
             if reservation_flow_hint:
                 reservation_orchestrator = get_reservation_orchestrator()
+                # 규격화된 문장("병원 예약: 서울 강남구 / 이비인후과 / ...")을 원래 예약 로직에 넘긴다.
+                routed_payload = payload.model_copy(update={"message": route_info["normalized_message"]})
                 reservation_result = reservation_orchestrator.handle(
-                    payload,
+                    routed_payload,
                     {
                         "model": self._settings.gpt_model_name,
                         "schemaVersion": "ai-reservation-v1",
@@ -127,7 +168,17 @@ class ChatService:
             else:
                 local_llm = get_medical_llm_service()
                 try:
-                    result = local_llm.generate(message, user_context, history)
+                    if route_info["route"] == "symptom":
+                        llm_intent = "emergency_guidance" if route_info.get("emergency") else "medical_advice"
+                    else:
+                        llm_intent = "general_chat"
+                    result = local_llm.generate(
+                        message,
+                        user_context,
+                        history,
+                        intent=llm_intent,
+                        processed_symptom=route_info.get("symptom_summary") if route_info["route"] == "symptom" else None,
+                    )
                 except Exception:
                     upstream = get_chat_upstream_service()
                     if upstream.enabled:
@@ -144,6 +195,11 @@ class ChatService:
         except Exception as exc:
             _LOG.exception("chat process_message fallback: %s", exc)
             result = self._fallback_reply(message or log_message, history)
+            route_info = {}
+        if route_info:
+            result.setdefault("meta", {})
+            if isinstance(result["meta"], dict):
+                result["meta"]["router"] = {k: route_info.get(k) for k in ("route", "engine", "reason", "normalized_message", "symptom_summary")}
 
         context_payload = {
             "sessionId": session_id,
@@ -190,7 +246,7 @@ class ChatService:
             "type": result.get("type", "message"),
             "ui": result.get("ui"),
             "tool": result.get("tool"),
-            "data": result.get("data"),
+            "toolData": result.get("data"),
             "summary": result.get("summary"),
             "possibleCauses": result.get("possibleCauses") or [],
             "homeCare": result.get("homeCare") or [],
@@ -199,6 +255,21 @@ class ChatService:
             "chatLogId": log.id,
             "chatNo": log.chat_no,
         }
+
+    @staticmethod
+    def _last_reservation_state(db: Session, user_id: int, session_id: str) -> str | None:
+        """같은 세션의 직전 턴이 예약 흐름이었으면 그때의 규격화 문장을 돌려준다 (라우터의 상태 기억)."""
+        log = db.query(ChatLog).filter(ChatLog.user_id == user_id).order_by(ChatLog.id.desc()).first()
+        if not log:
+            return None
+        try:
+            ctx = json.loads(log.context_json or "{}")
+        except json.JSONDecodeError:
+            return None
+        if ctx.get("sessionId") != session_id:
+            return None
+        router = (ctx.get("upstreamMeta") or {}).get("router") or {}
+        return router.get("normalized_message") if router.get("route") == "reservation" else None
 
     @staticmethod
     def _build_user_context(payload: ChatRequest) -> dict[str, object]:
@@ -319,7 +390,7 @@ class ChatService:
                     "modelName": context.get("modelName"),
                     "type": context.get("type"),
                     "tool": context.get("tool"),
-                    "data": context.get("data"),
+                    "toolData": context.get("data"),
                     "ui": context.get("ui"),
                     "reply": log.reply,
                     "riskLevel": log.risk_level,
@@ -356,7 +427,7 @@ class ChatService:
             "modelName": context.get("modelName"),
             "type": context.get("type"),
             "tool": context.get("tool"),
-            "data": context.get("data"),
+            "toolData": context.get("data"),
             "ui": context.get("ui"),
             "reply": log.reply,
             "riskLevel": log.risk_level,

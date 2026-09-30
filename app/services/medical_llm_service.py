@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import logging
 import re
 from typing import Any
 
@@ -8,7 +9,13 @@ from app.core.config import Settings, get_settings
 from app.models.medgemma_loader import MedGemmaLoader
 from app.prompts.medical_chat_prompts import SYSTEM_PROMPT, build_user_prompt
 from app.utils.conversation import format_recent_history, normalize_history
-from app.utils.json_extract import extract_json_object
+from app.utils.json_extract import extract_json_fields_lenient, extract_json_object
+
+
+_LOG = logging.getLogger(__name__)
+
+_STRING_KEYS = ["summary", "finalMessage", "reply"]
+_LIST_KEYS = ["possibleCauses", "homeCare", "visitHospitalIf", "emergencyWarning"]
 
 
 class MedicalLlmService:
@@ -21,8 +28,13 @@ class MedicalLlmService:
         "피가 멈추지",
         "경련",
     )
-    RESERVATION_KEYWORDS = ("예약", "병원 찾", "근처 병원", "진료 가능", "응급실")
-    MEDICAL_KEYWORDS = ("아파", "아프", "통증", "열", "기침", "두통", "어지럽", "구토", "충혈")
+    RESERVATION_KEYWORDS = ("예약", "병원 찾", "근처 병원", "진료 가능", "응급실", "잡아", "접수", "병원 좀", "병원 추천", "진료 받")
+    MEDICAL_KEYWORDS = (
+        "아파", "아프", "통증", "열", "기침", "두통", "어지럽", "어지러", "어지럼", "구토", "충혈", "메스꺼", "설사", "변비",
+        "더부룩", "속이", "소화", "체했", "무릎", "허리", "관절", "시려", "저리", "붓", "부었", "가려", "피부", "발진",
+        "당뇨", "혈압", "혈당", "콜레스테롤", "불면", "잠이", "수면", "약을", "약 먹", "복용", "숨이", "가슴", "심장",
+        "기운", "피곤", "식욕", "체중", "눈이", "귀가", "목이", "코가",
+    )
 
     def __init__(self, settings: Settings, loader: MedGemmaLoader) -> None:
         self._settings = settings
@@ -39,10 +51,14 @@ class MedicalLlmService:
             return "medical_advice"
         return "general_chat"
 
+    HIGH_RISK_KEYWORDS = ("가슴", "숨이", "호흡", "의식", "실신", "쓰러", "출혈", "피가", "마비", "경련", "파래", "식은땀")
+
     @staticmethod
     def infer_risk(message: str, intent: str, emergency_warning: list[str]) -> tuple[str, str, bool]:
         text = (message or "").strip().lower()
-        if intent == "emergency_guidance" or emergency_warning:
+        # 모델은 거의 항상 일반적인 응급 주의 문구를 붙이므로, 사용자 메시지에 응급 신호가 있을 때만 high로 본다.
+        has_high_signal = any(keyword in text for keyword in MedicalLlmService.HIGH_RISK_KEYWORDS)
+        if intent == "emergency_guidance" or (emergency_warning and has_high_signal):
             return "high", "hospital_visit", True
         if intent in {"hospital_reservation", "medical_advice"}:
             return "medium", "guardian_contact", intent == "hospital_reservation"
@@ -61,26 +77,19 @@ class MedicalLlmService:
         if summary and summary not in final_message:
             parts.append(summary)
 
-        def append_section(title: str, key: str) -> None:
-            items = [str(item).strip() for item in (data.get(key) or []) if str(item).strip()]
-            if items:
-                parts.append(f"{title}\n- " + "\n- ".join(items))
-
-        append_section("가능한 원인", "possibleCauses")
-        append_section("자가 관리", "homeCare")
-        append_section("병원 방문이 필요한 경우", "visitHospitalIf")
-        append_section("응급 주의", "emergencyWarning")
-
         disclaimer = "이 답변은 일반적인 건강 정보 안내이며, 정확한 진단과 치료는 의료진 상담이 필요합니다."
         body = "\n\n".join(parts).strip() or "증상을 조금 더 구체적으로 말씀해 주시면 도와드릴게요."
         if disclaimer not in body:
             body = f"{body}\n\n{disclaimer}"
         return body
 
+    PLACEHOLDERS = {"...", "…", "문자열", "-", "n/a", "없음"}
+
     @staticmethod
     def _normalize_text(value: Any) -> str:
         if isinstance(value, str):
-            return value.strip()
+            text = value.strip()
+            return "" if text.lower() in MedicalLlmService.PLACEHOLDERS else text
         if isinstance(value, (int, float)):
             return str(value).strip()
         if isinstance(value, list):
@@ -186,9 +195,10 @@ class MedicalLlmService:
         intent: str,
         emergency_hint: bool,
     ) -> dict[str, Any]:
-        base = cls._fallback_payload(message, intent, emergency_hint, raw_text)
         if not isinstance(parsed, dict):
-            return base
+            return cls._fallback_payload(message, intent, emergency_hint, raw_text)
+        # JSON을 받았으면 raw 텍스트(JSON 원문)로 빈칸을 메우지 않는다. 모델이 비워둔 배열은 빈 채로 둔다.
+        base = cls._fallback_payload(message, intent, emergency_hint, "")
 
         summary = cls._normalize_text(parsed.get("summary"))
         final_message = cls._normalize_text(parsed.get("finalMessage") or parsed.get("reply"))
@@ -205,12 +215,12 @@ class MedicalLlmService:
         needs_reservation = cls._normalize_bool(needs_reservation)
 
         return {
-            "summary": summary or base["summary"],
-            "possibleCauses": possible_causes or base["possibleCauses"],
-            "homeCare": home_care or base["homeCare"],
-            "visitHospitalIf": visit_hospital_if or base["visitHospitalIf"],
-            "emergencyWarning": emergency_warning or base["emergencyWarning"],
-            "finalMessage": final_message or base["finalMessage"],
+            "summary": summary or final_message or base["summary"],
+            "possibleCauses": possible_causes,
+            "homeCare": home_care,
+            "visitHospitalIf": visit_hospital_if,
+            "emergencyWarning": emergency_warning,
+            "finalMessage": final_message or summary or base["finalMessage"],
             "needsReservation": needs_reservation or base["needsReservation"],
         }
 
@@ -219,9 +229,12 @@ class MedicalLlmService:
         message: str,
         user_context: dict[str, Any] | None,
         history: list[dict[str, str]],
+        *,
+        intent: str | None = None,
+        processed_symptom: str | None = None,
     ) -> dict[str, Any]:
-        intent = self.classify_intent(message)
-        emergency_hint = any(keyword in message.lower() for keyword in self.EMERGENCY_KEYWORDS)
+        intent = intent or self.classify_intent(message)
+        emergency_hint = intent == "emergency_guidance" or any(keyword in message.lower() for keyword in self.EMERGENCY_KEYWORDS)
 
         recent, summary = normalize_history(
             history,
@@ -237,14 +250,22 @@ class MedicalLlmService:
             history_text=history_lines or "(없음)",
             intent=intent,
             emergency_hint=emergency_hint,
+            processed_symptom=processed_symptom,
         )
 
         if not self._settings.chat_enable_llm:
             raise RuntimeError("CHAT_ENABLE_LLM=false")
 
         self._loader.ensure_loaded()
-        raw = self._loader.generate_structured_text(SYSTEM_PROMPT, user_prompt)
+        raw = self._loader.generate_structured_text(SYSTEM_PROMPT, user_prompt, prefill="{")
         parsed = extract_json_object(raw)
+        if parsed is None:
+            # 출력이 max_new_tokens에 걸려 잘린 경우: 완성된 필드만이라도 살린다.
+            parsed = extract_json_fields_lenient(raw, _STRING_KEYS, _LIST_KEYS)
+            _LOG.warning(
+                "medgemma json parse fallback (lenient=%s, chars=%d): %s",
+                bool(parsed), len(raw), raw[:300].replace("\n", " "),
+            )
         normalized = self._normalize_payload(parsed, raw, message, intent, emergency_hint)
 
         emergency_warning = normalized["emergencyWarning"]

@@ -13,11 +13,11 @@ SYSTEM_PROMPT = """너는 의료 보조 안내 AI다.
 7) 같은 질문이나 같은 안내문을 반복하지 말고, 새로 들어온 정보만 반영해 구체적으로 답하라.
 8) 반드시 아래 JSON 형식의 단일 객체로만 답하라. JSON 외 텍스트를 출력하지 마라.
 9) 생각, 추론, 분석, 이유 설명, thought, chain of thought, 메타문장을 절대 출력하지 마라.
-10) 각 배열은 1~3개 항목만 작성하라.
-11) 모든 문장은 짧고 명확하게 작성하라.
+10) 각 배열은 1~2개 항목만 작성하고, 각 항목은 25자 이내로 쓴다.
+11) 모든 문장은 짧고 명확하게 작성하라. summary와 finalMessage는 각각 40자 이내.
 12) 키 이름은 반드시 아래와 완전히 동일하게 유지하라.
 13) 키를 하나도 생략하지 마라. 모든 키를 반드시 포함하라.
-14) 값이 없으면 문자열은 "", 배열은 [], 불리언은 false 로 둬라.
+14) 값이 없으면 문자열은 "", 배열은 [], 불리언은 false 로 둬라. "..." 이나 "문자열" 같은 자리표시자는 절대 쓰지 마라.
 15) 코드펜스, 설명 문장, 머리말, 꼬리말, 마크다운을 절대 출력하지 마라.
 
 출력 JSON 형식:
@@ -44,7 +44,9 @@ def build_user_prompt(
     history_text: str,
     intent: str,
     emergency_hint: bool,
+    processed_symptom: str | None = None,
 ) -> str:
+    symptom = (processed_symptom or "").strip() or message
     return f"""[의도]
 {intent}
 
@@ -58,7 +60,7 @@ def build_user_prompt(
 {emergency_hint}
 
 [현재 증상]
-현재 증상: {message}
+현재 증상: {symptom}
 
 [사용자 질문 원문]
 {message}
