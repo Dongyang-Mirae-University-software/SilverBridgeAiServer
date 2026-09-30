@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import random
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import escape
 from threading import Lock
 from typing import Any
@@ -120,6 +120,28 @@ def _maze_grid_from_path(path: str, size: int = 6) -> tuple[list[list[str]], tup
     return grid, start, goal, moves
 
 
+def _maze_reaches_goal(grid: list[list[str]], path: str) -> bool:
+    """제출한 이동 경로가 벽을 뚫지 않고 S에서 G까지 가는지 확인한다."""
+    if not grid:
+        return False
+    start = goal = None
+    for y, row in enumerate(grid):
+        for x, cell in enumerate(row):
+            if cell == "S":
+                start = (x, y)
+            elif cell == "G":
+                goal = (x, y)
+    if start is None or goal is None:
+        return False
+    x, y = start
+    for move in _normalize_dir_path(path):
+        dx, dy = {"R": (1, 0), "L": (-1, 0), "D": (0, 1), "U": (0, -1)}[move]
+        x, y = x + dx, y + dy
+        if y < 0 or y >= len(grid) or x < 0 or x >= len(grid[y]) or grid[y][x] == "#":
+            return False
+    return (x, y) == goal
+
+
 def _memory_stage(stage_no: int, labels: list[str]) -> StageSeed:
     cards: list[dict[str, Any]] = []
     for idx, label in enumerate(labels):
@@ -142,8 +164,8 @@ def _memory_stage(stage_no: int, labels: list[str]) -> StageSeed:
     )
 
 
-def _maze_stage(stage_no: int, path: str) -> StageSeed:
-    grid, start, goal, moves = _maze_grid_from_path(path, size=6)
+def _maze_stage(stage_no: int, path: str, size: int = 6) -> StageSeed:
+    grid, start, goal, moves = _maze_grid_from_path(path, size=size)
     return StageSeed(
         game_slug="maze",
         stage_no=stage_no,
@@ -203,54 +225,148 @@ def _initials_stage(stage_no: int, clue: str, answer_word: str, options: list[st
     )
 
 
+STAGES_PER_GAME = 50
+
+_CHOSUNG = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+
+MEMORY_WORDS = [
+    "사과", "별", "고양이", "바다", "하늘", "꽃", "달", "해", "나무", "물", "기차", "버스", "자동차", "자전거",
+    "연필", "지우개", "공책", "가방", "책", "의자", "책상", "램프", "창문", "문", "토끼", "사자", "호랑이", "기린",
+    "코끼리", "서울", "부산", "대구", "광주", "대전", "울산", "수박", "포도", "딸기", "감자", "고구마", "우산",
+    "모자", "신발", "안경", "시계", "전화", "라디오", "냄비", "숟가락", "젓가락", "거울", "비누", "수건", "이불",
+]
+
+# 초성퀴즈 단어 풀: 2~3음절 일상 명사. 정답과 보기는 여기서 뽑고, 보기는 초성이 정답과 다른 단어만 쓴다.
+INITIALS_WORDS = [
+    "가방", "기차", "고기", "기분", "가족", "감자", "거울", "구름", "김치", "국수", "나무", "나비", "냄비", "노래",
+    "눈물", "다리", "달걀", "도시", "돼지", "두부", "라디오", "마늘", "모자", "무지개", "바다", "버스", "방울", "배달",
+    "비누", "사과", "시계", "소금", "수박", "신발", "아기", "안경", "우유", "의자", "오이", "연필", "우산", "은행",
+    "자동차", "자전거", "지갑", "장미", "전화", "초밥", "책상", "출발", "차별", "치즈", "창문", "카메라", "커피",
+    "코끼리", "택시", "토마토", "튤립", "파도", "편지", "포도", "하늘", "학교", "호수", "호박", "휴지", "고양이",
+    "강아지", "호랑이", "기린", "다람쥐", "병원", "약국", "시장", "공원", "극장", "식당", "부엌", "화장실", "정원",
+    "김밥", "라면", "만두", "된장", "간장", "설탕", "후추", "딸기", "참외", "복숭아", "당근", "양파", "상추", "배추",
+    "손목", "무릎", "어깨", "허리", "얼굴", "머리", "손가락", "발가락", "지우개", "공책", "숟가락", "젓가락",
+    "수건", "이불", "베개", "장갑", "목도리", "치마", "바지", "양말", "구두", "단추", "바늘", "가위", "종이",
+]
+
+
+def _initials(word: str) -> str:
+    result = []
+    for ch in word:
+        code = ord(ch)
+        if 0xAC00 <= code <= 0xD7A3:
+            result.append(_CHOSUNG[(code - 0xAC00) // 588])
+        else:
+            result.append(ch)
+    return "".join(result)
+
+
+def _random_walk(rng: random.Random, size: int, length: int) -> str:
+    """(0,0)에서 시작하는 자기회피 랜덤 워크. 실패하면 다시 시도한다."""
+    while True:
+        x = y = 0
+        visited = {(0, 0)}
+        moves: list[str] = []
+        ok = True
+        for _ in range(length):
+            options = []
+            for move, dx, dy in (("R", 1, 0), ("L", -1, 0), ("D", 0, 1), ("U", 0, -1)):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < size and 0 <= ny < size and (nx, ny) not in visited:
+                    options.append((move, nx, ny))
+            if not options:
+                ok = False
+                break
+            move, x, y = rng.choice(options)
+            visited.add((x, y))
+            moves.append(move)
+        if ok:
+            return "".join(moves)
+
+
+def _generate_memory_stages() -> list[StageSeed]:
+    seeds = []
+    for n in range(1, STAGES_PER_GAME + 1):
+        rng = random.Random(9000 + n)
+        pairs = 3 + (n - 1) // 10  # 3 → 7쌍
+        seeds.append(_memory_stage(n, rng.sample(MEMORY_WORDS, pairs)))
+    return seeds
+
+
+def _generate_maze_stages() -> list[StageSeed]:
+    seeds = []
+    for n in range(1, STAGES_PER_GAME + 1):
+        rng = random.Random(8000 + n)
+        size = 6 if n <= 25 else 7
+        length = 4 + (n - 1) // 4  # 4 → 16칸
+        seeds.append(_maze_stage(n, _random_walk(rng, size, length), size))
+    return seeds
+
+
+def _generate_arithmetic_stages() -> list[StageSeed]:
+    seeds = []
+    for n in range(1, STAGES_PER_GAME + 1):
+        rng = random.Random(6000 + n)
+        if n <= 15:
+            op = rng.choice(["+", "-"])
+            left, right = rng.randint(1, 10), rng.randint(1, 10)
+        elif n <= 30:
+            op = rng.choice(["+", "-", "×"])
+            if op == "×":
+                left, right = rng.randint(2, 9), rng.randint(2, 9)
+            else:
+                left, right = rng.randint(10, 60), rng.randint(1, 40)
+        else:
+            op = rng.choice(["+", "-", "×", "÷"])
+            if op == "×":
+                left, right = rng.randint(2, 12), rng.randint(2, 9)
+            elif op == "÷":
+                right = rng.randint(2, 9)
+                left = right * rng.randint(2, 12)
+            else:
+                left, right = rng.randint(20, 99), rng.randint(1, 50)
+        if op == "-" and left < right:
+            left, right = right, left
+        correct = {"+": left + right, "-": left - right, "×": left * right, "÷": left // right}[op]
+        options = {correct}
+        while len(options) < 4:
+            candidate = correct + rng.choice([-10, -5, -3, -2, -1, 1, 2, 3, 5, 10])
+            if candidate >= 0:
+                options.add(candidate)
+        option_list = list(options)
+        rng.shuffle(option_list)
+        seeds.append(_arithmetic_stage(n, left, op, right, option_list))
+    return seeds
+
+
+def _generate_initials_stages() -> list[StageSeed]:
+    pool_rng = random.Random(7000)
+    answers = pool_rng.sample(INITIALS_WORDS, STAGES_PER_GAME)
+    seeds = []
+    for n, answer in enumerate(answers, start=1):
+        rng = random.Random(7000 + n)
+        clue = _initials(answer)
+        # 보기는 초성이 정답과 다른 단어만. 후반부는 첫 초성이 같은 단어를 우선 섞어 난이도를 올린다.
+        candidates = [w for w in INITIALS_WORDS if w != answer and _initials(w) != clue]
+        if n > 25:
+            similar = [w for w in candidates if w[0] and _initials(w)[0] == clue[0]]
+            rng.shuffle(similar)
+            rng.shuffle(candidates)
+            distractors = (similar + [w for w in candidates if w not in similar])[:3]
+        else:
+            distractors = rng.sample(candidates, 3)
+        options = distractors + [answer]
+        rng.shuffle(options)
+        seeds.append(_initials_stage(n, clue, answer, options))
+    return seeds
+
+
 def build_game_seed_data() -> list[StageSeed]:
     seeds: list[StageSeed] = []
-    seeds.extend(
-        [
-            _memory_stage(1, ["사과", "별", "고양이"]),
-            _memory_stage(2, ["바다", "하늘", "꽃"]),
-            _memory_stage(3, ["달", "해", "나무", "물"]),
-            _memory_stage(4, ["기차", "버스", "자동차", "자전거"]),
-            _memory_stage(5, ["연필", "지우개", "공책", "가방", "책"]),
-            _memory_stage(6, ["의자", "책상", "램프", "창문", "문"]),
-            _memory_stage(7, ["토끼", "사자", "호랑이", "기린", "코끼리"]),
-            _memory_stage(8, ["서울", "부산", "대구", "광주", "대전", "울산"]),
-        ],
-    )
-    seeds.extend(
-        [
-            _maze_stage(1, "RRDD"),
-            _maze_stage(2, "RDDR"),
-            _maze_stage(3, "RRRDDD"),
-            _maze_stage(4, "RDRRDD"),
-            _maze_stage(5, "RRDDRR"),
-            _maze_stage(6, "RRRDRD"),
-            _maze_stage(7, "RDDRDR"),
-            _maze_stage(8, "RRDRDD"),
-        ],
-    )
-    seeds.extend(
-        [
-            _arithmetic_stage(1, 7, "+", 5, [10, 11, 12, 13]),
-            _arithmetic_stage(2, 9, "-", 3, [4, 6, 8, 9]),
-            _arithmetic_stage(3, 4, "×", 6, [20, 22, 24, 26]),
-            _arithmetic_stage(4, 18, "÷", 3, [5, 6, 7, 9]),
-            _arithmetic_stage(5, 8, "+", 7, [9, 11, 12, 13]),
-            _arithmetic_stage(6, 3, "×", 3, [8, 10, 11, 12]),
-            _arithmetic_stage(7, 20, "-", 10, [6, 8, 10, 12]),
-        ],
-    )
-    seeds.extend(
-        [
-            _initials_stage(1, "ㄱㅂ", "가방", ["가방", "기분", "고기", "기차"]),
-            _initials_stage(2, "ㅊㅂ", "초밥", ["초밥", "책상", "출발", "차별"]),
-            _initials_stage(3, "ㅂㄷ", "바다", ["바다", "버스", "방울", "배달"]),
-            _initials_stage(4, "ㅅㄱ", "사과", ["사과", "시계", "소금", "선글라스"]),
-            _initials_stage(5, "ㅇㅇ", "우유", ["우유", "의자", "외출", "오이"]),
-            _initials_stage(6, "ㅎㄱ", "학교", ["학교", "하구", "햇갈", "호기"]),
-            _initials_stage(7, "ㅇㅍ", "연필", ["연필", "염필", "영팔", "연표"]),
-        ],
-    )
+    seeds.extend(_generate_memory_stages())
+    seeds.extend(_generate_maze_stages())
+    seeds.extend(_generate_arithmetic_stages())
+    seeds.extend(_generate_initials_stages())
     return seeds
 
 
@@ -261,6 +377,7 @@ class GameService:
     def _ensure_seeded(self) -> None:
         with SEED_LOCK:
             if self.db.query(GameCatalog).count() > 0:
+                self._reseed_stages_if_changed()
                 return
             catalog_map: dict[str, dict[str, Any]] = {
                 "memory_match": {
@@ -316,6 +433,40 @@ class GameService:
                     ),
                 )
             self.db.commit()
+
+    def _reseed_stages_if_changed(self) -> None:
+        """시드 문제 수가 바뀌면(예: 8개 → 50개) 스테이지만 갈아끼운다. 진행 정보는 유지."""
+        stages = build_game_seed_data()
+        expected: dict[str, int] = {}
+        for seed in stages:
+            expected[seed.game_slug] = expected.get(seed.game_slug, 0) + 1
+        catalogs = {row.slug: row for row in self.db.query(GameCatalog).all()}
+        if all(catalog.total_stages == expected.get(slug, 0) for slug, catalog in catalogs.items()):
+            return
+        self.db.query(GameStage).delete()
+        for seed in stages:
+            self.db.add(
+                GameStage(
+                    game_slug=seed.game_slug,
+                    stage_no=seed.stage_no,
+                    title=seed.title,
+                    stage_type=seed.stage_type,
+                    prompt=seed.prompt,
+                    payload_json=_to_json(seed.payload),
+                    answer_json=_to_json(seed.answer),
+                    max_score=seed.max_score,
+                ),
+            )
+        for slug, catalog in catalogs.items():
+            catalog.total_stages = expected.get(slug, 0)
+            self.db.add(catalog)
+        for progress in self.db.query(GameProgress).all():
+            total = expected.get(progress.game_slug, 0)
+            if not progress.cleared and progress.current_stage_no > total:
+                progress.cleared = True
+                progress.cleared_at = _now()
+                self.db.add(progress)
+        self.db.commit()
 
     def _catalog_query(self, game_slug: str) -> GameCatalog:
         self._ensure_seeded()
@@ -459,12 +610,12 @@ class GameService:
             submitted_pairs = _normalize_pair_keys(answer)
             required_pairs = {str(item).strip() for item in expected.get("requiredPairs", []) if str(item).strip()}
             correct = bool(required_pairs) and submitted_pairs == required_pairs
-            message = "모든 짝을 맞췄습니다." if correct else "맞춘 짝을 다시 확인해 주세요."
+            message = "모든 짝을 맞췄습니다." if correct else f"{len(required_pairs)}쌍 중 {len(submitted_pairs & required_pairs)}쌍을 맞췄어요."
         elif stage_type == "maze":
             submitted_path = _normalize_dir_path(answer.get("path") if isinstance(answer, dict) else answer)
-            expected_path = _normalize_dir_path(expected.get("path"))
-            correct = submitted_path == expected_path
-            message = "출구에 도착했습니다." if correct else "미로 경로가 다릅니다."
+            payload = _from_json(stage.payload_json, {})
+            correct = _maze_reaches_goal(payload.get("grid") or [], submitted_path)
+            message = "출구에 도착했습니다." if correct else "출구에 도착하지 못했어요."
         elif stage_type == "arithmetic":
             expected_value = _normalize_answer_value(expected.get("value"))
             submitted_value = _normalize_answer_value(answer.get("value") if isinstance(answer, dict) else answer)
@@ -478,21 +629,18 @@ class GameService:
                     correct = submitted_value == expected_value
             else:
                 correct = submitted_value == expected_value
-            message = "정답입니다." if correct else "다시 계산해 보세요."
+            message = "정답입니다." if correct else f"아쉬워요. 정답은 {expected_value}입니다."
         elif stage_type == "initials_quiz":
             submitted_value = _normalize_option(answer)
             expected_value = _normalize_answer_value(expected.get("value"))
-            if submitted_value.isdigit():
-                option_index = int(submitted_value)
-                payload = _from_json(stage.payload_json, {})
-                options = payload.get("options") or []
-                if 0 <= option_index < len(options):
-                    correct = _normalize_answer_value(options[option_index]) == expected_value
-                else:
-                    correct = submitted_value == expected_value
-            else:
-                correct = submitted_value == expected_value
-            message = "정답입니다." if correct else "다시 고르세요."
+            payload = _from_json(stage.payload_json, {})
+            options = payload.get("options") or []
+            clue = str(payload.get("clue") or "")
+            if submitted_value.isdigit() and 0 <= int(submitted_value) < len(options):
+                submitted_value = _normalize_answer_value(options[int(submitted_value)])
+            # 초성이 힌트와 일치하는 보기는 모두 정답으로 인정한다(보기 중복 방어).
+            correct = submitted_value == expected_value or (bool(clue) and _initials(submitted_value) == clue)
+            message = "정답입니다." if correct else f"아쉬워요. 정답은 '{expected_value}'입니다."
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -534,12 +682,14 @@ class GameService:
         progress.attempts += 1
         progress.last_answer_correct = correct
 
+        # 정오답과 상관없이 다음 문제로 넘어가고, 맞힌 문제만 점수가 쌓인다.
         if correct:
             progress.score += score_delta
-            progress.current_stage_no += 1
-            if progress.current_stage_no > catalog.total_stages:
-                progress.cleared = True
-                progress.cleared_at = _now()
+            message = f"{message} +{score_delta}점"
+        progress.current_stage_no += 1
+        if progress.current_stage_no > catalog.total_stages:
+            progress.cleared = True
+            progress.cleared_at = _now()
 
         progress.state_json = _to_json(
             {
@@ -586,13 +736,14 @@ class GameService:
         progress = self._progress_query(user_id, game_slug)
         if progress is None:
             progress = self._create_progress(user_id, game_slug)
+        # 처음부터: 문제 진행만 1단계로 되돌리고 누적 점수·시도 횟수는 유지한다.
         progress.current_stage_no = 1
-        progress.score = 0
-        progress.attempts = 0
         progress.cleared = False
         progress.last_answer_correct = None
         progress.cleared_at = None
-        progress.state_json = _to_json({"currentStageNo": 1, "score": 0, "attempts": 0, "cleared": False})
+        progress.state_json = _to_json(
+            {"currentStageNo": 1, "score": progress.score, "attempts": progress.attempts, "cleared": False},
+        )
         self._sync_progress_state(progress)
         stage = self._stage_payload(self._stage_query(game_slug, 1))
         return {
@@ -604,24 +755,47 @@ class GameService:
             "iframeUrl": f"/api/v1/games/embed?userId={user_id}&gameSlug={game_slug}",
         }
 
-    def list_progress_for_user(self, user_id: int) -> list[dict[str, Any]]:
+    def list_progress_for_user(self, user_id: int) -> dict[str, Any]:
         self._ensure_seeded()
+        catalogs = self.db.query(GameCatalog).order_by(GameCatalog.id.asc()).all()
+        rows = {row.game_slug: row for row in self.db.query(GameProgress).filter(GameProgress.user_id == user_id).all()}
+        games = [
+            {
+                "game": self._catalog_payload(catalog),
+                "progress": self._progress_payload(rows[catalog.slug]) if catalog.slug in rows else None,
+            }
+            for catalog in catalogs
+        ]
+        return {
+            "userId": user_id,
+            "totalScore": sum(row.score for row in rows.values()),
+            "totalAttempts": sum(row.attempts for row in rows.values()),
+            "lastPlayedAt": _iso(max((row.updated_at for row in rows.values()), default=None)),
+            "games": games,
+        }
+
+    def list_activity_for_user(self, user_id: int, days: int = 182) -> dict[str, Any]:
+        """날짜(KST)별 풀이 횟수·정답 수·획득 점수. 활동이 있는 날만 돌려준다."""
+        days = max(1, min(days, 366))
+        since = _now() - timedelta(days=days)
         rows = (
-            self.db.query(GameProgress)
-            .filter(GameProgress.user_id == user_id)
-            .order_by(GameProgress.updated_at.desc())
+            self.db.query(GameAttempt)
+            .filter(GameAttempt.user_id == user_id, GameAttempt.created_at >= since)
+            .order_by(GameAttempt.created_at.asc())
             .all()
         )
-        results: list[dict[str, Any]] = []
+        by_date: dict[str, dict[str, int]] = {}
         for row in rows:
-            catalog = self.db.query(GameCatalog).filter(GameCatalog.slug == row.game_slug).first()
-            results.append(
-                {
-                    "game": self._catalog_payload(catalog) if catalog else {"slug": row.game_slug},
-                    "progress": self._progress_payload(row),
-                },
-            )
-        return results
+            key = (row.created_at + timedelta(hours=9)).date().isoformat()
+            bucket = by_date.setdefault(key, {"attempts": 0, "correct": 0, "score": 0})
+            bucket["attempts"] += 1
+            bucket["correct"] += 1 if row.is_correct else 0
+            bucket["score"] += row.score_delta
+        return {
+            "userId": user_id,
+            "days": days,
+            "activity": [{"date": key, **value} for key, value in sorted(by_date.items())],
+        }
 
     def render_embed_html(self, request: Request, user_id: int, game_slug: str) -> HTMLResponse:
         catalog = self._catalog_query(game_slug)
@@ -660,6 +834,7 @@ class GameService:
       --shadow: 0 10px 25px rgba(124, 45, 18, 0.1);
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html { overflow: hidden; }
     body {
       margin: 0;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -672,14 +847,14 @@ class GameService:
       min-height: 100vh;
       display: flex;
       flex-direction: column;
-      padding: 24px;
-      gap: 24px;
+      padding: 12px;
+      gap: 12px;
     }
     header.hero {
       display: flex;
       flex-direction: column;
-      gap: 16px;
-      padding: 24px;
+      gap: 8px;
+      padding: 12px 20px;
       background: var(--card-bg);
       border: 3px solid var(--border);
       border-radius: var(--radius-lg);
@@ -693,7 +868,7 @@ class GameService:
     }
     .hero-title {
       margin: 0;
-      font-size: 34px;
+      font-size: 26px;
       font-weight: 900;
       color: var(--primary);
     }
@@ -713,11 +888,11 @@ class GameService:
     }
     .progress-container {
       width: 100%;
-      height: 24px;
+      height: 12px;
       background: #fed7aa;
       border-radius: 999px;
       overflow: hidden;
-      margin-top: 8px;
+      margin-top: 4px;
     }
     .progress-bar {
       height: 100%;
@@ -735,16 +910,16 @@ class GameService:
       background: var(--card-bg);
       border: 3px solid var(--border);
       border-radius: var(--radius-lg);
-      padding: 32px;
+      padding: 16px 20px;
       box-shadow: var(--shadow);
       display: flex;
       flex-direction: column;
-      gap: 24px;
+      gap: 12px;
       flex: 1;
     }
     .stage-header { text-align: center; }
-    .stage-title { font-size: 28px; font-weight: 800; margin: 0 0 12px; }
-    .stage-prompt { font-size: 24px; color: var(--muted); margin: 0; font-weight: 500; }
+    .stage-title { font-size: 24px; font-weight: 800; margin: 0 0 4px; }
+    .stage-prompt { font-size: 18px; color: var(--muted); margin: 0; font-weight: 500; }
     
     .question-box {
       font-size: 42px;
@@ -758,9 +933,9 @@ class GameService:
     }
     
     .feedback {
-      font-size: 26px;
+      font-size: 20px;
       font-weight: 800;
-      padding: 24px;
+      padding: 12px;
       border-radius: var(--radius-md);
       text-align: center;
       display: none;
@@ -777,11 +952,14 @@ class GameService:
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 16px;
-      margin-top: 20px;
+      margin-top: 0;
     }
     .memory-card {
       aspect-ratio: 1;
-      font-size: 48px;
+      min-height: 0;
+      overflow: hidden;
+      word-break: keep-all;
+      font-size: calc(var(--card-size, 160px) * 0.28);
       font-weight: 800;
       border: 4px solid #e2e8f0;
       border-radius: var(--radius-md);
@@ -903,8 +1081,8 @@ class GameService:
     }
     .btn-large {
       flex: 1;
-      height: 80px;
-      font-size: 26px;
+      height: 60px;
+      font-size: 22px;
       font-weight: 900;
       border-radius: 999px;
       border: none;
@@ -988,7 +1166,7 @@ class GameService:
       resetBtn: document.getElementById('resetBtn')
     };
 
-    function updateUi() {
+    function renderUi() {
       els.gameTitle.textContent = BOOT.game.title;
       els.scoreText.textContent = `점수: ${state.progress?.score || 0}`;
       
@@ -1021,11 +1199,60 @@ class GameService:
       }
 
       renderStageContent();
+      fitToViewport();
     }
+
+    // iframe·태블릿처럼 작은 화면에서도 스크롤 없이 한 화면에 들어가도록 전체를 축소한다.
+    // 짝맞추기 카드는 aspect-ratio라 높이가 가로폭을 따라간다(zoom으로는 안 줄어듦).
+    // 그리드를 뺀 나머지 높이를 재서 남는 공간에 맞게 카드 한 변을 px로 고정한다.
+    function fitMemoryGrid(shell) {
+      const grid = document.querySelector('.memory-grid');
+      if (!grid) return;
+      grid.style.display = 'none';
+      shell.style.minHeight = '0';
+      // documentElement.scrollHeight는 뷰포트보다 작아지지 않으므로 shell 실제 높이를 잰다.
+      const usedHeight = shell.offsetHeight;
+      grid.style.display = '';
+      grid.style.gridTemplateColumns = '';
+      const gap = parseFloat(getComputedStyle(grid).gap) || 16;
+      const count = grid.children.length;
+      const availHeight = window.innerHeight - usedHeight;
+      const availWidth = grid.clientWidth;
+      // 카드가 가장 커지는 열 수를 고른다(넓은 화면이면 한 줄, 좁으면 여러 줄).
+      let cols = 1;
+      let size = 0;
+      for (let c = 1; c <= count; c++) {
+        const rows = Math.ceil(count / c);
+        const fit = Math.min((availWidth - gap * (c - 1)) / c, (availHeight - gap * (rows - 1)) / rows);
+        if (fit > size) { size = fit; cols = c; }
+      }
+      const cardSize = Math.max(48, Math.floor(size));
+      grid.style.gridTemplateColumns = `repeat(${cols}, ${cardSize}px)`;
+      grid.style.setProperty('--card-size', `${cardSize}px`);
+      grid.style.justifyContent = 'center';
+    }
+
+    function fitToViewport() {
+      const shell = document.querySelector('.shell');
+      document.body.style.zoom = '';
+      shell.style.minHeight = '0';
+      fitMemoryGrid(shell);
+      const contentHeight = shell.offsetHeight;
+      const zoom = contentHeight > window.innerHeight ? window.innerHeight / contentHeight : 1;
+      document.body.style.zoom = zoom;
+      shell.style.minHeight = `${window.innerHeight / zoom}px`;
+    }
+
+    function updateUi() {
+      renderUi();
+      fitToViewport();
+    }
+    window.addEventListener('resize', fitToViewport);
 
     function showFeedback(msg, type) {
       els.feedbackBox.textContent = msg;
       els.feedbackBox.className = `feedback visible ${type}`;
+      fitToViewport();
     }
 
     function renderStageContent() {
@@ -1098,7 +1325,13 @@ class GameService:
       const options = { method, headers: { 'Content-Type': 'application/json' } };
       if (body) options.body = JSON.stringify(body);
       const res = await fetch(`${API_ROOT}${path}`, options);
-      const json = await res.json();
+      let json;
+      try {
+        json = await res.json();
+      } catch {
+        // nginx 오류 페이지(HTML) 등 JSON이 아닌 응답: 서버 재시작 중이거나 연결 실패
+        throw new Error(`서버에 연결할 수 없습니다 (${res.status}). 잠시 후 다시 시도해주세요.`);
+      }
       if (!res.ok || !json.success) throw new Error(json.message || '오류가 발생했습니다.');
       return json.data;
     }
@@ -1127,6 +1360,8 @@ class GameService:
       if (btn.dataset.id) { // Memory
         const id = btn.dataset.id;
         const key = btn.dataset.key;
+        // 틀린 두 장이 다시 뒤집히길 기다리는 동안(선택 2장)에는 다른 카드를 열 수 없다.
+        if (state.memory.selected.length >= 2) return;
         if (state.memory.matched.has(key) || state.memory.selected.includes(id)) return;
         state.memory.selected.push(id);
         if (state.memory.selected.length === 2) {
@@ -1135,11 +1370,12 @@ class GameService:
           const c2 = cards.find(c => c.id === state.memory.selected[1]);
           if (c1.pairKey === c2.pairKey) {
             state.memory.matched.add(c1.pairKey);
+            state.memory.selected = [];
             showFeedback('정답입니다! 짝을 맞췄어요.', 'ok');
           } else {
             showFeedback('틀렸습니다. 다시 해볼까요?', 'bad');
+            setTimeout(() => { state.memory.selected = []; renderStageContent(); fitToViewport(); }, 1000);
           }
-          setTimeout(() => { state.memory.selected = []; renderStageContent(); }, 1000);
         }
       } else if (btn.dataset.move) { // Maze
         const mv = btn.dataset.move;
@@ -1159,6 +1395,7 @@ class GameService:
         state.choice = btn.dataset.idx;
       }
       renderStageContent();
+      fitToViewport();
     };
 
     async function submit() {
@@ -1188,7 +1425,7 @@ class GameService:
 
     els.submitBtn.onclick = submit;
     els.resetBtn.onclick = async () => {
-      if (!confirm('처음부터 다시 시작하시겠습니까?')) return;
+      if (!confirm('1번 문제부터 다시 시작할까요? (지금까지 쌓은 점수는 그대로 남아요)')) return;
       const data = await api(`/api/v1/games/${BOOT.gameSlug}/reset`, 'POST', {
         userId: BOOT.userId, gameSlug: BOOT.gameSlug
       });

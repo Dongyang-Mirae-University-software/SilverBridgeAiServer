@@ -53,6 +53,12 @@ def list_user_progress(userId: int, db: Session = Depends(get_db)) -> dict:
     return success_response("사용자별 게임 진행 목록 조회 완료", service.list_progress_for_user(userId))
 
 
+@router.get("/activity", summary="사용자별 날짜(KST) 활동량 조회")
+def list_user_activity(userId: int, days: int = 182, db: Session = Depends(get_db)) -> dict:
+    service = GameService(db)
+    return success_response("사용자별 활동량 조회 완료", service.list_activity_for_user(userId, days))
+
+
 @router.post("/{game_slug}/answer", summary="게임 정답 제출")
 def submit_game_answer(game_slug: str, payload: GameAnswerRequest, db: Session = Depends(get_db)) -> dict:
     service = GameService(db)
