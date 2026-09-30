@@ -1,12 +1,14 @@
-fastapi
-uvicorn[standard]
-sqlalchemy
-psycopg2-binary
-pydantic
-python-dotenv
-opencv-python-headless
-ultralytics
-torch
-transformers
-accelerate
-python-multipart
+# 버전 고정 — 무핀으로 두면 재빌드 때마다 최신 버전이 딸려와 조합이 깨진다.
+# (transformers 5.x 는 torch>=2.6 요구 → cu121 상한인 torch 2.5.1 과 충돌해 기동 실패한 이력 있음)
+# torch/torchvision/torchaudio 는 CUDA 휠이라 Dockerfile 에서 별도 설치·고정한다.
+fastapi==0.139.0
+uvicorn[standard]==0.51.0
+sqlalchemy==2.0.51
+psycopg2-binary==2.9.12
+pydantic==2.13.4
+python-dotenv==1.2.2
+opencv-python-headless==5.0.0.93
+ultralytics==8.4.95
+transformers==5.13.1
+accelerate==1.14.0
+python-multipart==0.0.32

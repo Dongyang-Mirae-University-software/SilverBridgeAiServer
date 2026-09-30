@@ -136,7 +136,23 @@ class MedGemmaLoader:
         if not self._state.loaded:
             self.load()
 
-    def generate_structured_text(self, system_prompt: str, user_prompt: str) -> str:
+    # MedGemma 1.5는 답 앞에 "<unused94>thought ..." 내부 추론을 길게 쓰다 토큰 예산을 다 써버린다.
+    # JSON 응답이 필요할 때는 어시스턴트 턴을 prefill("{")로 시작시키고 추론 시작 토큰을 금지한다.
+    THOUGHT_TOKENS = ("<unused94>", "<unused95>")
+
+    def _banned_token_ids(self) -> list[list[int]]:
+        tokenizer = self._tokenizer
+        if tokenizer is None:
+            return []
+        banned: list[list[int]] = []
+        unk = getattr(tokenizer, "unk_token_id", None)
+        for token in self.THOUGHT_TOKENS:
+            token_id = tokenizer.convert_tokens_to_ids(token)
+            if isinstance(token_id, int) and token_id >= 0 and token_id != unk:
+                banned.append([token_id])
+        return banned
+
+    def generate_structured_text(self, system_prompt: str, user_prompt: str, prefill: str = "") -> str:
         if not self._state.loaded or self._model is None or self._torch is None:
             raise RuntimeError(self._state.load_error or "model not loaded")
 
@@ -158,18 +174,37 @@ class MedGemmaLoader:
                 return_dict=True,
                 return_tensors="pt",
             ).to(model.device, dtype=generation_dtype)
-            input_len = inputs["input_ids"].shape[-1]
-            with torch.inference_mode():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=self._settings.max_new_tokens,
-                    do_sample=False,
+            if prefill and self._tokenizer is not None:
+                prefill_ids = self._tokenizer(prefill, add_special_tokens=False, return_tensors="pt")["input_ids"].to(
+                    model.device
                 )
+                extra = prefill_ids.shape[-1]
+                inputs["input_ids"] = torch.cat([inputs["input_ids"], prefill_ids], dim=-1)
+                if "attention_mask" in inputs:
+                    inputs["attention_mask"] = torch.cat(
+                        [inputs["attention_mask"], torch.ones((1, extra), dtype=inputs["attention_mask"].dtype, device=model.device)],
+                        dim=-1,
+                    )
+                if "token_type_ids" in inputs:
+                    inputs["token_type_ids"] = torch.cat(
+                        [inputs["token_type_ids"], torch.zeros((1, extra), dtype=inputs["token_type_ids"].dtype, device=model.device)],
+                        dim=-1,
+                    )
+            input_len = inputs["input_ids"].shape[-1]
+            generate_kwargs: dict[str, Any] = {
+                "max_new_tokens": self._settings.max_new_tokens,
+                "do_sample": False,
+            }
+            banned = self._banned_token_ids()
+            if banned:
+                generate_kwargs["bad_words_ids"] = banned
+            with torch.inference_mode():
+                outputs = model.generate(**inputs, **generate_kwargs)
             generated = outputs[0][input_len:]
             text = self._processor.decode(generated, skip_special_tokens=True)
             if not text.strip():
                 raise RuntimeError("empty generation")
-            return text
+            return f"{prefill}{text}" if prefill else text
 
         tokenizer = self._tokenizer
         if tokenizer is None:
