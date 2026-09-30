@@ -15,6 +15,13 @@ _DEPARTMENT_ALIASES = {
     "가정의학과": "가정의학과",
     "응급실": "응급의학과",
     "응급의학과": "응급의학과",
+    "정형외과": "정형외과",
+    "산부인과": "산부인과",
+    "피부과": "피부과",
+    "신경과": "신경과",
+    "안과": "안과",
+    "내과": "내과",
+    "외과": "외과",
 }
 
 
@@ -120,11 +127,14 @@ def _trim_name_candidate(candidate: str) -> str | None:
 
 
 def _find_department(text: str) -> str | None:
+    # 텍스트는 "현재 문장 + 이전 대화" 순이므로 가장 앞에 나온 진료과가 사용자의 최신 의도다.
     raw = _normalized_text(text)
+    best: tuple[int, str] | None = None
     for alias, normalized in _DEPARTMENT_ALIASES.items():
-        if alias in raw:
-            return normalized
-    return None
+        idx = raw.find(alias)
+        if idx >= 0 and (best is None or idx < best[0]):
+            best = (idx, normalized)
+    return best[1] if best else None
 
 
 def _find_hospital_name(text: str) -> str | None:

@@ -20,6 +20,14 @@ _LOG = logging.getLogger(__name__)
 _SEOUL_TZ = ZoneInfo("Asia/Seoul")
 
 
+def _is_past_date(value: str) -> bool:
+    try:
+        parsed = datetime.strptime(value.strip()[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return False
+    return parsed < datetime.now(_SEOUL_TZ).date()
+
+
 def _digits(phone: str) -> str:
     return re.sub(r"\D", "", phone or "")
 
@@ -151,9 +159,46 @@ class ReservationOrchestrator:
             "time",
             "patient_name",
             "phone",
+            "location",
+            "location_confirm",
             "reservation_followup",
             "reservation_id",
         }
+
+    STANDARD_DEPARTMENTS = (
+        "내과", "이비인후과", "정형외과", "안과", "피부과", "가정의학과",
+        "소아청소년과", "산부인과", "신경과", "정신건강의학과", "외과", "응급의학과",
+    )
+
+    def _ui_reply(self, meta: dict[str, Any], reply: str, ui: UiPayload) -> dict[str, Any]:
+        return {
+            "reply": reply,
+            "riskLevel": "medium",
+            "recommendedAction": "guardian_contact",
+            "reservationRequired": True,
+            "intent": "hospital_reservation",
+            "engine": "gpt",
+            "modelName": self._loader.state.model_name,
+            "type": "ui",
+            "ui": ui,
+            "tool": None,
+            "data": None,
+            "summary": None,
+            "possibleCauses": [],
+            "homeCare": [],
+            "visitHospitalIf": [],
+            "emergencyWarning": [],
+            "meta": meta,
+            "decisionTrace": meta.get("decisionTrace") or [],
+        }
+
+    def _ask_location(self, meta: dict[str, Any]) -> dict[str, Any]:
+        _trace(meta, "reservation_gap", missing="location")
+        return self._ui_reply(
+            meta,
+            "어느 지역에서 병원을 찾을까요?",
+            UiPayload(kind="text", field="location", label="지역을 입력해 주세요", placeholder="예: 서울 강남구"),
+        )
 
     @staticmethod
     def _location_candidates(req: ChatRequest, draft_location: str | None) -> list[str]:
@@ -256,6 +301,9 @@ class ReservationOrchestrator:
                 elif key == "department":
                     draft.department = cleaned
                 elif key == "reservation_date":
+                    # LLM이 과거 날짜(예: 학습 시점 기준 "내일")를 내면 버리고 규칙 파서 값을 유지한다.
+                    if _is_past_date(cleaned):
+                        continue
                     draft.reservation_date = cleaned
                 elif key == "reservation_time":
                     draft.reservation_time = cleaned
@@ -524,6 +572,12 @@ class ReservationOrchestrator:
                 draft.patient_name = value or draft.patient_name
             elif field == "phone":
                 draft.phone = value or draft.phone
+            elif field == "location":
+                draft.location = value or draft.location
+            elif field == "location_confirm":
+                if value == "__other__":
+                    return self._ask_location(meta)
+                draft.location = value or draft.location
 
         _trace(
             meta,
@@ -543,6 +597,40 @@ class ReservationOrchestrator:
                 api_key_override=reservation_api_key,
             )
             _trace(meta, "hospital_id_resolved", hospital_name=draft.hospital_name, hospital_id=draft.hospital_id)
+
+        if draft.hospital_id is None and not draft.hospital_name:
+            if not draft.department:
+                _trace(meta, "reservation_gap", missing="department")
+                return self._ui_reply(
+                    meta,
+                    "어느 진료과를 찾을까요?",
+                    UiPayload(
+                        kind="select",
+                        field="department",
+                        label="진료과를 선택해 주세요",
+                        options=[UiOption(value=d, label=d) for d in self.STANDARD_DEPARTMENTS],
+                    ),
+                )
+            if not draft.location:
+                return self._ask_location(meta)
+            # 지역이 사용자 말(현재 문장·규격화 상태·이전 대화)에 없고 프로필에서만 왔으면 그 지역으로 찾을지 먼저 묻는다.
+            location_from_ui = ui_field in {"location", "location_confirm"}
+            said_by_user = draft.location in message_text or draft.location in history_text
+            if not location_from_ui and not said_by_user:
+                _trace(meta, "location_confirm_needed", location=draft.location)
+                return self._ui_reply(
+                    meta,
+                    f"{draft.location} 지역으로 검색할까요?",
+                    UiPayload(
+                        kind="select",
+                        field="location_confirm",
+                        label=f"{draft.location} 지역으로 검색할까요?",
+                        options=[
+                            UiOption(value=draft.location, label=f"네, {draft.location}"),
+                            UiOption(value="__other__", label="다른 지역 입력"),
+                        ],
+                    ),
+                )
 
         if draft.hospital_id is None and not draft.hospital_name and (draft.department or draft.location):
             unique_rows: list[dict[str, Any]] = []

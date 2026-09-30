@@ -297,6 +297,8 @@ class ReservationApiClient:
 
             rows.append(
                 {
+                    "id": hid,
+                    "name": hname,  # FE 카드가 읽는 키. 내부 로직은 아래 "hospital"을 쓴다.
                     "hospital": hname,
                     "department": " / ".join(str(dep).strip() for dep in depts if str(dep).strip()) or "—",
                     "location": reg_out,
