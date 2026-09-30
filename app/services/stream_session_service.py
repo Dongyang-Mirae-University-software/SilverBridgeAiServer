@@ -175,7 +175,7 @@ class StreamSessionService:
         payload = {
             "detectedType": result.get("detectedType", "normal"),
             "confidence": result.get("confidence", 0.0),
-            "danger": False,
+            "danger": bool(result.get("danger", False)),
             "detections": result.get("detections") or [],
             "analyzedAt": result.get("detectedAt"),
         }

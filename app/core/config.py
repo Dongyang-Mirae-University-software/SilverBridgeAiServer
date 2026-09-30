@@ -68,6 +68,9 @@ class Settings(BaseModel):
     fire_smoke_model_path: str = os.getenv("FIRE_SMOKE_MODEL_PATH", "fire_smoke.pt")
     fire_smoke_conf_threshold: float = _as_float("FIRE_SMOKE_CONF_THRESHOLD", 0.35)
     fire_smoke_iou_threshold: float = _as_float("FIRE_SMOKE_IOU_THRESHOLD", 0.45)
+    # 위험 판정(danger) 임계. 추론 필터(conf 0.35)는 "박스를 그릴 후보"를 고르는 값이라
+    # 그대로 알람 기준으로 쓰면 오탐이 그대로 보호자 알림이 된다 → 판정용을 따로 둔다.
+    fire_smoke_danger_threshold: float = _as_float("FIRE_SMOKE_DANGER_THRESHOLD", 0.6)
 
     default_chat_model: str = os.getenv("DEFAULT_CHAT_MODEL", "google/medgemma-1.5-4b-it")
     chat_model_path: str = os.getenv("CHAT_MODEL_PATH", "")

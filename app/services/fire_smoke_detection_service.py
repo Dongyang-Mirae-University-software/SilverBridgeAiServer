@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover
 
 
 class FireSmokeDetectionService:
-    """fire_smoke.pt YOLO — 화재·연기 감지 (보호자 모니터링 표시 전용)."""
+    """fire_smoke.pt YOLO — 화재·연기 감지 및 위험 판정(danger)."""
 
     TARGET_CLASSES = {"fire", "smoke"}
 
@@ -114,7 +114,12 @@ class FireSmokeDetectionService:
             _LOG.exception("fire_smoke 모델 로드 실패: %s", exc)
 
     def detect_from_jpeg(self, frame_bytes: bytes) -> dict[str, Any]:
-        """JPEG 프레임 1장 분석. danger 는 항상 False (표시 전용)."""
+        """JPEG 프레임 1장 분석.
+
+        danger 는 위험 판정 플래그다 — 백엔드(DANGER 모드)가 이 값만 보고 이상감지 이력·보호자
+        알림을 태우므로, 여기서 True 가 되지 않으면 파이프라인 전체가 조용히 아무 일도 하지 않는다.
+        추론 실패·모델 미로드 등 판정 불가 상황에서는 False 를 유지한다(알람은 확신할 때만).
+        """
         base = {
             "detectedType": "normal",
             "confidence": 0.0,
@@ -193,6 +198,10 @@ class FireSmokeDetectionService:
         base["detectedType"] = best_type
         base["confidence"] = round(best_conf, 4)
         base["detections"] = detections
+        base["danger"] = (
+            best_type in self.TARGET_CLASSES
+            and best_conf >= self._settings.fire_smoke_danger_threshold
+        )
         return base
 
 
