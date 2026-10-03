@@ -103,3 +103,13 @@
 - 응답 검증: WebM(EBML) 시그니처 `1A 45 DF A3`, 크기 상한 10MB. 호출 타임아웃 20초(+ 네트워크 여유 권장).
 - 호출자는 gosky·vkcs-linux 두 서버의 백엔드이며 같은 API 키를 쓴다(`testai.gosky.kr`).
 - ★ 503 `CLIP_DISABLED`는 재시도해도 소용없다. 429는 잠시 후 재시도 가능하나 쿨다운 정책상 재시도 없이 실패로 처리해도 된다.
+
+### 백엔드 확인 결과 (2026-10-04, `feature/anomaly-clip`의 `AiClipClient` 기준)
+v2 변경점과 백엔드 클라이언트를 대조했다. 대부분 그대로 맞고, 아래 두 가지는 백엔드 쪽 조정을 권장한다.
+
+| 항목 | 현재 백엔드 | 영향 | 권장 |
+|---|---|---|---|
+| 503 `CLIP_DISABLED` | `status >= 500` → `SERVER_ERROR`(retryable) | AI 킬 스위치가 꺼진 동안 감지 때마다 쿨다운을 풀고 다시 호출한다 | `503` + `CLIP_DISABLED`는 재시도하지 않는 결과로 분류(`REJECTED` 또는 전용 값) |
+| 응답 제한 시간 | `request-timeout: 20s` | AI 상한도 요청 수신부터 20초라, 상한 직전에 끝난 응답은 전송 시간 때문에 백엔드에서 `UNAVAILABLE`이 될 수 있다 | 22~25초로 여유를 둔다 |
+
+그 밖의 항목은 변경이 필요 없다: 422 확대(백엔드는 유효한 값만 보냄, `REJECTED`), 409·429·404 분류, `X-Clip-Started-At`(`Z` 포함, `OffsetDateTime.parse` 가능), EBML 시그니처 검사, `detectedAt` 직렬화(`ISO_INSTANT` - 소수점 3·6·9자리 모두 AI가 받으며 9자리는 마이크로초로 잘림, 테스트로 고정).
