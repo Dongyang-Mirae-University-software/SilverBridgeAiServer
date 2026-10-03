@@ -114,6 +114,7 @@ X-API-Key: silverbridge_live_7XqP2mKa9LdR4tYu
 - `GET /api/v1/live-streams/{session_id}/latest-frame`
 - `GET /api/v1/live-streams/{session_id}/status`
 - `GET /api/v1/live-streams/{session_id}/latest-analysis`
+- `POST /api/v1/live-streams/{session_id}/clips` — 이상감지 클립(WebM, 감지 앞 3초 + 뒤 2초). 계약: [docs/clip-endpoint-contract.md](docs/clip-endpoint-contract.md)
 
 ## 6. 무저장 송출 모드
 
@@ -125,6 +126,7 @@ STREAM_STATE_BACKEND=memory
 
 - 이 모드에서는 서버 재시작 시 라이브 세션 상태가 초기화됩니다.
 - 카메라 송출만 필요한 경우 이 모드를 권장합니다.
+- 이상감지 클립도 영구 저장하지 않습니다. 최근 10초 프레임을 메모리 링버퍼(JPEG 원본)에만 두고, 클립은 임시 파일로 인코딩해 응답한 뒤 바로 삭제합니다. 저장은 백엔드 몫입니다(`CLIP_*` 설정은 `.env.example`).
 
 ## 7. MediaMTX 운영 연동(권장)
 

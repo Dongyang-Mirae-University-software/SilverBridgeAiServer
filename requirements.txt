@@ -12,3 +12,4 @@ ultralytics==8.4.95
 transformers==5.13.1
 accelerate==1.14.0
 python-multipart==0.0.32
+imageio-ffmpeg==0.6.0  # 클립 인코딩용 정적 ffmpeg 7.0.2(libvpx 포함). 시스템 ffmpeg 불필요
