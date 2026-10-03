@@ -115,6 +115,9 @@ def test_clip_request_defaults_and_time_parsing() -> None:
     kst = ClipRequest.model_validate({"detectedAt": "2026-10-04T10:00:00+09:00"})
     assert _to_naive_utc(kst.detectedAt) == datetime(2026, 10, 4, 1, 0, 0)
 
+    nanos = ClipRequest.model_validate({"detectedAt": "2026-10-04T01:00:00.123456789Z"})  # Java ISO_INSTANT 최대 정밀도
+    assert _to_naive_utc(nanos.detectedAt) == datetime(2026, 10, 4, 1, 0, 0, 123456)
+
     naive = ClipRequest.model_validate({"detectedAt": "2026-10-04T01:00:00"})  # analyzedAt 원본 형태
     assert _to_naive_utc(naive.detectedAt) == datetime(2026, 10, 4, 1, 0, 0)
 
