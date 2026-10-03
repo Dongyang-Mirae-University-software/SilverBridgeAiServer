@@ -134,6 +134,18 @@ class Settings(BaseModel):
     mediamtx_webrtc_view_base: str = os.getenv("MEDIAMTX_WEBRTC_VIEW_BASE", "")
     mediamtx_hls_view_base: str = os.getenv("MEDIAMTX_HLS_VIEW_BASE", "")
 
+    # 이상감지 클립(POST /api/v1/live-streams/{sessionId}/clips). 영구 저장은 백엔드가 한다 — 여기선 임시 파일만.
+    # 동시 상한·대기열은 방어선이다: FE 프록시를 거치면 이 API도 외부에서 호출될 수 있다.
+    clip_enabled: bool = _as_bool("CLIP_ENABLED", True)
+    clip_buffer_seconds: float = _as_float("CLIP_BUFFER_SECONDS", 10.0)
+    clip_max_frames: int = _as_int("CLIP_MAX_FRAMES", 100)
+    clip_min_frames: int = _as_int("CLIP_MIN_FRAMES", 2)
+    clip_bitrate: str = os.getenv("CLIP_BITRATE", "3M")
+    clip_max_concurrency: int = _as_int("CLIP_MAX_CONCURRENCY", 2)
+    clip_queue_max: int = _as_int("CLIP_QUEUE_MAX", 10)
+    clip_timeout_sec: float = _as_float("CLIP_TIMEOUT_SEC", 20.0)
+    clip_tmp_dir: str = os.getenv("CLIP_TMP_DIR", "")
+
 
 @lru_cache
 def get_settings() -> Settings:

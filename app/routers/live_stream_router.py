@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.response import error_response, success_response
-from app.database.session import get_db
+from app.database.session import SessionLocal, get_db
+from app.schemas.clip_schema import ClipRequest
 from app.schemas.stream_session_schema import StreamSessionCreate
+from app.services.clip_service import ClipError, clip_service
 from app.services.live_ws_manager import live_ws_manager
 from app.services.stream_session_service import StreamSessionService, frame_store
 
@@ -177,4 +182,69 @@ async def stream_mjpeg(session_id: str, db: Session = Depends(get_db)) -> Stream
     return StreamingResponse(
         frame_generator(),
         media_type="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+async def _parse_clip_request(request: Request) -> ClipRequest:
+    # FastAPI 기본 검증 오류(422)는 errorCode 없는 {"detail": [...]} 로 나가므로 본문을 직접 검증한다.
+    raw = await request.body()
+    try:
+        payload = json.loads(raw) if raw.strip() else {}
+        if not isinstance(payload, dict):
+            raise ValueError("body must be an object")
+        return ClipRequest.model_validate(payload)
+    except (ValueError, ValidationError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=error_response("클립 요청 파라미터가 올바르지 않습니다.", "CLIP_INVALID_PARAMS", None),
+        ) from None
+
+
+def _require_stream_session(session_id: str) -> None:
+    # 클립은 최대 20초 걸린다 — 요청 내내 DB 세션을 붙들지 않게 확인만 하고 바로 닫는다.
+    db = SessionLocal()
+    try:
+        StreamSessionService(db, frame_store).require_session(session_id)
+    finally:
+        db.close()
+
+
+@router.post(
+    "/api/v1/live-streams/{session_id}/clips",
+    summary="이상감지 클립 생성(WebM, 감지 앞 3초 + 뒤 2초)",
+    response_class=Response,
+    responses={200: {"content": {"video/webm": {}}}},
+    openapi_extra={
+        "requestBody": {
+            "required": False,
+            "content": {"application/json": {"schema": ClipRequest.model_json_schema()}},
+        },
+    },
+)
+async def create_clip(session_id: str, request: Request) -> Response:
+    if not get_settings().clip_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=error_response("클립 기능이 꺼져 있습니다.", "CLIP_DISABLED", None),
+        )
+    params = await _parse_clip_request(request)
+    _require_stream_session(session_id)
+    try:
+        result = await clip_service.create_clip(session_id, params)
+    except ClipError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=error_response(exc.message, exc.error_code, None),
+        ) from None
+    return Response(
+        content=result.data,
+        media_type="video/webm",
+        headers={
+            "X-Clip-Duration-Ms": str(result.duration_ms),
+            "X-Clip-Frames": str(result.frames),
+            "X-Clip-Width": str(result.width),
+            "X-Clip-Height": str(result.height),
+            "X-Clip-Started-At": result.started_at.isoformat(timespec="milliseconds") + "Z",
+            "Cache-Control": "no-store",
+        },
     )

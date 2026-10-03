@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.response import error_response
+from app.services.clip_buffer import clip_frame_buffer
 from app.services.fire_smoke_detection_service import get_fire_smoke_detector
 from app.services.session_analysis_store import session_analysis_store
 from app.models.analysis_result import AnalysisResult
@@ -40,7 +41,10 @@ class StreamFrameStore:
             self._last_epoch[session_id] = now_epoch
             self._fps_map[session_id] = fps
             self._viewers.setdefault(session_id, 0)
-            return now, fps
+        # 클립용 링버퍼 — 같은 수신 시각을 써야 analyzedAt 으로 구간을 자를 수 있다.
+        if get_settings().clip_enabled:
+            clip_frame_buffer.add(session_id, now, frame_bytes)
+        return now, fps
 
     def get_frame(self, session_id: str) -> bytes | None:
         with self._lock:
@@ -92,6 +96,8 @@ class StreamSessionService:
         return None
 
     def create_or_restart(self, session_id: str, camera_identifier: str, device_type: str) -> StreamSessionState:
+        # 같은 sessionId 재시작 시 이전 송출의 프레임이 클립에 섞이지 않게 비운다.
+        clip_frame_buffer.clear(session_id)
         if self.use_memory_state:
             return self._state_store.create_or_restart(session_id, camera_identifier, device_type)
 
@@ -190,6 +196,7 @@ class StreamSessionService:
 
     def stop(self, session: StreamSessionState) -> StreamSessionState:
         session_analysis_store.clear_session(session.session_id)
+        clip_frame_buffer.clear(session.session_id)
         if self.use_memory_state:
             return self._state_store.stop(session.session_id)
 
