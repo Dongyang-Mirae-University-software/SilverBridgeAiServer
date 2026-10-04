@@ -10,7 +10,7 @@ from app.models.reservation_credential import ReservationCredential
 
 @dataclass
 class ReservationCredentialSummary:
-    userId: int
+    userId: str
     reservationEmail: str | None
     apiKeyPrefix: str
     createdAt: str
@@ -30,7 +30,7 @@ class ReservationCredentialService:
         self,
         db: Session,
         *,
-        user_id: int,
+        user_id: str,
         reservation_email: str | None,
         api_key: str,
     ) -> ReservationCredentialSummary:
@@ -56,20 +56,20 @@ class ReservationCredentialService:
         db.refresh(current)
         return self._to_summary(current)
 
-    def get_api_key(self, db: Session, user_id: int) -> str | None:
+    def get_api_key(self, db: Session, user_id: str) -> str | None:
         current = db.query(ReservationCredential).filter(ReservationCredential.user_id == user_id).first()
         if not current:
             return None
         return current.api_key.strip() or None
 
-    def has_credential(self, db: Session, user_id: int) -> bool:
+    def has_credential(self, db: Session, user_id: str) -> bool:
         return self.get_api_key(db, user_id) is not None
 
     def ensure_credential(
         self,
         db: Session,
         *,
-        user_id: int,
+        user_id: str,
         reservation_email: str | None,
         client: ReservationApiClient,
     ) -> str | None:

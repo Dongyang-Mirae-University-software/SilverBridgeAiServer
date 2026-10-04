@@ -55,7 +55,8 @@ class Settings(BaseModel):
         f"{_as_int('POSTGRES_PORT', 5432)}/"
         f"{os.getenv('POSTGRES_DB', 'silverbridge_ai')}",
     )
-    api_key: str = os.getenv("API_KEY", "silverbridge_live_7XqP2mKa9LdR4tYu")
+    # 기본값 없음 — 비어 있으면 인증이 필요한 API 는 모두 401 이다(키를 코드에 두지 않는다, QA AI-2).
+    api_key: str = os.getenv("API_KEY", "")
 
     model_base_path: str = os.getenv("MODEL_BASE_PATH", str(_PROJECT_ROOT / "models"))
     upload_base_path: str = os.getenv("UPLOAD_BASE_PATH", str(_PROJECT_ROOT / "uploads"))
@@ -133,6 +134,9 @@ class Settings(BaseModel):
     mediamtx_webrtc_ingest_base: str = os.getenv("MEDIAMTX_WEBRTC_INGEST_BASE", "")
     mediamtx_webrtc_view_base: str = os.getenv("MEDIAMTX_WEBRTC_VIEW_BASE", "")
     mediamtx_hls_view_base: str = os.getenv("MEDIAMTX_HLS_VIEW_BASE", "")
+    # WS 의 ?apiKey= 쿼리 인증 허용 여부. 쿼리 키는 브라우저 번들·접속 로그에 남는다(QA AI-2).
+    # FE 이상감지 모니터가 아직 쿼리로 접속하므로 기본은 허용 — FE 가 헤더/백엔드 경유로 바꾸면 false 로 끈다.
+    ws_allow_query_api_key: bool = _as_bool("WS_ALLOW_QUERY_API_KEY", True)
 
     # 이상감지 클립(POST /api/v1/live-streams/{sessionId}/clips). 영구 저장은 백엔드가 한다 — 여기선 임시 파일만.
     # 동시 상한·대기열은 방어선이다: FE 프록시를 거치면 이 API도 외부에서 호출될 수 있다.
