@@ -72,7 +72,7 @@ async def ingest_stream_frame(
             detail=error_response("프레임 데이터가 비어 있습니다.", "STREAM_FRAME_EMPTY", None),
         )
     updated = service.ingest_frame(session, frame_bytes)
-    latest_analysis = service.analyze_stream_frame(updated.session_id, frame_bytes)
+    latest_analysis = await service.analyze_stream_frame_async(updated.session_id, frame_bytes)
     status_payload = service.get_status_payload(updated.session_id)
     live_ws_manager.broadcast_nowait(
         {"type": "session_status", "sessionId": updated.session_id, "data": status_payload},

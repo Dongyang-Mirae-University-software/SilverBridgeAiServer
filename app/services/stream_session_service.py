@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from threading import Lock
@@ -175,7 +177,33 @@ class StreamSessionService:
             return session_analysis_store.get_result(session_id)
         if not session_analysis_store.should_analyze(session_id, self.settings.stream_sample_every_n_frames):
             return session_analysis_store.get_result(session_id)
+        return self._detect_and_store(session_id, frame_bytes)
 
+    async def analyze_stream_frame_async(self, session_id: str, frame_bytes: bytes) -> dict[str, Any] | None:
+        """analyze_stream_frame 의 이벤트 루프 비차단판 — 프레임 수신(async) 경로용.
+
+        YOLO 추론을 루프 안에서 돌리면 추론하는 동안 서버 전체(다른 카메라 수신·WS·클립 대기)가 멈춘다.
+        추론은 전용 1스레드에서 돌린다(감지기가 잠금으로 직렬화하므로 스레드를 늘려도 빨라지지 않고, 공용
+        스레드풀에 태우면 잠금 대기 스레드가 동기 엔드포인트 몫까지 차지한다).
+        같은 세션의 추론이 아직 진행 중이면 이 프레임은 분석하지 않고 직전 결과를 돌려준다 — 루프가 막혀
+        저절로 걸리던 속도 조절을 대신해, 대기열이 세션 수를 넘지 않게 한다.
+        """
+        if not self.settings.fire_smoke_enabled:
+            return session_analysis_store.get_result(session_id)
+        if not session_analysis_store.should_analyze(session_id, self.settings.stream_sample_every_n_frames):
+            return session_analysis_store.get_result(session_id)
+        if not _analysis_in_flight.try_enter(session_id):
+            return session_analysis_store.get_result(session_id)
+        try:
+            future = _analysis_executor.submit(self._detect_and_store, session_id, frame_bytes)
+        except BaseException:
+            _analysis_in_flight.leave(session_id)
+            raise
+        # 요청이 취소돼도 추론은 끝까지 가므로, 표시는 추론이 실제로 끝날 때 푼다.
+        future.add_done_callback(lambda _: _analysis_in_flight.leave(session_id))
+        return await asyncio.wrap_future(future)
+
+    def _detect_and_store(self, session_id: str, frame_bytes: bytes) -> dict[str, Any]:
         detector = get_fire_smoke_detector()
         result = detector.detect_from_jpeg(frame_bytes)
         payload = {
@@ -314,6 +342,33 @@ class StreamSessionService:
 
 
 frame_store = StreamFrameStore()
+
+
+class _InFlightSessions:
+    """추론이 진행 중인 세션 집합."""
+
+    def __init__(self) -> None:
+        self._sessions: set[str] = set()
+        self._lock = Lock()
+
+    def try_enter(self, session_id: str) -> bool:
+        with self._lock:
+            if session_id in self._sessions:
+                return False
+            self._sessions.add(session_id)
+            return True
+
+    def leave(self, session_id: str) -> None:
+        with self._lock:
+            self._sessions.discard(session_id)
+
+    def contains(self, session_id: str) -> bool:
+        with self._lock:
+            return session_id in self._sessions
+
+
+_analysis_in_flight = _InFlightSessions()
+_analysis_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stream-analyze")
 
 
 @dataclass
