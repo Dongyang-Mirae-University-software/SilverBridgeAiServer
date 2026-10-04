@@ -52,7 +52,7 @@ docker compose up --build
 - 보호된 API 요청 헤더:
 
 ```txt
-X-API-Key: silverbridge_live_7XqP2mKa9LdR4tYu
+X-API-Key: <API_KEY>
 ```
 
 - 유효하지 않으면 401을 반환합니다.
@@ -151,7 +151,7 @@ MEDIAMTX_HLS_VIEW_BASE=https://mediamtx.example.com/hls
 
 ```bash
 curl -X POST "http://localhost:6017/api/v1/stream-sessions" \
-  -H "X-API-Key: silverbridge_live_7XqP2mKa9LdR4tYu" \
+  -H "X-API-Key: <API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
     "sessionId":"stream_001",
@@ -164,14 +164,14 @@ curl -X POST "http://localhost:6017/api/v1/stream-sessions" \
 
 ```bash
 curl -X POST "http://localhost:6017/api/v1/stream-sessions/stream_001/frame" \
-  -H "X-API-Key: silverbridge_live_7XqP2mKa9LdR4tYu" \
+  -H "X-API-Key: <API_KEY>" \
   -F "frame=@/path/to/frame.jpg;type=image/jpeg"
 ```
 
 3) 라이브 조회
 
 ```bash
-curl -H "X-API-Key: silverbridge_live_7XqP2mKa9LdR4tYu" "http://localhost:6017/api/v1/live-streams"
+curl -H "X-API-Key: <API_KEY>" "http://localhost:6017/api/v1/live-streams"
 ```
 
 4) 실시간 보기 URL

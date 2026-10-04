@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import gc
 import logging
 from contextlib import asynccontextmanager
@@ -13,6 +14,7 @@ from app.core.config import get_settings
 from app.core.response import error_response
 from app.core.security import require_api_key
 from app.database.base import Base
+from app.database.schema_upgrades import upgrade_member_id_columns
 from app.database.session import engine
 from app.routers.analysis_router import router as analysis_router
 from app.routers.camera_router import router as camera_router
@@ -26,6 +28,7 @@ from app.routers.reservation_credential_router import router as reservation_cred
 import app.models.game  # noqa: F401
 import app.models.reservation_credential  # noqa: F401
 from app.services.fire_smoke_detection_service import get_fire_smoke_detector
+from app.services.live_ws_manager import live_ws_manager
 from app.services.medical_llm_service import get_medgemma_loader
 from app.utils.file_utils import ensure_directory
 from app.utils.logger import setup_logging
@@ -33,6 +36,8 @@ from app.utils.logger import setup_logging
 settings = get_settings()
 setup_logging(settings.log_level)
 _LOG = logging.getLogger(__name__)
+if not settings.api_key:
+    _LOG.warning("API_KEY 미설정 - 인증이 필요한 API·WS 는 모두 거절된다(.env 에 API_KEY 를 설정할 것)")
 
 try:
     import torch
@@ -64,7 +69,10 @@ def log_gpu_status() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # 동기 엔드포인트(세션 생성·종료)의 WS 방송이 이 루프로 넘어간다(QA AI-1).
+    live_ws_manager.bind_loop(asyncio.get_running_loop())
     Base.metadata.create_all(bind=engine)
+    upgrade_member_id_columns(engine)
     for path in (
         settings.model_base_path,
         settings.upload_base_path,

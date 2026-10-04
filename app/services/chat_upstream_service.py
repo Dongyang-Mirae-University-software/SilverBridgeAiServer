@@ -22,7 +22,7 @@ class ChatUpstreamService:
         self,
         message: str,
         session_id: str,
-        user_id: int,
+        user_id: str,
         user_context: dict[str, Any] | None,
         history: list[dict[str, str]],
         ui_selection: dict[str, str] | None = None,

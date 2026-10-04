@@ -257,7 +257,7 @@ class ChatService:
         }
 
     @staticmethod
-    def _last_reservation_state(db: Session, user_id: int, session_id: str) -> str | None:
+    def _last_reservation_state(db: Session, user_id: str, session_id: str) -> str | None:
         """같은 세션의 직전 턴이 예약 흐름이었으면 그때의 규격화 문장을 돌려준다 (라우터의 상태 기억)."""
         log = db.query(ChatLog).filter(ChatLog.user_id == user_id).order_by(ChatLog.id.desc()).first()
         if not log:
@@ -365,7 +365,7 @@ class ChatService:
         }
 
     @staticmethod
-    def list_logs(db: Session, user_id: int | None = None) -> list[dict]:
+    def list_logs(db: Session, user_id: str | None = None) -> list[dict]:
         query = db.query(ChatLog)
         if user_id is not None:
             query = query.filter(ChatLog.user_id == user_id)
@@ -404,7 +404,7 @@ class ChatService:
         return items
 
     @staticmethod
-    def get_log(db: Session, chat_id: int, user_id: int | None = None) -> dict | None:
+    def get_log(db: Session, chat_id: int, user_id: str | None = None) -> dict | None:
         log = db.query(ChatLog).filter(ChatLog.id == chat_id).first()
         if not log:
             return None

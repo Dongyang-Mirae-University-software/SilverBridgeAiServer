@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -10,13 +11,22 @@ from app.services.live_ws_manager import live_ws_manager
 from app.services.stream_session_service import StreamSessionService, frame_store
 
 router = APIRouter(tags=["LiveSocket"])
+_LOG = logging.getLogger(__name__)
 
 
 @router.websocket("/api/v1/ws/live")
 async def live_websocket(websocket: WebSocket) -> None:
     settings = get_settings()
-    token = websocket.headers.get("x-api-key") or websocket.query_params.get("apiKey")
-    if token != settings.api_key:
+    token = websocket.headers.get("x-api-key")
+    if not token and "apiKey" in websocket.query_params:
+        if not settings.ws_allow_query_api_key:
+            await websocket.close(code=1008, reason="AUTH_QUERY_KEY_DISABLED")
+            return
+        # 쿼리 키는 URL 로 브라우저·접속 로그에 남는다. 헤더 전환 전까지만 허용하고 흔적을 남긴다(키 값은 기록하지 않음).
+        token = websocket.query_params.get("apiKey")
+        client = websocket.client.host if websocket.client else "-"
+        _LOG.warning("[WS-QUERY-KEY] 쿼리 파라미터 API 키 접속(헤더 x-api-key 로 전환 필요) client=%s", client)
+    if not settings.api_key or token != settings.api_key:
         await websocket.close(code=1008, reason="AUTH_INVALID_KEY")
         return
 

@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.common import MemberId
+
 
 class ChatContext(BaseModel):
     age: int | None = None
@@ -45,7 +47,7 @@ class UiSelection(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    userId: int
+    userId: MemberId
     message: str = ""
     sessionId: str | None = None
     history: list[ChatHistoryItem] = Field(default_factory=list)
@@ -71,7 +73,7 @@ class ChatReplyData(BaseModel):
 class ChatLogOut(BaseModel):
     id: int
     chatNo: str
-    userId: int
+    userId: str
     message: str
     contextJson: str
     reply: str
