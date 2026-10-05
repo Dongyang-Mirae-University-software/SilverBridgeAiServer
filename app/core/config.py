@@ -72,6 +72,24 @@ class Settings(BaseModel):
     # 위험 판정(danger) 임계. 추론 필터(conf 0.35)는 "박스를 그릴 후보"를 고르는 값이라
     # 그대로 알람 기준으로 쓰면 오탐이 그대로 보호자 알림이 된다 → 판정용을 따로 둔다.
     fire_smoke_danger_threshold: float = _as_float("FIRE_SMOKE_DANGER_THRESHOLD", 0.6)
+    # 흉기·낙상 — 라이브 분석에 화재와 함께 돈다. 기본 OFF: 모델 교체 후 환경변수로 켠다.
+    knife_enabled: bool = _as_bool("KNIFE_ENABLED", False)
+    knife_model_path: str = os.getenv("KNIFE_MODEL_PATH", "knife.pt")
+    knife_conf_threshold: float = _as_float("KNIFE_CONF_THRESHOLD", 0.25)
+    knife_iou_threshold: float = _as_float("KNIFE_IOU_THRESHOLD", 0.45)
+    knife_danger_threshold: float = _as_float("KNIFE_DANGER_THRESHOLD", 0.5)
+    fall_enabled: bool = _as_bool("FALL_ENABLED", False)
+    fall_model_path: str = os.getenv("FALL_MODEL_PATH", "fall.pt")
+    fall_conf_threshold: float = _as_float("FALL_CONF_THRESHOLD", 0.25)
+    fall_iou_threshold: float = _as_float("FALL_IOU_THRESHOLD", 0.45)
+    # 낙상 danger 는 한 장 판정이 아니다: 최근 FALL_HOLD_SEC 초 동안 분석된 장면 중 FALL_HOLD_RATIO 이상에서
+    # 점수가 FALL_DANGER_THRESHOLD 이상이어야 한다(임계 0.4 는 검토 중 — 환경변수로 조정).
+    fall_danger_threshold: float = _as_float("FALL_DANGER_THRESHOLD", 0.4)
+    fall_hold_sec: float = _as_float("FALL_HOLD_SEC", 1.5)
+    fall_hold_ratio: float = _as_float("FALL_HOLD_RATIO", 0.7)
+    # 라이브 추론 시간 요약 로그 주기(초, 0 이하 = 끔). 감지기를 여러 개 켜면 프레임당 추론이 길어진다 —
+    # 너무 느리면 STREAM_SAMPLE_EVERY_N_FRAMES 를 늘린다.
+    stream_infer_log_interval_sec: float = _as_float("STREAM_INFER_LOG_INTERVAL_SEC", 60.0)
 
     default_chat_model: str = os.getenv("DEFAULT_CHAT_MODEL", "google/medgemma-1.5-4b-it")
     chat_model_path: str = os.getenv("CHAT_MODEL_PATH", "")
