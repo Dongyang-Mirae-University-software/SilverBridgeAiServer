@@ -137,12 +137,22 @@ class Settings(BaseModel):
     # WS 의 ?apiKey= 쿼리 인증 허용 여부. 쿼리 키는 브라우저 번들·접속 로그에 남는다(QA AI-2).
     # FE 이상감지 모니터가 아직 쿼리로 접속하므로 기본은 허용 — FE 가 헤더/백엔드 경유로 바꾸면 false 로 끈다.
     ws_allow_query_api_key: bool = _as_bool("WS_ALLOW_QUERY_API_KEY", True)
+    # 챗 로그 상세(GET /api/v1/chat/logs/{id})에 userId 필수 + 소유자 일치. 기본 OFF —
+    # FE 의 상세 호출 함수가 userId 없이 부르는 형태라, FE 가 userId 를 붙인 뒤 켠다.
+    chat_require_user_id: bool = _as_bool("CHAT_REQUIRE_USER_ID", False)
+    # 게임 API(/api/v1/games/**)에 X-API-Key 필수. 기본 OFF — 피보호자 게임 iframe 과 그 안의 JS 가
+    # 브라우저에서 키 없이 직접 부른다. FE 가 iframe·embed 호출을 프록시 경유로 바꾼 뒤 켠다.
+    game_require_api_key: bool = _as_bool("GAME_REQUIRE_API_KEY", False)
 
     # 이상감지 클립(POST /api/v1/live-streams/{sessionId}/clips). 영구 저장은 백엔드가 한다 — 여기선 임시 파일만.
     # 동시 상한·대기열은 방어선이다: FE 프록시를 거치면 이 API도 외부에서 호출될 수 있다.
     clip_enabled: bool = _as_bool("CLIP_ENABLED", True)
     clip_buffer_seconds: float = _as_float("CLIP_BUFFER_SECONDS", 10.0)
     clip_max_frames: int = _as_int("CLIP_MAX_FRAMES", 100)
+    # 링버퍼 바이트 상한(0 이하 = 끔). 장수 상한만으로는 큰 프레임이 오면 메모리가 무한정 는다.
+    # 세션 64MB 는 FHD JPEG 5초 클립(약 50장)을 넉넉히 담고, 전체 512MB 를 넘으면 큰 세션부터 줄인다.
+    clip_session_max_bytes: int = _as_int("CLIP_SESSION_MAX_BYTES", 64 * 1024 * 1024)
+    clip_total_max_bytes: int = _as_int("CLIP_TOTAL_MAX_BYTES", 512 * 1024 * 1024)
     clip_min_frames: int = _as_int("CLIP_MIN_FRAMES", 2)
     clip_bitrate: str = os.getenv("CLIP_BITRATE", "3M")
     clip_max_concurrency: int = _as_int("CLIP_MAX_CONCURRENCY", 2)
