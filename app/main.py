@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.core.response import error_response
-from app.core.security import require_api_key
+from app.core.security import game_router_dependencies, require_api_key
 from app.database.base import Base
 from app.database.schema_upgrades import upgrade_member_id_columns
 from app.database.session import engine
@@ -127,7 +127,7 @@ app.include_router(model_router, dependencies=[Depends(require_api_key)])
 app.include_router(camera_router, dependencies=[Depends(require_api_key)])
 app.include_router(analysis_router, dependencies=[Depends(require_api_key)])
 app.include_router(chat_router, dependencies=[Depends(require_api_key)])
-app.include_router(game_router)
+app.include_router(game_router, dependencies=game_router_dependencies(settings))
 app.include_router(live_stream_router, dependencies=[Depends(require_api_key)])
 app.include_router(live_ws_router)
 app.include_router(reservation_credential_router, dependencies=[Depends(require_api_key)])

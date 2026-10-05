@@ -97,8 +97,18 @@ X-API-Key: <API_KEY>
 ### Chat
 
 - `POST /api/v1/chat`
-- `GET /api/v1/chat/logs`
-- `GET /api/v1/chat/logs/{id}`
+- `GET /api/v1/chat/logs?userId=` — `userId` 필수(없거나 공백이면 422 `CHAT_USER_ID_REQUIRED`). 본인 기록만 반환합니다.
+- `GET /api/v1/chat/logs/{id}` — `userId`를 주면 소유자가 같을 때만 반환하고, 다르면 없는 기록과 같은 404 `CHAT_LOG_NOT_FOUND`입니다.
+  `CHAT_REQUIRE_USER_ID=true`이면 `userId`가 필수입니다(없으면 422). 기본 `false` — FE가 상세 호출에 `userId`를 붙인 뒤 켭니다.
+- 한계: 이 검사는 호출자가 보낸 `userId`를 믿습니다. FE 프록시(`/api/streams/**`)에 로그인 확인이 붙어야 본인 확인이 완성됩니다.
+
+### Games
+
+- `/api/v1/games/**`는 기본으로 API Key 없이 열려 있습니다(피보호자 게임 iframe과 그 안의 JS가 브라우저에서 직접 호출).
+- `GAME_REQUIRE_API_KEY=true`이면 키가 필요합니다(없으면 401 `AUTH_INVALID_KEY`). 켜기 전에 FE가 바뀌어야 합니다:
+  - 피보호자 게임 iframe 주소(`NEXT_PUBLIC_AI_API_DOMAIN/api/v1/games/embed`)를 키를 붙이는 서버 프록시 경유로 변경
+  - embed 페이지 안의 JS 호출(`/state`·`/answer`·`/reset`, 기준 주소 `apiOrigin`)도 같은 프록시를 향하도록 변경
+  - 보호자 화면(`/v1/games/progress`·`/activity`)은 이미 프록시 경유라 영향 없음
 
 ### Reservation Credentials
 
@@ -127,6 +137,7 @@ STREAM_STATE_BACKEND=memory
 - 이 모드에서는 서버 재시작 시 라이브 세션 상태가 초기화됩니다.
 - 카메라 송출만 필요한 경우 이 모드를 권장합니다.
 - 이상감지 클립도 영구 저장하지 않습니다. 최근 10초 프레임을 메모리 링버퍼(JPEG 원본)에만 두고, 클립은 임시 파일로 인코딩해 응답한 뒤 바로 삭제합니다. 저장은 백엔드 몫입니다(`CLIP_*` 설정은 `.env.example`).
+- 링버퍼 메모리 상한: 세션당 `CLIP_SESSION_MAX_BYTES`(기본 64MB), 전체 `CLIP_TOTAL_MAX_BYTES`(기본 512MB). 넘으면 오래된 프레임부터 지우고, 전체 상한은 가장 많이 쓰는 세션부터 줄입니다. 상한보다 큰 프레임 한 장은 버퍼에만 넣지 않습니다(분석·송출은 그대로). 로그는 세션 ID와 바이트 수만 남깁니다.
 
 ## 7. MediaMTX 운영 연동(권장)
 
