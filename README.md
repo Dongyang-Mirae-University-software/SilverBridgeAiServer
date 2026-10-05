@@ -62,6 +62,7 @@ X-API-Key: <API_KEY>
 ### Health
 
 - `GET /health`
+  - `data.detectors`: 화재(`fire`)·흉기(`knife`)·낙상(`fall`) 감지기별 `enabled`·`loaded`(오류 문구·경로는 싣지 않음)
 
 ### Model
 
@@ -125,6 +126,15 @@ X-API-Key: <API_KEY>
 - `GET /api/v1/live-streams/{session_id}/status`
 - `GET /api/v1/live-streams/{session_id}/latest-analysis`
 - `POST /api/v1/live-streams/{session_id}/clips` — 이상감지 클립(WebM, 감지 앞 3초 + 뒤 2초). 계약: [docs/clip-endpoint-contract.md](docs/clip-endpoint-contract.md)
+
+#### 라이브 이상감지(화재·흉기·낙상)
+
+- 켜진 감지기(`FIRE_SMOKE_ENABLED`·`KNIFE_ENABLED`·`FALL_ENABLED`)를 같은 프레임에 차례로 돌린다(전용 1스레드). 모두 꺼져 있으면 분석하지 않는다.
+- `latest_analysis.data`의 `detectedType`·`confidence`·`danger`·`detections`·`analyzedAt`는 백엔드 계약 그대로다. 대표 선택: danger인 것 중 **화재 > 흉기 > 낙상**, danger가 없으면 점수가 가장 높은 감지, 없으면 `normal`(전부 판정 불가면 `unknown`).
+- 추가 필드 `results`: 종류별 `{detectedType, confidence, danger, available}`. `detections`에는 모든 종류의 박스가 담긴다.
+- `detectedType` 값: `fire`/`smoke`(화재), `knife`(흉기, `knife_handle` 무시), `fall`(낙상 - 모델 클래스 `fallen`을 `fall`로 바꿔 보낸다. 백엔드는 `fallen`을 모른다).
+- 낙상은 한 장으로 판정하지 않는다: 최근 `FALL_HOLD_SEC`초(기본 1.5) 동안 분석된 장면 중 `FALL_HOLD_RATIO`(0.7) 이상에서 점수가 `FALL_DANGER_THRESHOLD`(0.4) 이상일 때만 `danger=true`. 분석 간격이 `FALL_HOLD_SEC`보다 길면 판정되지 않는다(`[FALL-HOLD-GAP]` WARN).
+- 모델이 없거나 로드에 실패하면 그 종류만 꺼진다(서버는 뜬다). 프레임당 추론 시간은 `STREAM_INFER_LOG_INTERVAL_SEC`마다 `[LIVE-INFER]` INFO로 남는다 - 느리면 `STREAM_SAMPLE_EVERY_N_FRAMES`를 늘린다.
 
 ## 6. 무저장 송출 모드
 

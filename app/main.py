@@ -27,7 +27,9 @@ from app.routers.model_router import router as model_router
 from app.routers.reservation_credential_router import router as reservation_credential_router
 import app.models.game  # noqa: F401
 import app.models.reservation_credential  # noqa: F401
+from app.services.fall_detection_service import get_fall_detector
 from app.services.fire_smoke_detection_service import get_fire_smoke_detector
+from app.services.knife_detection_service import get_knife_detector
 from app.services.live_ws_manager import live_ws_manager
 from app.services.medical_llm_service import get_medgemma_loader
 from app.utils.file_utils import ensure_directory
@@ -88,6 +90,8 @@ async def lifespan(_: FastAPI):
     medgemma_loader.load()
     medgemma_loader.warmup()
     get_fire_smoke_detector().try_load()
+    get_knife_detector().try_load()
+    get_fall_detector().try_load()
     yield
     if torch is not None and torch.cuda.is_available():
         torch.cuda.empty_cache()

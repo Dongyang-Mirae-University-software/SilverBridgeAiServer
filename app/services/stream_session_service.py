@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -14,10 +15,18 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.response import error_response
 from app.services.clip_buffer import clip_frame_buffer
+from app.services.fall_detection_service import get_fall_detector
+from app.services.fall_hold_tracker import fall_hold_tracker
 from app.services.fire_smoke_detection_service import get_fire_smoke_detector
+from app.services.knife_detection_service import get_knife_detector
+from app.services.live_detection_merge import merge_kind_results
 from app.services.session_analysis_store import session_analysis_store
 from app.models.analysis_result import AnalysisResult
 from app.models.stream_session import StreamSession
+
+_LOG = logging.getLogger(__name__)
+# 낙상 유지 판정의 시계(분석 시각). 테스트가 바꿔 끼운다.
+_analysis_clock = time.monotonic
 
 
 class StreamFrameStore:
@@ -100,6 +109,7 @@ class StreamSessionService:
     def create_or_restart(self, session_id: str, camera_identifier: str, device_type: str) -> StreamSessionState:
         # 같은 sessionId 재시작 시 이전 송출의 프레임이 클립에 섞이지 않게 비운다.
         clip_frame_buffer.clear(session_id)
+        fall_hold_tracker.clear(session_id)
         if self.use_memory_state:
             return self._state_store.create_or_restart(session_id, camera_identifier, device_type)
 
@@ -173,7 +183,7 @@ class StreamSessionService:
         return session
 
     def analyze_stream_frame(self, session_id: str, frame_bytes: bytes) -> dict[str, Any] | None:
-        if not self.settings.fire_smoke_enabled:
+        if not self._any_detector_enabled():
             return session_analysis_store.get_result(session_id)
         if not session_analysis_store.should_analyze(session_id, self.settings.stream_sample_every_n_frames):
             return session_analysis_store.get_result(session_id)
@@ -188,7 +198,7 @@ class StreamSessionService:
         같은 세션의 추론이 아직 진행 중이면 이 프레임은 분석하지 않고 직전 결과를 돌려준다 — 루프가 막혀
         저절로 걸리던 속도 조절을 대신해, 대기열이 세션 수를 넘지 않게 한다.
         """
-        if not self.settings.fire_smoke_enabled:
+        if not self._any_detector_enabled():
             return session_analysis_store.get_result(session_id)
         if not session_analysis_store.should_analyze(session_id, self.settings.stream_sample_every_n_frames):
             return session_analysis_store.get_result(session_id)
@@ -203,18 +213,66 @@ class StreamSessionService:
         future.add_done_callback(lambda _: _analysis_in_flight.leave(session_id))
         return await asyncio.wrap_future(future)
 
+    def _any_detector_enabled(self) -> bool:
+        s = self.settings
+        return s.fire_smoke_enabled or s.knife_enabled or s.fall_enabled
+
+    def _enabled_detectors(self) -> list[tuple[str, Any]]:
+        detectors: list[tuple[str, Any]] = []
+        if self.settings.fire_smoke_enabled:
+            detectors.append(("fire", get_fire_smoke_detector()))
+        if self.settings.knife_enabled:
+            detectors.append(("knife", get_knife_detector()))
+        if self.settings.fall_enabled:
+            detectors.append(("fall", get_fall_detector()))
+        return detectors
+
     def _detect_and_store(self, session_id: str, frame_bytes: bytes) -> dict[str, Any]:
-        detector = get_fire_smoke_detector()
-        result = detector.detect_from_jpeg(frame_bytes)
-        payload = {
-            "detectedType": result.get("detectedType", "normal"),
-            "confidence": result.get("confidence", 0.0),
-            "danger": bool(result.get("danger", False)),
-            "detections": result.get("detections") or [],
-            "analyzedAt": result.get("detectedAt"),
-        }
+        """켜진 감지기를 같은 프레임에 차례로 돌려 대표 결과 하나로 합친다(전용 1스레드 안).
+
+        응답의 detectedType/confidence/danger/detections/analyzedAt 은 백엔드 계약 그대로다 — 대표 선택
+        규칙은 live_detection_merge.merge_kind_results. 종류별 결과는 results 에 따로 싣는다.
+        """
+        kind_results: list[tuple[str, dict[str, Any]]] = []
+        timings_ms: dict[str, float] = {}
+        for kind, detector in self._enabled_detectors():
+            started = time.perf_counter()
+            try:
+                result = detector.detect_from_jpeg(frame_bytes)
+            except Exception:  # noqa: BLE001 - 한 종류의 오류가 다른 종류(특히 화재) 판정을 막지 않게
+                _LOG.exception("[LIVE-DETECT-FAILED] kind=%s sessionId=%s", kind, session_id)
+                result = {"detectedType": "unknown", "confidence": 0.0, "danger": False, "detections": []}
+            timings_ms[kind] = (time.perf_counter() - started) * 1000
+            if kind == "fall":
+                result = self._apply_fall_hold(session_id, result)
+            kind_results.append((kind, result))
+        _inference_timing.record(timings_ms)
+
+        payload = merge_kind_results(kind_results)
+        if payload.get("analyzedAt") is None:
+            payload["analyzedAt"] = datetime.utcnow().isoformat()
         session_analysis_store.set_result(session_id, payload)
         return payload
+
+    def _apply_fall_hold(self, session_id: str, result: dict[str, Any]) -> dict[str, Any]:
+        """낙상은 한 장으로 판정하지 않는다 — 세션별 유지 조건(FallHoldTracker)으로 danger 를 다시 정한다."""
+        if result.get("detectedType") == "unknown":
+            return result  # 판정 불가 장면은 유지 이력에 넣지 않는다(danger=False 그대로)
+        decision = fall_hold_tracker.update(
+            session_id,
+            float(result.get("confidence") or 0.0),
+            _analysis_clock(),
+            threshold=self.settings.fall_danger_threshold,
+            hold_sec=self.settings.fall_hold_sec,
+            hold_ratio=self.settings.fall_hold_ratio,
+        )
+        held = dict(result)
+        held["danger"] = decision.danger
+        held["confidence"] = round(decision.confidence, 4)
+        if decision.danger:
+            # 유지 구간 안의 한 장이 놓쳐 이번 장면이 normal 이어도 낙상 판정은 낙상으로 올린다.
+            held["detectedType"] = "fall"
+        return held
 
     def latest_analysis_for_session(self, session_id: str, camera_identifier: str) -> dict[str, Any] | None:
         cached = session_analysis_store.get_result(session_id)
@@ -225,6 +283,7 @@ class StreamSessionService:
     def stop(self, session: StreamSessionState) -> StreamSessionState:
         session_analysis_store.clear_session(session.session_id)
         clip_frame_buffer.clear(session.session_id)
+        fall_hold_tracker.clear(session.session_id)
         if self.use_memory_state:
             return self._state_store.stop(session.session_id)
 
@@ -367,6 +426,54 @@ class _InFlightSessions:
             return session_id in self._sessions
 
 
+class _InferenceTimingLog:
+    """프레임당 추론 시간 요약 — STREAM_INFER_LOG_INTERVAL_SEC 마다 INFO 한 줄(감지기 여러 개를 켤 때 속도 확인용)."""
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._reset(time.monotonic())
+
+    def _reset(self, now: float) -> None:
+        self._window_start = now
+        self._frames = 0
+        self._total_sum = 0.0
+        self._total_max = 0.0
+        self._kind_sums: dict[str, float] = {}
+
+    def record(self, timings_ms: dict[str, float]) -> None:
+        if not timings_ms:
+            return
+        total = sum(timings_ms.values())
+        _LOG.debug("[LIVE-INFER] total=%.1fms %s", total, timings_ms)
+        interval = get_settings().stream_infer_log_interval_sec
+        if interval <= 0:
+            return
+        now = time.monotonic()
+        with self._lock:
+            self._frames += 1
+            self._total_sum += total
+            self._total_max = max(self._total_max, total)
+            for kind, ms in timings_ms.items():
+                self._kind_sums[kind] = self._kind_sums.get(kind, 0.0) + ms
+            if now - self._window_start < interval:
+                return
+            frames = self._frames
+            avg = self._total_sum / frames
+            peak = self._total_max
+            per_kind = ", ".join(f"{k} {v / frames:.1f}ms" for k, v in self._kind_sums.items())
+            elapsed = now - self._window_start
+            self._reset(now)
+        _LOG.info(
+            "[LIVE-INFER] %.0f초 %d프레임 프레임당 평균 %.1fms (최대 %.1fms) - %s",
+            elapsed,
+            frames,
+            avg,
+            peak,
+            per_kind,
+        )
+
+
+_inference_timing = _InferenceTimingLog()
 _analysis_in_flight = _InFlightSessions()
 _analysis_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stream-analyze")
 
