@@ -133,8 +133,17 @@ X-API-Key: <API_KEY>
 - `latest_analysis.data`의 `detectedType`·`confidence`·`danger`·`detections`·`analyzedAt`는 백엔드 계약 그대로다. 대표 선택: danger인 것 중 **화재 > 흉기 > 낙상**, danger가 없으면 점수가 가장 높은 감지, 없으면 `normal`(전부 판정 불가면 `unknown`).
 - 추가 필드 `results`: 종류별 `{detectedType, confidence, danger, available}`. `detections`에는 모든 종류의 박스가 담긴다.
 - `detectedType` 값: `fire`/`smoke`(화재), `knife`(흉기, `knife_handle` 무시), `fall`(낙상 - 모델 클래스 `fallen`을 `fall`로 바꿔 보낸다. 백엔드는 `fallen`을 모른다).
-- 낙상은 한 장으로 판정하지 않는다: 최근 `FALL_HOLD_SEC`초(기본 1.5) 동안 분석된 장면 중 `FALL_HOLD_RATIO`(0.7) 이상에서 점수가 `FALL_DANGER_THRESHOLD`(0.4) 이상일 때만 `danger=true`. 분석 간격이 `FALL_HOLD_SEC`보다 길면 판정되지 않는다(`[FALL-HOLD-GAP]` WARN).
+- 낙상은 한 장으로 판정하지 않는다: 최근 `FALL_HOLD_SEC`초(기본 1.5) 동안 분석된 장면 중 `FALL_HOLD_RATIO`(0.7) 이상에서 점수가 `FALL_DANGER_THRESHOLD`(코드 기본 0.4, 서버 `.env`는 0.35) 이상일 때만 `danger=true`. 분석 간격이 `FALL_HOLD_SEC`보다 길면 판정되지 않는다(`[FALL-HOLD-GAP]` WARN).
 - 모델이 없거나 로드에 실패하면 그 종류만 꺼진다(서버는 뜬다). 프레임당 추론 시간은 `STREAM_INFER_LOG_INTERVAL_SEC`마다 `[LIVE-INFER]` INFO로 남는다 - 느리면 `STREAM_SAMPLE_EVERY_N_FRAMES`를 늘린다.
+
+#### 실시간 영상의 감지 박스
+
+- `mjpeg`와 `latest-frame` 응답에는 감지 박스(파란 테두리 + `fire 0.73` 라벨)가 **그려질 수 있다**. 분석 JSON(`latest-analysis`·WS)의 형식은 변경 없다 - 백엔드 계약 그대로다.
+- 보여주는 순간에만 복사본에 그린다. 분석 입력·클립 링버퍼·`frame_store`의 원본 JPEG는 건드리지 않아 **클립에는 박스가 없다**.
+- 표시 기준 `LIVE_BBOX_MIN_CONFIDENCE=danger`(기본) = 종류별 위험 기준(화재·연기 `FIRE_SMOKE_DANGER_THRESHOLD`, 흉기 `KNIFE_DANGER_THRESHOLD`, 낙상 `FALL_DANGER_THRESHOLD`). 박스가 보이면 알림 기준을 넘은 것이다(낙상은 한 장 점수라 알림은 유지 조건까지 통과해야 나간다). 숫자를 주면 모든 종류에 그 값을 쓴다.
+- 마지막 분석 결과를 `LIVE_BBOX_HOLD_SECONDS`(기본 1.0) 동안 유지한다. 감지 0건 결과가 오면 즉시 지운다.
+- 감지가 없는 프레임은 디코딩·재인코딩 없이 원본 바이트를 그대로 내보낸다(평소 추가 비용 0). 같은 프레임을 여러 시청자가 봐도 그리기는 한 번이다. 그리기가 `LIVE_BBOX_DRAW_TIMEOUT_MS`를 넘거나 오류가 나면 박스 없이 원본을 내보낸다(`[BBOX-DRAW-TIMEOUT]`·`[BBOX-DRAW-FAILED]` WARN).
+- **비상 스위치**: `LIVE_DRAW_BBOX=false` 후 재기동하면 이전과 100% 같게(원본 바이트 그대로) 동작한다.
 
 ## 6. 무저장 송출 모드
 

@@ -14,6 +14,7 @@ from app.core.response import error_response, success_response
 from app.database.session import SessionLocal, get_db
 from app.schemas.clip_schema import ClipRequest
 from app.schemas.stream_session_schema import StreamSessionCreate
+from app.services.bbox_overlay import bbox_overlay
 from app.services.clip_service import ClipError, clip_service
 from app.services.live_ws_manager import live_ws_manager
 from app.services.stream_session_service import StreamSessionService, frame_store
@@ -125,13 +126,14 @@ def list_live_streams(db: Session = Depends(get_db)) -> dict:
 def latest_frame(session_id: str, db: Session = Depends(get_db)) -> Response:
     service = StreamSessionService(db, frame_store)
     _ = service.require_session(session_id)
-    frame_bytes = frame_store.get_frame(session_id)
+    frame_bytes, seq = frame_store.get_frame_with_seq(session_id)
     if not frame_bytes:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=error_response("최신 프레임이 없습니다.", "STREAM_FRAME_NOT_FOUND", None),
         )
-    return Response(content=frame_bytes, media_type="image/jpeg")
+    # 감지 박스는 보여주는 복사본에만 그린다(감지가 없거나 LIVE_DRAW_BBOX=false 면 원본 바이트 그대로).
+    return Response(content=bbox_overlay.render(session_id, frame_bytes, seq), media_type="image/jpeg")
 
 
 @router.get("/api/v1/live-streams/{session_id}/status", summary="특정 세션 상태 조회")
@@ -169,8 +171,9 @@ async def stream_mjpeg(session_id: str, db: Session = Depends(get_db)) -> Stream
         frame_store.increment_viewer(session_id)
         try:
             while True:
-                frame_bytes = frame_store.get_frame(session_id)
+                frame_bytes, seq = frame_store.get_frame_with_seq(session_id)
                 if frame_bytes:
+                    frame_bytes = await bbox_overlay.render_async(session_id, frame_bytes, seq)
                     yield (
                         b"--frame\r\n"
                         b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"

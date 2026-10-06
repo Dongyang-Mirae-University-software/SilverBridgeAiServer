@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.response import error_response
+from app.services.bbox_overlay import bbox_overlay
 from app.services.clip_buffer import clip_frame_buffer
 from app.services.fall_detection_service import get_fall_detector
 from app.services.fall_hold_tracker import fall_hold_tracker
@@ -36,6 +37,7 @@ class StreamFrameStore:
         self._last_epoch: dict[str, float] = {}
         self._fps_map: dict[str, float] = {}
         self._viewers: dict[str, int] = {}
+        self._seq: dict[str, int] = {}
         self._lock = Lock()
 
     def set_frame(self, session_id: str, frame_bytes: bytes) -> tuple[datetime, float]:
@@ -43,6 +45,7 @@ class StreamFrameStore:
         now_epoch = time.time()
         with self._lock:
             self._frames[session_id] = frame_bytes
+            self._seq[session_id] = self._seq.get(session_id, 0) + 1
             self._frame_times[session_id] = now
             prev = self._last_epoch.get(session_id)
             if prev is None or now_epoch <= prev:
@@ -60,6 +63,11 @@ class StreamFrameStore:
     def get_frame(self, session_id: str) -> bytes | None:
         with self._lock:
             return self._frames.get(session_id)
+
+    def get_frame_with_seq(self, session_id: str) -> tuple[bytes | None, int]:
+        """원본 JPEG 와 프레임 순번(같은 프레임이면 같은 값) — 박스 그리기 캐시의 프레임 식별자."""
+        with self._lock:
+            return self._frames.get(session_id), self._seq.get(session_id, 0)
 
     def get_fps(self, session_id: str) -> float:
         with self._lock:
@@ -282,6 +290,7 @@ class StreamSessionService:
 
     def stop(self, session: StreamSessionState) -> StreamSessionState:
         session_analysis_store.clear_session(session.session_id)
+        bbox_overlay.clear_session(session.session_id)
         clip_frame_buffer.clear(session.session_id)
         fall_hold_tracker.clear(session.session_id)
         if self.use_memory_state:
