@@ -178,6 +178,15 @@ class Settings(BaseModel):
     clip_timeout_sec: float = _as_float("CLIP_TIMEOUT_SEC", 20.0)
     clip_tmp_dir: str = os.getenv("CLIP_TMP_DIR", "")
 
+    # 실시간 영상(MJPEG·latest-frame)의 감지 박스. 보여주는 복사본에만 그리고 원본·분석 입력·클립은 건드리지 않는다.
+    # LIVE_DRAW_BBOX=false 면 원본 바이트를 그대로 내보낸다(비상 스위치). 박스 표시 기준은 기본 "danger" =
+    # 종류별 위험 기준(*_DANGER_THRESHOLD)이라 박스가 보이면 알림 기준을 넘은 것이다(낙상은 유지 조건 별도).
+    # 숫자(0~1)를 주면 모든 종류에 그 값을 쓰는 재정의(시연·디버깅용).
+    live_draw_bbox: bool = _as_bool("LIVE_DRAW_BBOX", True)
+    live_bbox_hold_seconds: float = _as_float("LIVE_BBOX_HOLD_SECONDS", 1.0)
+    live_bbox_min_confidence: str = os.getenv("LIVE_BBOX_MIN_CONFIDENCE", "danger").strip() or "danger"
+    live_bbox_draw_timeout_ms: int = _as_int("LIVE_BBOX_DRAW_TIMEOUT_MS", 150)
+
 
 @lru_cache
 def get_settings() -> Settings:
