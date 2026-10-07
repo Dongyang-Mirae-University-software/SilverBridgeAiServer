@@ -144,7 +144,8 @@ def test_clip_409_after_session_stopped(client: TestClient) -> None:
 
 @pytest.mark.parametrize(
     "body",
-    [b"{not json", b"[1,2]", b'{"preSeconds": 6}', b'{"postSeconds": 4}', b'{"preSeconds":0,"postSeconds":0}',
+    [b"{not json", b"[1,2]", b'{"preSeconds": 9}', b'{"postSeconds": 4}',
+     b'{"preSeconds": 8, "postSeconds": 3}', b'{"preSeconds": 7.5, "postSeconds": 2.6}', b'{"preSeconds":0,"postSeconds":0}',
      b'{"detectedAt": "nope"}'],
 )
 def test_clip_422_invalid_params(client: TestClient, body: bytes) -> None:
@@ -394,3 +395,31 @@ def test_service_wraps_unexpected_encoder_errors() -> None:
         asyncio.run(service.create_clip("s", ClipRequest(detectedAt=detected)))
     assert (exc_info.value.status_code, exc_info.value.error_code) == (500, "CLIP_ENCODE_FAILED")
     assert service.inflight == 0
+
+
+def test_clip_pre_8_seconds_allowed(client: TestClient) -> None:
+    _start_session(client, "clip_pre8")
+    detected = (datetime.utcnow() - timedelta(seconds=5)).replace(microsecond=0).isoformat() + "Z"
+    res = client.post(
+        "/api/v1/live-streams/clip_pre8/clips",
+        json={"detectedAt": detected, "preSeconds": 8, "postSeconds": 1},
+        headers=HEADERS,
+    )
+    assert res.status_code != 422  # 구간 검증 통과(프레임이 없으면 409)
+
+
+def test_clip_total_over_buffer_422(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _start_session(client, "clip_buf")
+    monkeypatch.setitem(client.app.dependency_overrides, get_settings, lambda: _settings(clip_buffer_seconds=6.0))
+    monkeypatch.setattr(router_module, "get_settings", lambda: _settings(clip_buffer_seconds=6.0))
+    res = client.post(
+        "/api/v1/live-streams/clip_buf/clips", json={"preSeconds": 5, "postSeconds": 2}, headers=HEADERS,
+    )
+    assert res.status_code == 422
+    assert res.json()["errorCode"] == "CLIP_INVALID_PARAMS"
+
+
+def test_clip_request_defaults_unchanged() -> None:
+    req = ClipRequest()
+    assert (req.preSeconds, req.postSeconds) == (3, 2)
+    assert ClipRequest(preSeconds=8, postSeconds=2).preSeconds == 8

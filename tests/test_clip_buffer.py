@@ -128,7 +128,8 @@ def test_clip_request_defaults_and_time_parsing() -> None:
 @pytest.mark.parametrize(
     "payload",
     [
-        {"preSeconds": 5.1},
+        {"preSeconds": 8.1},
+        {"preSeconds": 8, "postSeconds": 2.5},
         {"preSeconds": -1},
         {"postSeconds": 3.5},
         {"preSeconds": 0, "postSeconds": 0},

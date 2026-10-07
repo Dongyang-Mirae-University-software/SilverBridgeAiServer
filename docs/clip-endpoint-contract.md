@@ -1,7 +1,12 @@
-# AI 서버 클립 엔드포인트 계약 (SilverBridgeAiServer) — 최종본 v2
+# AI 서버 클립 엔드포인트 계약 (SilverBridgeAiServer) — 최종본 v3
 
 작성: 2026-10-04 (v1 최종본 → 구현 반영 v2) / 대상: AI 서버 개발(provider), 백엔드 개발(consumer)
 변경 규칙: 한쪽이 계약과 다르게 구현하려면 **이 문서를 먼저 수정**하고 상대에게 알린다.
+
+> **v2 → v3 변경점 (2026-10-07)** — 낙상은 6초 유지돼야 위험으로 판정돼 넘어지는 순간이 판정 약 6초 전이다. 백엔드가 낙상만 앞 8초 + 뒤 1초를 요청할 수 있도록 상한을 넓혔다.
+> - `preSeconds` 상한 5 → **8**, 합계 상한 8 → **10**. 합계는 `CLIP_BUFFER_SECONDS`(기본 10)도 넘을 수 없다(버퍼보다 긴 구간은 앞이 비어 클립이 짧아진다) - 넘으면 422 `CLIP_INVALID_PARAMS`.
+> - `postSeconds` 상한 3, 기본값(3+2), 응답 형식, 오류 코드, 검사 순서는 그대로. 기존 호출(pre ≤ 5)은 동작이 같다.
+> - 링버퍼 장수 상한(`CLIP_MAX_FRAMES` 100)은 수신 fps가 12.5를 넘으면 앞 8초를 다 담지 못한다 - 운영 설정 확인 사항.
 
 > **v1 → v2 변경점 (백엔드 확인 필요)** — 아래 본문에 ★로 표시
 > 1. 503 `CLIP_DISABLED` 추가(킬 스위치 `CLIP_ENABLED=false`)
@@ -13,7 +18,7 @@
 > 7. 프레임이 초당 15장을 넘으면 고르게 솎아 길이를 유지(fps는 계속 1~15)
 
 ## 1. 목적
-이상감지(danger=true) 시점의 **5초 영상 클립**(감지 앞 3초 + 뒤 2초)을 만들어 돌려준다.
+이상감지(danger=true) 시점의 **영상 클립**(기본 감지 앞 3초 + 뒤 2초, 요청으로 앞 최대 8초·합계 최대 10초)을 만들어 돌려준다.
 저장은 백엔드가 한다. **AI 서버는 클립을 영구 저장하지 않는다**(임시 파일만 사용).
 기존 `latest_analysis` WebSocket 페이로드와 송출 API는 변경 없음.
 
@@ -25,10 +30,10 @@
 | 필드 | 타입 | 기본 | 설명 |
 |---|---|---|---|
 | detectedAt | string (ISO-8601) | 요청 수신 시각 | 감지 시각. `latest_analysis.analyzedAt`(naive UTC)을 UTC로 해석해 전달. `Z`·오프셋이 있으면 UTC로 바꾸고, 없으면 UTC로 본다 |
-| preSeconds | number | 3 | 0~5. 범위 밖이면 422 |
+| preSeconds | number | 3 | 0~8. 범위 밖이면 422 |
 | postSeconds | number | 2 | 0~3. 범위 밖이면 422 |
 
-구간 = `[detectedAt - preSeconds, detectedAt + postSeconds]`(양 끝 포함), 합계 최대 8초. ★ 합계 0이면 422.
+구간 = `[detectedAt - preSeconds, detectedAt + postSeconds]`(양 끝 포함), 합계 최대 10초(그리고 `CLIP_BUFFER_SECONDS` 이하). ★ 합계 0이면 422, 합계가 상한을 넘어도 422.
 
 ★ **시각 기준**: `analyzedAt`은 `detect_from_jpeg` 진입 직후(디코딩·추론 전)에 찍히고, 링버퍼 시각은 같은 요청에서 같은 시계(`datetime.utcnow()`)로 찍은 프레임 수신 시각이다. 둘의 차이는 ms 단위라 보정하지 않는다. 백엔드가 `detectedAt`을 ms로 잘라 보내면 구간 끝 경계에 정확히 걸린 프레임 1장이 빠질 수 있다(무시 가능).
 
@@ -50,7 +55,7 @@
 |---|---|---|
 | 401 | AUTH_INVALID_KEY | API 키 없음·불일치 (기존 의존성) |
 | ★ 503 | CLIP_DISABLED | `CLIP_ENABLED=false` |
-| 422 | CLIP_INVALID_PARAMS | 파라미터 범위 오류, 합계 0, JSON 파싱 실패·객체 아님, detectedAt 형식 오류 |
+| 422 | CLIP_INVALID_PARAMS | 파라미터 범위 오류, 합계 0·합계 10 초과·버퍼 길이 초과, JSON 파싱 실패·객체 아님, detectedAt 형식 오류 |
 | 404 | STREAM_SESSION_NOT_FOUND | 세션 없음 |
 | 429 | CLIP_BUSY | ★ 진행 중 요청 12건(동시 2 + 대기열 10) 이상 |
 | 409 | CLIP_NOT_ENOUGH_FRAMES | ★ 구간 프레임 2장 미만(감지가 오래됨, 세션 종료(stop 시 버퍼 삭제), AI 재시작으로 버퍼 소실 등) |
