@@ -187,6 +187,17 @@ class Settings(BaseModel):
     live_bbox_min_confidence: str = os.getenv("LIVE_BBOX_MIN_CONFIDENCE", "danger").strip() or "danger"
     live_bbox_draw_timeout_ms: int = _as_int("LIVE_BBOX_DRAW_TIMEOUT_MS", 150)
 
+    # 학습용 프레임 수집(집 안 영상이다). 기본 꺼짐이고, 켜도 COLLECT_SESSION_IDS 에 적은 세션만 저장한다(비면 0).
+    # 실제 사용자 카메라는 넣지 말 것 - 허용한 팀 시험 세션만. 내려받는 API 는 없다(서버에서 직접 옮긴다).
+    collect_enabled: bool = _as_bool("COLLECT_ENABLED", False)
+    collect_session_ids: str = os.getenv("COLLECT_SESSION_IDS", "")
+    collect_dir: str = os.getenv("COLLECT_DIR", "").strip() or "/app/data/collect"
+    collect_min_confidence: float = _as_float("COLLECT_MIN_CONFIDENCE", 0.2)
+    collect_daily_max_per_session: int = _as_int("COLLECT_DAILY_MAX_PER_SESSION", 2000)
+    collect_max_total_gb: float = _as_float("COLLECT_MAX_TOTAL_GB", 20.0)
+    collect_min_free_gb: float = _as_float("COLLECT_MIN_FREE_GB", 5.0)
+    collect_retention_days: int = _as_int("COLLECT_RETENTION_DAYS", 14)
+
 
 @lru_cache
 def get_settings() -> Settings:
