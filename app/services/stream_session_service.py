@@ -22,6 +22,7 @@ from app.services.fire_smoke_detection_service import get_fire_smoke_detector
 from app.services.knife_detection_service import get_knife_detector
 from app.services.live_detection_merge import merge_kind_results
 from app.services.session_analysis_store import session_analysis_store
+from app.services.training_sample_collector import training_sample_collector
 from app.models.analysis_result import AnalysisResult
 from app.models.stream_session import StreamSession
 
@@ -260,6 +261,10 @@ class StreamSessionService:
         if payload.get("analyzedAt") is None:
             payload["analyzedAt"] = datetime.utcnow().isoformat()
         session_analysis_store.set_result(session_id, payload)
+        try:
+            training_sample_collector.offer(session_id, frame_bytes, kind_results, settings=self.settings)
+        except Exception:  # noqa: BLE001 - 학습용 수집이 분석 응답에 영향을 주면 안 된다
+            pass
         return payload
 
     def _apply_fall_hold(self, session_id: str, result: dict[str, Any]) -> dict[str, Any]:
