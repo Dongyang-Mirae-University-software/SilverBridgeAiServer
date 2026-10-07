@@ -214,7 +214,7 @@ def _require_stream_session(session_id: str) -> None:
 
 @router.post(
     "/api/v1/live-streams/{session_id}/clips",
-    summary="이상감지 클립 생성(WebM, 감지 앞 3초 + 뒤 2초)",
+    summary="이상감지 클립 생성(WebM, 기본 감지 앞 3초 + 뒤 2초)",
     response_class=Response,
     responses={200: {"content": {"video/webm": {}}}},
     openapi_extra={
@@ -231,6 +231,12 @@ async def create_clip(session_id: str, request: Request) -> Response:
             detail=error_response("클립 기능이 꺼져 있습니다.", "CLIP_DISABLED", None),
         )
     params = await _parse_clip_request(request)
+    # 버퍼보다 긴 구간은 앞이 비어 클립이 짧아진다 - 오류 순서(422 → 404)를 지키려고 세션 확인 앞에서 거른다.
+    if params.preSeconds + params.postSeconds > get_settings().clip_buffer_seconds + 1e-9:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=error_response("클립 구간이 보관 시간보다 깁니다.", "CLIP_INVALID_PARAMS", None),
+        )
     _require_stream_session(session_id)
     try:
         result = await clip_service.create_clip(session_id, params)
