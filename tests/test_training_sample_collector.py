@@ -88,6 +88,34 @@ def test_session_not_allowed_or_empty_list_saves_nothing(tmp_path, col):
     assert _files(tmp_path) == []
 
 
+@pytest.mark.parametrize(
+    ("spec", "sid", "saved"),
+    [
+        ("ward_*", "ward_AbC123", True),
+        ("ward_*", "other_AbC123", False),
+        ("ward_exact, other_*", "ward_exact", True),
+        ("ward_exact, other_*", "other_zzz", True),
+        ("ward_exact", "ward_exact2", False),
+        ("ward_*x", "ward_ax", False),  # 중간 * 는 무시
+        ("a*b", "axb", False),
+        ("*", "anything", True),
+        (" , ", "ward_x", False),
+        ("", "ward_x", False),
+    ],
+)
+def test_session_allow_patterns(tmp_path, col, spec, sid, saved):
+    s = _settings(tmp_path, collect_session_ids=spec)
+    col.offer(sid, JPEG, _kinds(fire=("fire", 0.9, True)), settings=s)
+    assert bool(_files(tmp_path)) is saved
+
+
+def test_spec_change_is_reparsed(tmp_path, col):
+    col.offer("ward_a", JPEG, _kinds(fire=("fire", 0.9, True)), settings=_settings(tmp_path, collect_session_ids="nope"))
+    assert _files(tmp_path) == []
+    col.offer("ward_a", JPEG, _kinds(fire=("fire", 0.9, True)), settings=_settings(tmp_path, collect_session_ids="ward_*"))
+    assert len(_files(tmp_path)) == 1
+
+
 def test_alert_and_near_classification(tmp_path, col):
     s = _settings(tmp_path)
     col.offer(SID, JPEG, _kinds(fire=("fire", 0.9, True), knife=("knife", 0.3, False)), settings=s)

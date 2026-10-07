@@ -73,6 +73,10 @@ class TrainingSampleCollector:
         self._total_bytes: int | None = None  # None = 아직 스캔 전
         self._last_cleanup: float | None = None
         self._last_warn: dict[str, float] = {}
+        self._spec: str | None = None  # 허용 목록 문자열 → 파싱 캐시(설정이 바뀌면 다시 읽는다)
+        self._exact: set[str] = set()
+        self._prefixes: tuple[str, ...] = ()
+        self._allow_all = False
 
     # --- 호출부 ---------------------------------------------------------------------------
 
@@ -93,8 +97,7 @@ class TrainingSampleCollector:
     ) -> None:
         if not s.collect_enabled or not frame_bytes:
             return
-        allowed = {x.strip() for x in s.collect_session_ids.split(",") if x.strip()}
-        if session_id not in allowed:
+        if not self._session_allowed(session_id, s.collect_session_ids):
             return
         samples = []
         for kind, result in kind_results:
@@ -127,6 +130,27 @@ class TrainingSampleCollector:
         analyzed_at = next((r.get("detectedAt") for _, r in kind_results if r.get("detectedAt")), None)
         job = (session_id, frame_bytes, samples, overview, analyzed_at, s)
         self._submit(job)
+
+    def _session_allowed(self, session_id: str, spec: str) -> bool:
+        """허용 목록: 정확한 ID, 끝에 *를 붙인 접두어(ward_*), 또는 * 하나(전체). 중간 *는 무시한다."""
+        if spec != self._spec:
+            exact: set[str] = set()
+            prefixes: list[str] = []
+            allow_all = False
+            for raw in spec.split(","):
+                item = raw.strip()
+                if not item:
+                    continue
+                if item == "*":
+                    allow_all = True
+                elif item.endswith("*") and "*" not in item[:-1]:
+                    prefixes.append(item[:-1])
+                elif "*" not in item:
+                    exact.add(item)
+            if allow_all:
+                _LOG.warning("[COLLECT] COLLECT_SESSION_IDS='*' - all sessions are collected")
+            self._spec, self._exact, self._prefixes, self._allow_all = spec, exact, tuple(prefixes), allow_all
+        return self._allow_all or session_id in self._exact or session_id.startswith(self._prefixes)
 
     @staticmethod
     def _classify(kind: str, result: dict[str, Any], s: Settings) -> tuple[str, float] | None:
