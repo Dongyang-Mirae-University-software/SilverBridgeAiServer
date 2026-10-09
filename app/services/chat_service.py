@@ -365,6 +365,13 @@ class ChatService:
         }
 
     @staticmethod
+    def delete_logs(db: Session, user_id: str) -> int:
+        """해당 회원의 상담 기록을 모두 지우고 지운 건수를 돌려준다(회원 탈퇴 정리용). 다른 회원 기록은 건드리지 않는다."""
+        deleted = db.query(ChatLog).filter(ChatLog.user_id == user_id).delete(synchronize_session=False)
+        db.commit()
+        return int(deleted)
+
+    @staticmethod
     def list_logs(db: Session, user_id: str | None = None) -> list[dict]:
         query = db.query(ChatLog)
         if user_id is not None:

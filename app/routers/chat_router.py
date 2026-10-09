@@ -41,6 +41,14 @@ def list_logs(userId: str | None = Query(default=None, max_length=64), db: Sessi
     return success_response("챗 로그 조회 완료", chat_service.list_logs(db, userId))
 
 
+@router.delete("/logs", summary="회원의 챗 로그 전체 삭제 (회원 탈퇴 정리용)")
+def delete_logs(userId: str | None = Query(default=None, max_length=64), db: Session = Depends(get_db)) -> dict:
+    # userId 없이 부르면 전 회원 기록이 지워질 수 있으므로 반드시 필수로 한다(본문·로그에는 상담 내용을 싣지 않는다).
+    _require_user_id(userId)
+    deleted = chat_service.delete_logs(db, userId.strip())
+    return success_response("챗 로그 삭제 완료", {"deleted": deleted})
+
+
 @router.get("/logs/{chat_id}", summary="챗 로그 상세 조회")
 def get_log(
     chat_id: int,
