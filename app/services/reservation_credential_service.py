@@ -56,6 +56,15 @@ class ReservationCredentialService:
         db.refresh(current)
         return self._to_summary(current)
 
+    @staticmethod
+    def delete_credential(db: Session, user_id: str) -> int:
+        """해당 회원의 예약 API 키 행을 지우고 지운 건수를 돌려준다(회원 탈퇴 정리용). 다른 회원 행은 건드리지 않는다."""
+        deleted = db.query(ReservationCredential).filter(ReservationCredential.user_id == user_id).delete(
+            synchronize_session=False
+        )
+        db.commit()
+        return int(deleted)
+
     def get_api_key(self, db: Session, user_id: str) -> str | None:
         current = db.query(ReservationCredential).filter(ReservationCredential.user_id == user_id).first()
         if not current:
