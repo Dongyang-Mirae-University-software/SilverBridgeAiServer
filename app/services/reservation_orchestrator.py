@@ -660,24 +660,8 @@ class ReservationOrchestrator:
                 )
             if not draft.location:
                 return self._ask_location(meta)
-            # 지역이 사용자 말(현재 문장·규격화 상태·이전 대화)에 없고 프로필에서만 왔으면 그 지역으로 찾을지 먼저 묻는다.
-            location_from_ui = ui_field in {"location", "location_confirm"}
-            said_by_user = draft.location in message_text or draft.location in history_text
-            if not location_from_ui and not said_by_user:
-                _trace(meta, "location_confirm_needed", location=draft.location)
-                return self._ui_reply(
-                    meta,
-                    f"{draft.location} 지역으로 검색할까요?",
-                    UiPayload(
-                        kind="select",
-                        field="location_confirm",
-                        label=f"{draft.location} 지역으로 검색할까요?",
-                        options=[
-                            UiOption(value=draft.location, label=f"네, {draft.location}"),
-                            UiOption(value="__other__", label="다른 지역 입력"),
-                        ],
-                    ),
-                )
+            # 프로필 지역은 되묻지 않고 바로 쓴다(한 턴 절약). 어느 지역으로 찾았는지는 결과 문구에 적고,
+            # 다른 지역을 원하면 사용자가 말한 지역이 현재 문장 우선 규칙으로 덮어쓴다.
 
         if draft.hospital_id is None and not draft.hospital_name and (draft.department or draft.location):
             unique_rows: list[dict[str, Any]] = []
@@ -732,7 +716,7 @@ class ReservationOrchestrator:
             if len(unique_rows) > 1:
                 _trace(meta, "hospital_selection_needed", candidate_count=len(unique_rows))
                 return {
-                    "reply": "예약할 병원을 선택해 주세요.",
+                    "reply": f"{region} 기준으로 찾은 병원이에요. 예약할 병원을 선택해 주세요.",
                     "riskLevel": "medium",
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,
