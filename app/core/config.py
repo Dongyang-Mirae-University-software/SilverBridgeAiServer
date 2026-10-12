@@ -39,6 +39,12 @@ def _as_float(name: str, default: float) -> float:
         return default
 
 
+def _as_float_in_range(name: str, default: float, low: float, high: float) -> float:
+    """범위 밖(또는 숫자가 아닌) 값은 기본값으로 대체한다 - 잘못 적은 환경변수가 판정을 무력화하지 않게."""
+    value = _as_float(name, default)
+    return value if low <= value <= high else default
+
+
 class Settings(BaseModel):
     app_name: str = os.getenv("APP_NAME", "SilverBridge AI Server")
     app_env: str = os.getenv("APP_ENV", "development")
@@ -177,6 +183,17 @@ class Settings(BaseModel):
     clip_queue_max: int = _as_int("CLIP_QUEUE_MAX", 10)
     clip_timeout_sec: float = _as_float("CLIP_TIMEOUT_SEC", 20.0)
     clip_tmp_dir: str = os.getenv("CLIP_TMP_DIR", "")
+
+    # 화재·연기 알림용 화면 품질 검사. 초점 나간·하얗게 날아간·가려진 화면은 분석 불가로 보고 화재 danger 를 내지 않는다
+    # (흉기·낙상은 대상 아님). 기준값은 10/12 실측(analysis/frame_gate_calib.json): 불량 규칙 =
+    # white > WHITE_RATIO 또는 black > BLACK_RATIO 또는 std < STD_MIN 또는 (lap < LAP_MAX 그리고 std < BLUR_STD_MAX).
+    # 킬 스위치 FRAME_QUALITY_GATE_ENABLED=false 면 기존 동작과 같다. 범위 밖 값은 기본값으로 대체한다.
+    frame_quality_gate_enabled: bool = _as_bool("FRAME_QUALITY_GATE_ENABLED", True)
+    frame_quality_white_ratio: float = _as_float_in_range("FRAME_QUALITY_WHITE_RATIO", 0.5, 0.05, 1.0)
+    frame_quality_black_ratio: float = _as_float_in_range("FRAME_QUALITY_BLACK_RATIO", 0.95, 0.05, 1.0)
+    frame_quality_std_min: float = _as_float_in_range("FRAME_QUALITY_STD_MIN", 12.0, 0.0, 60.0)
+    frame_quality_lap_max: float = _as_float_in_range("FRAME_QUALITY_LAP_MAX", 10.0, 0.0, 500.0)
+    frame_quality_blur_std_max: float = _as_float_in_range("FRAME_QUALITY_BLUR_STD_MAX", 30.0, 0.0, 100.0)
 
     # 실시간 영상(MJPEG·latest-frame)의 감지 박스. 보여주는 복사본에만 그리고 원본·분석 입력·클립은 건드리지 않는다.
     # LIVE_DRAW_BBOX=false 면 원본 바이트를 그대로 내보낸다(비상 스위치). 박스 표시 기준은 기본 "danger" =
