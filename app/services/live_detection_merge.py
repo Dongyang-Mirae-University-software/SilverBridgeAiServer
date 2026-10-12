@@ -53,6 +53,8 @@ def merge_kind_results(kind_results: list[tuple[str, dict[str, Any]]]) -> dict[s
                 "confidence": float(r.get("confidence") or 0.0),
                 "danger": bool(r.get("danger", False)),
                 "available": r.get("detectedType") != "unknown",
+                # 화면 품질 검사 결과(화재 항목에만 붙는다). 백엔드는 이 필드를 읽지 않는다.
+                **({"frameQuality": r["frameQuality"]} if "frameQuality" in r else {}),
             }
             for kind, r in ordered
         ],
