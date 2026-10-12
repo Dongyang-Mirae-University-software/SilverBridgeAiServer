@@ -12,7 +12,14 @@ from app.core.reservation_prompts import SYSTEM_PROMPT, build_user_prompt
 from app.schemas.chat_schema import ChatRequest, UiOption, UiPayload
 from app.services.gpt_structured_client import GptStructuredClient
 from app.services.reservation_api_client import ReservationApiClient
-from app.services.reservation_intake import CHANGE_DATE_OPTION, ReservationDraft, build_reservation_draft
+from app.services.reservation_intake import (
+    CHANGE_DATE_OPTION,
+    ReservationDraft,
+    _find_department,
+    _find_hospital_name,
+    _find_time,
+    build_reservation_draft,
+)
 from app.utils.conversation import format_recent_history, normalize_history
 from app.utils.json_extract import extract_json_object
 
@@ -57,12 +64,45 @@ def _trace(meta: dict[str, Any], event: str, **details: Any) -> None:
         _LOG.info("[예약트레이스] %s %s", event, {k: v for k, v in details.items() if v is not None})
 
 
+# 빠진 값을 물을 때 쓰는 문구·예시. 무엇을 넣어야 하는지 바로 알 수 있어야 한다.
+_GAP_PROMPTS: dict[str, tuple[str, str | None]] = {
+    "patient_name": ("예약하실 분의 성함을 입력해 주세요.", "예: 김영희"),
+    "phone": ("연락받을 전화번호를 입력해 주세요.", "예: 010-1234-5678"),
+    "department": ("진료과를 알려주세요.", "예: 내과"),
+    "hospital": ("병원 이름을 알려주세요.", "예: 강남메디내과"),
+    "location": ("지역을 알려주세요.", "예: 서울 강남구"),
+}
+
+
+# 증상 단어 → 진료과. 새 요청의 진료과가 직전 요청에서 이어지지 않게 하는 최소 규칙(LLM 추론보다 우선).
+_SYMPTOM_DEPARTMENTS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("머리", "두통", "어지러", "어지럼"), "신경과"),
+    (("눈", "충혈", "시력"), "안과"),
+    (("귀", "코", "목", "콧물", "편도"), "이비인후과"),
+    (("피부", "두드러기", "가려"), "피부과"),
+    (("허리", "무릎", "관절", "어깨", "뼈", "삐"), "정형외과"),
+    (("배", "속", "소화", "설사", "구토", "기침", "열", "감기"), "내과"),
+)
+
+
+def _symptom_department(text: str) -> str | None:
+    for words, department in _SYMPTOM_DEPARTMENTS:
+        if any(word in text for word in words):
+            return department
+    return None
+
+
+def _gap_label(field: str) -> str:
+    return _GAP_PROMPTS.get(field, ("아래에서 값을 선택하거나 입력해 주세요.", None))[0]
+
+
 def _ui_for_field(field: str) -> UiPayload:
     if field == "date":
         return UiPayload(kind="date", field="date", label="달력에서 진료 날짜를 선택해 주세요")
     if field == "time":
         return UiPayload(kind="select", field="time", label="예약 시간을 선택해 주세요")
-    return UiPayload(kind="text", field=field, label="아래에서 값을 선택하거나 입력해 주세요.")
+    label, placeholder = _GAP_PROMPTS.get(field, ("아래에서 값을 선택하거나 입력해 주세요.", None))
+    return UiPayload(kind="text", field=field, label=label, placeholder=placeholder)
 
 
 def _filter_future_times(slot_date: str | None, slots: list[str]) -> list[str]:
@@ -107,14 +147,35 @@ class ReservationOrchestrator:
         self._loader = loader
         self._reservation = reservation
 
-    def _slots_on(self, hospital_id: int, date_text: str, api_key: str | None) -> list[str] | None:
-        """해당 날짜의 빈 시간(오늘이면 지난 시간 제외). 조회 실패면 None."""
+    def _booked_times(self, api_key: str | None) -> dict[str, set[str]]:
+        """사용자가 이미 잡아 둔 날짜별 시간. 예약 서비스는 같은 사람의 같은 날짜·시간 예약을 병원과 무관하게 거절하므로
+        선택지에서 미리 뺀다. 조회 실패면 빈 값(fail-open)."""
+        try:
+            res = self._reservation.list_my_appointments(api_key_override=api_key)
+            rows = res.get("data") if int(res.get("httpStatus") or 0) == 200 else None
+        except Exception:  # noqa: BLE001
+            rows = None
+        booked: dict[str, set[str]] = {}
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict) or str(row.get("status") or "").upper() in {"CANCELED", "CANCELLED", "REJECTED"}:
+                continue
+            day = str(row.get("reservationDate") or row.get("date") or "")[:10]
+            tm = str(row.get("reservationTime") or row.get("time") or "").strip()
+            if day and tm:
+                booked.setdefault(day, set()).add(tm)
+        return booked
+
+    def _slots_on(
+        self, hospital_id: int, date_text: str, api_key: str | None, booked: dict[str, set[str]] | None = None
+    ) -> list[str] | None:
+        """해당 날짜의 빈 시간(오늘이면 지난 시간 제외, 내가 이미 잡은 시간 제외). 조회 실패면 None."""
         res = self._reservation.get_available_slots(hospital_id, date_text, api_key_override=api_key)
         data = res.get("data")
         if int(res.get("httpStatus") or 0) != 200 or not isinstance(data, dict):
             return None
         slots = [str(s).strip() for s in data.get("availableSlots") or [] if str(s).strip()]
-        return _filter_future_times(date_text, slots)
+        taken = (booked or {}).get(date_text, set())
+        return [s for s in _filter_future_times(date_text, slots) if s.split()[-1] not in taken]
 
     def _find_slots(
         self, hospital_id: int, requested_date: str, api_key: str | None, meta: dict[str, Any]
@@ -122,7 +183,8 @@ class ReservationOrchestrator:
         """요청 날짜에 빈 시간이 없으면 다음 날부터 SLOT_LOOKAHEAD_DAYS일 안에서 처음 비는 날을 찾는다.
 
         반환 (날짜, 슬롯). 요청 날짜 조회 자체가 실패하면 (None, [])로 기존 흐름(시간 직접 입력)에 맡긴다."""
-        slots = self._slots_on(hospital_id, requested_date, api_key)
+        booked = self._booked_times(api_key)
+        slots = self._slots_on(hospital_id, requested_date, api_key, booked)
         _trace(meta, "slot_lookup", hospital_id=hospital_id, slot_count=None if slots is None else len(slots))
         if slots is None:
             return None, []
@@ -134,11 +196,53 @@ class ReservationOrchestrator:
             return requested_date, []
         for offset in range(1, self.SLOT_LOOKAHEAD_DAYS + 1):
             candidate = (base + timedelta(days=offset)).isoformat()
-            found = self._slots_on(hospital_id, candidate, api_key) or []
+            found = self._slots_on(hospital_id, candidate, api_key, booked) or []
             if found:
                 _trace(meta, "slot_lookahead", requested=requested_date, found=candidate)
                 return candidate, found
         return requested_date, []
+
+    def _time_select_reply(
+        self, meta: dict[str, Any], draft: ReservationDraft, requested_date: str, slot_date: str, slots: list[str], prefix: str = ""
+    ) -> dict[str, Any]:
+        """시간 선택지 응답. 요청 날짜와 다른 날로 넘겼으면 그 사실을, prefix가 있으면 그 사유(중복 등)를 앞에 붙인다."""
+        label = "예약 시간을 선택해 주세요."
+        context_label = self._reservation_context_label(draft)
+        if context_label:
+            label = f"{context_label} 예약 시간을 선택해 주세요."
+        if slot_date != requested_date:
+            label = (
+                f"{_date_label(requested_date)}은 예약 가능한 시간이 없어 "
+                f"{_date_label(slot_date)} 예약 가능 시간을 보여드립니다. {label}"
+            )
+        if prefix:
+            label = f"{prefix} {label}"
+        return {
+            "reply": label,
+            "riskLevel": "medium",
+            "recommendedAction": "guardian_contact",
+            "reservationRequired": True,
+            "intent": "hospital_reservation",
+            "engine": "gpt",
+            "modelName": self._loader.state.model_name,
+            "type": "message",
+            "ui": UiPayload(
+                kind="select",
+                field="time",
+                label="예약 시간을 선택해 주세요.",
+                options=[UiOption(value=f"{slot_date} {s}", label=s) for s in slots]
+                + [UiOption(value=CHANGE_DATE_OPTION, label="다른 날짜 선택")],
+            ),
+            "tool": None,
+            "data": None,
+            "summary": None,
+            "possibleCauses": [],
+            "homeCare": [],
+            "visitHospitalIf": [],
+            "emergencyWarning": [],
+            "meta": meta,
+            "decisionTrace": meta.get("decisionTrace") or [],
+        }
 
     @staticmethod
     def _normalize_location_hint(location: str | None) -> str | None:
@@ -190,6 +294,20 @@ class ReservationOrchestrator:
             elif isinstance(value, int):
                 lines.append(f"- {key}: {value}")
         return "\n".join(lines) if lines else "(없음)"
+
+    NEW_REQUEST_CUES = ("근처", "가까운", "주변", "아파", "아프", "통증", "증상")
+    REQUEST_VERBS = ("예약", "잡아", "찾아", "알아봐", "접수")
+
+    @classmethod
+    def _is_new_request(cls, message: str) -> bool:
+        """요청 동사(예약·잡아·찾아…)와 함께 진료과·병원명·"근처"·증상 중 하나를 말하면 새 요청으로 본다."""
+        if not message or not any(verb in message for verb in cls.REQUEST_VERBS):
+            return False
+        return bool(
+            _find_department(message)
+            or _find_hospital_name(message)
+            or any(cue in message for cue in cls.NEW_REQUEST_CUES)
+        )
 
     @staticmethod
     def _looks_like_reservation(message: str) -> bool:
@@ -411,6 +529,8 @@ class ReservationOrchestrator:
         ui_field = req.uiSelection.field if req.uiSelection else None
         ui_value = req.uiSelection.value if req.uiSelection else None
         message_text = (req.message or "").strip()
+        # 라우터가 규격화한 문장이 아니라 사용자가 실제로 친 문장. 새 요청·조회 판단은 이걸로 한다.
+        raw_message = str(meta.get("rawMessage") or message_text).strip()
         intent = "hospital_reservation" if self._looks_like_reservation(message_text) else "general_chat"
         _trace(meta, "reservation_candidate", intent=intent, ui_field=ui_field)
 
@@ -562,7 +682,7 @@ class ReservationOrchestrator:
                 "decisionTrace": meta.get("decisionTrace") or [],
             }
 
-        if any(keyword in message_text for keyword in self.LOOKUP_KEYWORDS):
+        if any(keyword in raw_message for keyword in self.LOOKUP_KEYWORDS):
             result = self._reservation.list_my_appointments(api_key_override=reservation_api_key)
             st = int(result.get("httpStatus") or 0)
             data = result.get("data")
@@ -603,6 +723,19 @@ class ReservationOrchestrator:
         extracted = self._extract_reservation_fields(req, history_text, normalized_loc or loc, meta)
         if extracted:
             self._apply_extracted(draft, extracted)
+
+        # 새 예약 요청(버튼이 아닌 문장에 진료과·병원·"근처"·증상이 있음)이면 이전 턴에서 고른 병원·시간은 버린다.
+        # 초안은 매 턴 이력 전체에서 다시 만들어지므로, 안 버리면 지난 요청의 병원·시간이 새 요청에 그대로 붙는다.
+        if not req.uiSelection and self._is_new_request(raw_message):
+            if not _find_hospital_name(raw_message):
+                draft.hospital_name = None
+                draft.hospital_id = None
+            if not _find_time(raw_message):
+                draft.reservation_time = None
+            dept_in_message = _find_department(raw_message) or _symptom_department(raw_message)
+            if dept_in_message:
+                draft.department = dept_in_message
+            _trace(meta, "new_request_reset", hospital=draft.hospital_name, time=draft.reservation_time, department=draft.department)
 
         if req.uiSelection:
             field = req.uiSelection.field
@@ -819,41 +952,7 @@ class ReservationOrchestrator:
                 # 자동으로 넘긴 날짜는 서버에 저장되지 않으므로 시간 버튼 값("YYYY-MM-DD HH:mm")에 담아 다음 턴에 받는다.
                 draft.reservation_date = slot_date
                 if slots:
-                    label = "예약 시간을 선택해 주세요."
-                    context_label = self._reservation_context_label(draft)
-                    if context_label:
-                        label = f"{context_label} 예약 시간을 선택해 주세요."
-                    if slot_date != requested_date:
-                        label = (
-                            f"{_date_label(requested_date)}은 예약 가능한 시간이 없어 "
-                            f"{_date_label(slot_date)} 예약 가능 시간을 보여드립니다. {label}"
-                        )
-                    return {
-                        "reply": label,
-                        "riskLevel": "medium",
-                        "recommendedAction": "guardian_contact",
-                        "reservationRequired": True,
-                        "intent": "hospital_reservation",
-                        "engine": "gpt",
-                        "modelName": self._loader.state.model_name,
-                        "type": "message",
-                        "ui": UiPayload(
-                            kind="select",
-                            field="time",
-                            label=label,
-                            options=[UiOption(value=f"{slot_date} {s}", label=s) for s in slots]
-                            + [UiOption(value=CHANGE_DATE_OPTION, label="다른 날짜 선택")],
-                        ),
-                        "tool": None,
-                        "data": None,
-                        "summary": None,
-                        "possibleCauses": [],
-                        "homeCare": [],
-                        "visitHospitalIf": [],
-                        "emergencyWarning": [],
-                        "meta": meta,
-                        "decisionTrace": meta.get("decisionTrace") or [],
-                    }
+                    return self._time_select_reply(meta, draft, requested_date, slot_date, slots)
                 return {
                     "reply": f"{_date_label(requested_date)}부터 {self.SLOT_LOOKAHEAD_DAYS}일 안에는 예약 가능한 시간이 없습니다. 다른 날짜를 선택해 주세요.",
                     "riskLevel": "medium",
@@ -879,7 +978,7 @@ class ReservationOrchestrator:
         if gap:
             _trace(meta, "reservation_gap", missing=gap)
             return {
-                "reply": "아래에서 값을 선택하거나 입력해 주세요.",
+                "reply": _gap_label(gap),
                 "riskLevel": "medium",
                 "recommendedAction": "guardian_contact",
                 "reservationRequired": True,
@@ -965,6 +1064,15 @@ class ReservationOrchestrator:
             msg = str(data.get("message") or msg)
             code = str(data.get("code") or code)
         _trace(meta, "reservation_submit_failed", http_status=st, code=code, message=msg[:200])
+        if code == "DUPLICATE_RESERVATION" and draft.hospital_id is not None and draft.reservation_date:
+            # 같은 시간대 중복은 막다른 길이 아니라 시간을 다시 고르게 한다.
+            draft.reservation_time = None
+            slot_date, slots = self._find_slots(draft.hospital_id, draft.reservation_date, reservation_api_key, meta)
+            if slot_date is not None and slots:
+                return self._time_select_reply(
+                    meta, draft, draft.reservation_date, slot_date, slots,
+                    prefix="같은 시간대에 이미 예약이 있어요. 다른 시간을 골라 주세요.",
+                )
         return {
             "reply": msg,
             "riskLevel": "medium",

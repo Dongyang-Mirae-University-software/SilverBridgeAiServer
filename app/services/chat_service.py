@@ -15,7 +15,7 @@ from app.services.reservation_credential_service import get_reservation_credenti
 from app.services.chat_router_service import get_chat_router_service
 from app.services.chat_upstream_service import get_chat_upstream_service
 from app.services.medical_llm_service import get_medical_llm_service
-from app.services.reservation_orchestrator import get_reservation_orchestrator
+from app.services.reservation_orchestrator import ReservationOrchestrator, get_reservation_orchestrator
 
 _LOG = logging.getLogger(__name__)
 
@@ -93,10 +93,24 @@ class ChatService:
                 try:
                     route_info = get_chat_router_service().route(
                         message, history, user_context,
-                        prev_reservation=self._last_reservation_state(db, payload.userId, session_id),
+                        # 새 예약 요청이면 직전 턴의 병원·시간을 끌어오지 않는다(지난 요청이 새 요청에 붙는 것 방지).
+                        prev_reservation=None
+                        if ReservationOrchestrator._is_new_request(message)
+                        else self._last_reservation_state(db, payload.userId, session_id),
                     )
                 except Exception as exc:  # noqa: BLE001
                     _LOG.warning("chat router fallback to keywords: %s", exc)
+                # "머리가 아파서 병원 예약하고 싶어요"처럼 증상과 예약이 섞이면 라우터가 증상 상담으로 보내기도 한다 - 예약 요청이 분명하면 예약으로 고정.
+                if (
+                    route_info
+                    and route_info.get("route") != "reservation"
+                    and not route_info.get("emergency")
+                    and ReservationOrchestrator._is_new_request(message)
+                ):
+                    route_info = {**route_info, "route": "reservation", "normalized_message": message, "reason": "new-request-override"}
+                if route_info and route_info.get("route") == "reservation" and ReservationOrchestrator._is_new_request(message):
+                    # 새 요청은 라우터 규격화 문장(이전 병원·시간이 딸려옴) 대신 원문을 넘긴다. 다음 턴의 상태 기억도 원문 기준.
+                    route_info = {**route_info, "normalized_message": message}
             if not route_info and not message and ui_selection and ui_selection["field"] in reservation_ui_fields:
                 # UI 블록 선택 턴: 직전 규격화 문장에 선택값을 붙여 상태를 이어간다.
                 prev = self._last_reservation_state(db, payload.userId, session_id) or "병원 예약:"
@@ -137,6 +151,7 @@ class ChatService:
                 reservation_result = reservation_orchestrator.handle(
                     routed_payload,
                     {
+                        "rawMessage": message,
                         "model": self._settings.gpt_model_name,
                         "schemaVersion": "ai-reservation-v1",
                         "reservationApiKey": reservation_api_key,
