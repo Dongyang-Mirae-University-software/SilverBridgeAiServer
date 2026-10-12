@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import logging
 from functools import lru_cache
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -12,12 +12,24 @@ from app.core.reservation_prompts import SYSTEM_PROMPT, build_user_prompt
 from app.schemas.chat_schema import ChatRequest, UiOption, UiPayload
 from app.services.gpt_structured_client import GptStructuredClient
 from app.services.reservation_api_client import ReservationApiClient
-from app.services.reservation_intake import ReservationDraft, build_reservation_draft
+from app.services.reservation_intake import CHANGE_DATE_OPTION, ReservationDraft, build_reservation_draft
 from app.utils.conversation import format_recent_history, normalize_history
 from app.utils.json_extract import extract_json_object
 
 _LOG = logging.getLogger(__name__)
 _SEOUL_TZ = ZoneInfo("Asia/Seoul")
+_WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"]
+
+
+def _date_label(date_text: str) -> str:
+    """안내 문구용 날짜. 오늘이면 "오늘", 아니면 "10월 13일(화)"."""
+    try:
+        target = datetime.strptime(date_text, "%Y-%m-%d").date()
+    except ValueError:
+        return date_text
+    if target == datetime.now(_SEOUL_TZ).date():
+        return "오늘"
+    return f"{target.month}월 {target.day}일({_WEEKDAYS[target.weekday()]})"
 
 
 def _is_past_date(value: str) -> bool:
@@ -87,11 +99,46 @@ class ReservationOrchestrator:
     RESERVATION_KEYWORDS = ("예약", "병원", "진료", "접수", "내 예약", "예약 내역", "예약 조회", "예약 목록")
     LOOKUP_KEYWORDS = ("내 예약", "예약 내역", "예약 조회", "예약 목록")
     SEARCH_KEYWORDS = ("병원 찾아", "근처 병원", "찾아줘", "찾아")
+    # 선택한 날짜가 꽉 찼을 때 다음 빈 날을 찾는 범위
+    SLOT_LOOKAHEAD_DAYS = 7
 
     def __init__(self, settings: Settings, loader: GptStructuredClient, reservation: ReservationApiClient) -> None:
         self._settings = settings
         self._loader = loader
         self._reservation = reservation
+
+    def _slots_on(self, hospital_id: int, date_text: str, api_key: str | None) -> list[str] | None:
+        """해당 날짜의 빈 시간(오늘이면 지난 시간 제외). 조회 실패면 None."""
+        res = self._reservation.get_available_slots(hospital_id, date_text, api_key_override=api_key)
+        data = res.get("data")
+        if int(res.get("httpStatus") or 0) != 200 or not isinstance(data, dict):
+            return None
+        slots = [str(s).strip() for s in data.get("availableSlots") or [] if str(s).strip()]
+        return _filter_future_times(date_text, slots)
+
+    def _find_slots(
+        self, hospital_id: int, requested_date: str, api_key: str | None, meta: dict[str, Any]
+    ) -> tuple[str | None, list[str]]:
+        """요청 날짜에 빈 시간이 없으면 다음 날부터 SLOT_LOOKAHEAD_DAYS일 안에서 처음 비는 날을 찾는다.
+
+        반환 (날짜, 슬롯). 요청 날짜 조회 자체가 실패하면 (None, [])로 기존 흐름(시간 직접 입력)에 맡긴다."""
+        slots = self._slots_on(hospital_id, requested_date, api_key)
+        _trace(meta, "slot_lookup", hospital_id=hospital_id, slot_count=None if slots is None else len(slots))
+        if slots is None:
+            return None, []
+        if slots:
+            return requested_date, slots
+        try:
+            base = datetime.strptime(requested_date, "%Y-%m-%d").date()
+        except ValueError:
+            return requested_date, []
+        for offset in range(1, self.SLOT_LOOKAHEAD_DAYS + 1):
+            candidate = (base + timedelta(days=offset)).isoformat()
+            found = self._slots_on(hospital_id, candidate, api_key) or []
+            if found:
+                _trace(meta, "slot_lookahead", requested=requested_date, found=candidate)
+                return candidate, found
+        return requested_date, []
 
     @staticmethod
     def _normalize_location_hint(location: str | None) -> str | None:
@@ -567,7 +614,7 @@ class ReservationOrchestrator:
             elif field == "date":
                 draft.reservation_date = value or draft.reservation_date
             elif field == "time":
-                draft.reservation_time = value or draft.reservation_time
+                draft.apply_time_selection(value)
             elif field == "patient_name":
                 draft.patient_name = value or draft.patient_name
             elif field == "phone":
@@ -782,22 +829,21 @@ class ReservationOrchestrator:
             }
 
         if draft.hospital_id is not None and not draft.reservation_time:
-            slot_res = self._reservation.get_available_slots(
-                draft.hospital_id,
-                draft.reservation_date,
-                api_key_override=reservation_api_key,
-            )
-            slot_st = int(slot_res.get("httpStatus") or 0)
-            slot_data = slot_res.get("data")
-            if slot_st == 200 and isinstance(slot_data, dict):
-                slots = [str(s).strip() for s in slot_data.get("availableSlots") or [] if str(s).strip()]
-                slots = _filter_future_times(draft.reservation_date, slots)
-                _trace(meta, "slot_lookup", hospital_id=draft.hospital_id, slot_count=len(slots))
+            requested_date = draft.reservation_date
+            slot_date, slots = self._find_slots(draft.hospital_id, requested_date, reservation_api_key, meta)
+            if slot_date is not None:
+                # 자동으로 넘긴 날짜는 서버에 저장되지 않으므로 시간 버튼 값("YYYY-MM-DD HH:mm")에 담아 다음 턴에 받는다.
+                draft.reservation_date = slot_date
                 if slots:
                     label = "예약 시간을 선택해 주세요."
                     context_label = self._reservation_context_label(draft)
                     if context_label:
                         label = f"{context_label} 예약 시간을 선택해 주세요."
+                    if slot_date != requested_date:
+                        label = (
+                            f"{_date_label(requested_date)}은 예약 가능한 시간이 없어 "
+                            f"{_date_label(slot_date)} 예약 가능 시간을 보여드립니다. {label}"
+                        )
                     return {
                         "reply": label,
                         "riskLevel": "medium",
@@ -811,7 +857,8 @@ class ReservationOrchestrator:
                             kind="select",
                             field="time",
                             label=label,
-                            options=[UiOption(value=s, label=s) for s in slots],
+                            options=[UiOption(value=f"{slot_date} {s}", label=s) for s in slots]
+                            + [UiOption(value=CHANGE_DATE_OPTION, label="다른 날짜 선택")],
                         ),
                         "tool": None,
                         "data": None,
@@ -824,7 +871,7 @@ class ReservationOrchestrator:
                         "decisionTrace": meta.get("decisionTrace") or [],
                     }
                 return {
-                    "reply": "선택한 날짜에는 예약 가능한 시간이 없습니다. 다른 날짜를 선택해 주세요.",
+                    "reply": f"{_date_label(requested_date)}부터 {self.SLOT_LOOKAHEAD_DAYS}일 안에는 예약 가능한 시간이 없습니다. 다른 날짜를 선택해 주세요.",
                     "riskLevel": "medium",
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,
