@@ -53,12 +53,36 @@ def test_placeholder_values_are_dropped() -> None:
     assert MedicalLlmService._normalize_list(["...", "충분한 휴식"]) == ["충분한 휴식"]
 
 
-def test_parsed_json_is_not_backfilled_from_raw_text() -> None:
-    raw = '{"summary": "산책은 괜찮습니다.", "possibleCauses": [], "homeCare": [], "visitHospitalIf": [], "emergencyWarning": [], "finalMessage": "물을 챙기세요.", "needsReservation": false}'
-    parsed = extract_json_object(raw)
-    out = MedicalLlmService._normalize_payload(parsed, raw, "산책 나가도 괜찮을까요?", "general_chat", False)
-    assert out["possibleCauses"] == [] and out["homeCare"] == []
-    assert out["summary"] == "산책은 괜찮습니다." and out["finalMessage"] == "물을 챙기세요."
+def test_symptom_answer_uses_simple_template() -> None:
+    raw = '{"symptoms": "두통, 어지럼증 (1일째)", "features": "일어날 때 심해짐", "department": "신경과", "emergencySign": "갑자기 심해지거나 말이 어눌해지면", "reply": ""}'
+    out = MedicalLlmService._normalize_payload(extract_json_object(raw), raw, "어제부터 머리가 아프고 어지러워요", "medical_advice", False)
+    reply = MedicalLlmService.format_answer(out)
+    assert reply == (
+        "많이 힘드셨겠어요. 말씀해 주신 내용을 정리했어요.\n"
+        "· 증상: 두통, 어지럼증 (1일째)\n"
+        "· 특징: 일어날 때 심해짐\n"
+        "신경과 진료를 권해드려요. 갑자기 심해지거나 말이 어눌해지면 바로 119에 연락하세요."
+    )
+
+
+def test_general_chat_uses_plain_reply_and_missing_symptom_is_backfilled() -> None:
+    assert MedicalLlmService.format_answer({"symptoms": "", "reply": "산책은 괜찮아요. 물을 챙기세요."}) == "산책은 괜찮아요. 물을 챙기세요."
+    out = MedicalLlmService._normalize_payload({"symptoms": "", "reply": ""}, "", "배가 아파요", "medical_advice", False)
+    assert out["symptoms"] == "배가 아파요"
+    assert "· 증상: 배가 아파요" in MedicalLlmService.format_answer(out)
+    assert "내과 진료를 권해드려요" in MedicalLlmService.format_answer(out)  # 배→내과 규칙
+
+
+def test_general_chat_never_uses_symptom_template() -> None:
+    out = MedicalLlmService._normalize_payload({"symptoms": "고마워요", "reply": ""}, "", "고마워요", "general_chat", False)
+    assert out["symptoms"] == "" and out["reply"]
+    assert "증상" not in MedicalLlmService.format_answer(out)
+
+
+def test_emergency_reply_skips_department_and_points_to_119() -> None:
+    out = MedicalLlmService._normalize_payload({"symptoms": "가슴 답답함, 숨쉬기 어려움", "department": "내과"}, "", "가슴이 조이고 숨이 안 쉬어져요", "emergency_guidance", True)
+    reply = MedicalLlmService.format_answer(out, emergency=True)
+    assert "119" in reply and "진료를 권해드려요" not in reply
 
 
 def test_risk_is_high_only_with_emergency_signal() -> None:

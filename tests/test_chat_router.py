@@ -40,15 +40,10 @@ def test_router_rejects_unknown_route() -> None:
     raise AssertionError("unknown route must raise so chat_service falls back to keywords")
 
 
-def test_reply_no_longer_duplicates_sections() -> None:
-    reply = MedicalLlmService.format_answer({
-        "finalMessage": "따뜻한 물을 드세요.",
-        "summary": "추위로 인한 기침 안내입니다.",
-        "possibleCauses": ["기관지 자극"],
-        "homeCare": ["따뜻한 차"],
-    })
-    assert "가능한 원인" not in reply and "기관지 자극" not in reply
-    assert "따뜻한 물을 드세요." in reply and "의료진 상담" in reply
+def test_reply_is_single_bubble_without_sections() -> None:
+    reply = MedicalLlmService.format_answer({"symptoms": "기침 (3일째)", "features": "", "department": "내과", "emergencySign": ""})
+    assert "가능한 원인" not in reply and "자가 관리" not in reply
+    assert reply.endswith("내과 진료를 권해드려요. 갑자기 심해지면 바로 119에 연락하세요.")
 
 
 def test_department_from_current_message_beats_history() -> None:
