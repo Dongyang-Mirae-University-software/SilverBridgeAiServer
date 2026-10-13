@@ -134,3 +134,14 @@ def test_department_question_answers_from_last_reply() -> None:
     out = ChatService._department_question_reply("병원 무슨과로 가야되는지 알려줘", hist)
     assert out and out["reply"].startswith("정형외과로 가시면 돼요.")
     assert ChatService._department_question_reply("병원 예약해줘", hist) is None
+
+
+def test_reservation_account_matches_frontend_bff_rule() -> None:
+    import hashlib
+    import hmac
+
+    from app.services.reservation_credential_service import ReservationCredentialService
+
+    email, password = ReservationCredentialService.account_for("test01", "silverbridge-reservation-dev-secret")
+    assert email == "sb-test01@silverbridge.local"
+    assert password == hmac.new(b"silverbridge-reservation-dev-secret", b"test01", hashlib.sha256).hexdigest()

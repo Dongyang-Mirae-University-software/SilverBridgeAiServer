@@ -116,6 +116,8 @@ class Settings(BaseModel):
     )
     reservation_user_jwt: str = os.getenv("RESERVATION_USER_JWT", "")
     reservation_admin_jwt: str = os.getenv("RESERVATION_ADMIN_JWT", "")
+    # 사용자별 예약 계정(sb-<userId>@silverbridge.local) 비밀번호 파생 비밀. 프론트 BFF(RESERVATION_ACCOUNT_SECRET)와 같아야 한다.
+    reservation_account_secret: str = os.getenv("RESERVATION_ACCOUNT_SECRET", "silverbridge-reservation-dev-secret")
     reservation_service_email: str = os.getenv("RESERVATION_SERVICE_EMAIL", "user1@example.com")
     reservation_service_password: str = os.getenv("RESERVATION_SERVICE_PASSWORD", "User123456!")
     torch_dtype: str = os.getenv("TORCH_DTYPE", "float16")

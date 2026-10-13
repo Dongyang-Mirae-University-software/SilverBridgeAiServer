@@ -146,6 +146,15 @@ class ReservationApiClient:
         )
         return {"httpStatus": st, "data": data}
 
+    def signup_account(self, email: str, password: str, name: str, phone: str) -> dict[str, Any]:
+        st, data = self._request(
+            "POST",
+            "/auth/signup",
+            body={"email": email, "password": password, "name": name, "phone": phone},
+            auth="none",
+        )
+        return {"httpStatus": st, "data": data}
+
     def issue_api_key(self, access_token: str, name: str) -> dict[str, Any]:
         st, data = self._request(
             "POST",
