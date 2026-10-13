@@ -301,7 +301,7 @@ class StreamSessionService:
         return checked
 
     def _apply_fire_hold(self, session_id: str, result: dict[str, Any]) -> dict[str, Any]:
-        """화재·연기는 한 장으로 알리지 않는다 - 최근 분석 N회 중 M회 이상 양성이어야 danger 다(FireHoldTracker)."""
+        """화재·연기는 한 장으로 알리지 않는다 - 최근 FIRE_HOLD_SEC 초 동안 양성 비율이 FIRE_HOLD_RATIO 이상이어야 danger 다(FireHoldTracker)."""
         if result.get("detectedType") == "unknown":
             return result  # 판정 불가 장면은 유지 이력에 넣지 않는다(danger=False 그대로)
         decision = fire_hold_tracker.update(
@@ -310,8 +310,9 @@ class StreamSessionService:
             float(result.get("confidence") or 0.0),
             str(result.get("detectedType") or "normal"),
             _analysis_clock(),
-            window=self.settings.fire_hold_window,
-            min_positive=self.settings.fire_hold_min_positive,
+            window_sec=self.settings.fire_hold_sec,
+            ratio=self.settings.fire_hold_ratio,
+            min_scenes=self.settings.fire_hold_min_scenes,
             max_gap_sec=self.settings.fire_hold_max_gap_sec,
         )
         held = dict(result)
