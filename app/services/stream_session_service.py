@@ -19,6 +19,7 @@ from app.services.clip_buffer import clip_frame_buffer
 from app.services.fall_detection_service import get_fall_detector
 from app.services.fall_hold_tracker import fall_hold_tracker
 from app.services import frame_quality
+from app.services.fire_hold_tracker import fire_hold_tracker
 from app.services.fire_smoke_detection_service import get_fire_smoke_detector
 from app.services.knife_detection_service import get_knife_detector
 from app.services.live_detection_merge import merge_kind_results
@@ -120,6 +121,7 @@ class StreamSessionService:
         # 같은 sessionId 재시작 시 이전 송출의 프레임이 클립에 섞이지 않게 비운다.
         clip_frame_buffer.clear(session_id)
         fall_hold_tracker.clear(session_id)
+        fire_hold_tracker.clear(session_id)
         if self.use_memory_state:
             return self._state_store.create_or_restart(session_id, camera_identifier, device_type)
 
@@ -256,6 +258,8 @@ class StreamSessionService:
             timings_ms[kind] = (time.perf_counter() - started) * 1000
             if kind == "fire" and verdict is not None:
                 result = self._apply_frame_quality(session_id, result, verdict)
+            if kind == "fire" and self.settings.fire_hold_enabled:
+                result = self._apply_fire_hold(session_id, result)
             if kind == "fall":
                 result = self._apply_fall_hold(session_id, result)
             kind_results.append((kind, result))
@@ -296,6 +300,28 @@ class StreamSessionService:
             frame_quality.block_log_limiter.log_blocked(session_id, verdict.reason or "unknown")
         return checked
 
+    def _apply_fire_hold(self, session_id: str, result: dict[str, Any]) -> dict[str, Any]:
+        """화재·연기는 한 장으로 알리지 않는다 - 최근 분석 N회 중 M회 이상 양성이어야 danger 다(FireHoldTracker)."""
+        if result.get("detectedType") == "unknown":
+            return result  # 판정 불가 장면은 유지 이력에 넣지 않는다(danger=False 그대로)
+        decision = fire_hold_tracker.update(
+            session_id,
+            bool(result.get("danger")),
+            float(result.get("confidence") or 0.0),
+            str(result.get("detectedType") or "normal"),
+            _analysis_clock(),
+            window=self.settings.fire_hold_window,
+            min_positive=self.settings.fire_hold_min_positive,
+            max_gap_sec=self.settings.fire_hold_max_gap_sec,
+        )
+        held = dict(result)
+        held["danger"] = decision.danger
+        if decision.danger:
+            # 이번 장면이 놓쳐 normal 이어도 유지 구간의 판정은 마지막 양성 장면의 종류·평균 점수로 올린다.
+            held["detectedType"] = decision.detected_type
+            held["confidence"] = round(decision.confidence or 0.0, 4)
+        return held
+
     def _apply_fall_hold(self, session_id: str, result: dict[str, Any]) -> dict[str, Any]:
         """낙상은 한 장으로 판정하지 않는다 — 세션별 유지 조건(FallHoldTracker)으로 danger 를 다시 정한다."""
         if result.get("detectedType") == "unknown":
@@ -327,6 +353,7 @@ class StreamSessionService:
         bbox_overlay.clear_session(session.session_id)
         clip_frame_buffer.clear(session.session_id)
         fall_hold_tracker.clear(session.session_id)
+        fire_hold_tracker.clear(session.session_id)
         frame_quality.block_log_limiter.clear(session.session_id)
         if self.use_memory_state:
             return self._state_store.stop(session.session_id)
