@@ -8,9 +8,9 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.core.config import Settings, get_settings
-from app.core.reservation_prompts import SYSTEM_PROMPT, build_user_prompt
+from app.core.reservation_prompts import EXTRACTION_SCHEMA, SYSTEM_PROMPT, build_user_prompt
 from app.schemas.chat_schema import ChatRequest, UiOption, UiPayload
-from app.services.gpt_structured_client import GptStructuredClient
+from app.services.claude_structured_client import ClaudeStructuredClient
 from app.services.reservation_api_client import ReservationApiClient
 from app.services.reservation_intake import (
     CHANGE_DATE_OPTION,
@@ -149,7 +149,7 @@ class ReservationOrchestrator:
     # 선택한 날짜가 꽉 찼을 때 다음 빈 날을 찾는 범위
     SLOT_LOOKAHEAD_DAYS = 7
 
-    def __init__(self, settings: Settings, loader: GptStructuredClient, reservation: ReservationApiClient) -> None:
+    def __init__(self, settings: Settings, loader: ClaudeStructuredClient, reservation: ReservationApiClient) -> None:
         self._settings = settings
         self._loader = loader
         self._reservation = reservation
@@ -230,7 +230,7 @@ class ReservationOrchestrator:
             "recommendedAction": "guardian_contact",
             "reservationRequired": True,
             "intent": "hospital_reservation",
-            "engine": "gpt",
+            "engine": "claude",
             "modelName": self._loader.state.model_name,
             "type": "message",
             "ui": UiPayload(
@@ -349,7 +349,7 @@ class ReservationOrchestrator:
             "recommendedAction": "guardian_contact",
             "reservationRequired": True,
             "intent": "hospital_reservation",
-            "engine": "gpt",
+            "engine": "claude",
             "modelName": self._loader.state.model_name,
             "type": "ui",
             "ui": ui,
@@ -436,7 +436,7 @@ class ReservationOrchestrator:
                 location=location,
                 profile_text=self._user_profile_text(req),
             )
-            raw = self._loader.generate_structured_text(SYSTEM_PROMPT, prompt)
+            raw = self._loader.generate_structured_text(SYSTEM_PROMPT, prompt, schema=EXTRACTION_SCHEMA)
         except Exception as exc:  # noqa: BLE001
             _trace(meta, "reservation_extraction_failed", error=str(exc))
             return None
@@ -590,7 +590,7 @@ class ReservationOrchestrator:
                         "recommendedAction": "guardian_contact",
                         "reservationRequired": True,
                         "intent": "hospital_reservation",
-                        "engine": "gpt",
+                        "engine": "claude",
                         "modelName": self._loader.state.model_name,
                         "type": "tool_result",
                         "ui": ui,
@@ -611,7 +611,7 @@ class ReservationOrchestrator:
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,
                     "intent": "hospital_reservation",
-                    "engine": "gpt",
+                    "engine": "claude",
                     "modelName": self._loader.state.model_name,
                     "type": "tool_error",
                     "ui": None,
@@ -633,7 +633,7 @@ class ReservationOrchestrator:
                 "recommendedAction": "guardian_contact",
                 "reservationRequired": True,
                 "intent": "hospital_reservation",
-                "engine": "gpt",
+                "engine": "claude",
                 "modelName": self._loader.state.model_name,
                 "type": "message",
                 "ui": None,
@@ -667,7 +667,7 @@ class ReservationOrchestrator:
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,
                     "intent": "hospital_reservation",
-                    "engine": "gpt",
+                    "engine": "claude",
                     "modelName": self._loader.state.model_name,
                     "type": "tool_result",
                     "ui": None,
@@ -687,7 +687,7 @@ class ReservationOrchestrator:
                 "recommendedAction": "guardian_contact",
                 "reservationRequired": True,
                 "intent": "hospital_reservation",
-                "engine": "gpt",
+                "engine": "claude",
                 "modelName": self._loader.state.model_name,
                 "type": "tool_error",
                 "ui": None,
@@ -716,7 +716,7 @@ class ReservationOrchestrator:
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,
                     "intent": "hospital_reservation",
-                    "engine": "gpt",
+                    "engine": "claude",
                     "modelName": self._loader.state.model_name,
                     "type": "tool_result",
                     "ui": None,
@@ -859,7 +859,7 @@ class ReservationOrchestrator:
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,
                     "intent": "hospital_reservation",
-                    "engine": "gpt",
+                    "engine": "claude",
                     "modelName": self._loader.state.model_name,
                     "type": "message",
                     "ui": None,
@@ -881,7 +881,7 @@ class ReservationOrchestrator:
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,
                     "intent": "hospital_reservation",
-                    "engine": "gpt",
+                    "engine": "claude",
                     "modelName": self._loader.state.model_name,
                     "type": "tool_result",
                     "ui": None,
@@ -920,7 +920,7 @@ class ReservationOrchestrator:
                         "recommendedAction": "guardian_contact",
                         "reservationRequired": True,
                         "intent": "hospital_reservation",
-                        "engine": "gpt",
+                        "engine": "claude",
                         "modelName": self._loader.state.model_name,
                         "type": "message",
                         "ui": UiPayload(
@@ -952,7 +952,7 @@ class ReservationOrchestrator:
                 "recommendedAction": "guardian_contact",
                 "reservationRequired": True,
                 "intent": "hospital_reservation",
-                "engine": "gpt",
+                "engine": "claude",
                 "modelName": self._loader.state.model_name,
                 "type": "message",
                 "ui": UiPayload(
@@ -986,7 +986,7 @@ class ReservationOrchestrator:
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,
                     "intent": "hospital_reservation",
-                    "engine": "gpt",
+                    "engine": "claude",
                     "modelName": self._loader.state.model_name,
                     "type": "message",
                     "ui": _ui_for_field("date"),
@@ -1010,7 +1010,7 @@ class ReservationOrchestrator:
                 "recommendedAction": "guardian_contact",
                 "reservationRequired": True,
                 "intent": "hospital_reservation",
-                "engine": "gpt",
+                "engine": "claude",
                 "modelName": self._loader.state.model_name,
                 "type": "message",
                 "ui": _ui_for_field(gap),
@@ -1062,7 +1062,7 @@ class ReservationOrchestrator:
                 "recommendedAction": "guardian_contact",
                 "reservationRequired": True,
                 "intent": "hospital_reservation",
-                "engine": "gpt",
+                "engine": "claude",
                 "modelName": self._loader.state.model_name,
                 "type": "tool_result",
                 "ui": UiPayload(
@@ -1106,7 +1106,7 @@ class ReservationOrchestrator:
             "recommendedAction": "guardian_contact",
             "reservationRequired": True,
             "intent": "hospital_reservation",
-            "engine": "gpt",
+            "engine": "claude",
             "modelName": self._loader.state.model_name,
             "type": "tool_error",
             "ui": None,
@@ -1126,7 +1126,7 @@ class ReservationOrchestrator:
 @lru_cache
 def get_reservation_orchestrator() -> ReservationOrchestrator:
     settings = get_settings()
-    loader = GptStructuredClient(settings)
+    loader = ClaudeStructuredClient(settings)
     client = ReservationApiClient(settings)
     return ReservationOrchestrator(settings, loader, client)
 

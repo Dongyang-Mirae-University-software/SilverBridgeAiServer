@@ -5,7 +5,7 @@ from functools import lru_cache
 from typing import Any
 
 from app.core.config import get_settings
-from app.services.gpt_structured_client import GptStructuredClient
+from app.services.claude_structured_client import ClaudeStructuredClient
 from app.utils.conversation import format_recent_history, normalize_history
 from app.utils.json_extract import extract_json_object
 
@@ -35,8 +35,23 @@ emergency: 호흡곤란·의식 저하·심한 가슴 통증·대량 출혈·경
 """
 
 
+# SYSTEM_PROMPT의 출력 형식과 같은 JSON 스키마. Claude 구조화 출력으로 강제한다.
+ROUTE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "route": {"type": "string", "enum": list(ROUTES)},
+        "normalized_message": {"type": "string"},
+        "symptom_summary": {"type": "string"},
+        "emergency": {"type": "boolean"},
+        "reason": {"type": "string"},
+    },
+    "required": ["route", "normalized_message", "symptom_summary", "emergency", "reason"],
+    "additionalProperties": False,
+}
+
+
 class ChatRouterService:
-    def __init__(self, loader: GptStructuredClient, keep_turns: int) -> None:
+    def __init__(self, loader: ClaudeStructuredClient, keep_turns: int) -> None:
         self._loader = loader
         self._keep_turns = keep_turns
 
@@ -55,7 +70,7 @@ class ChatRouterService:
             f"[사용자 문장]\n{message}\n\n[현재 예약 상태(직전 턴의 규격화 문장)]\n{prev_reservation or '(없음)'}\n\n"
             f"[최근 대화]\n{history_text or '(없음)'}"
         )
-        raw = self._loader.generate_structured_text(SYSTEM_PROMPT, user_prompt)
+        raw = self._loader.generate_structured_text(SYSTEM_PROMPT, user_prompt, schema=ROUTE_SCHEMA)
         parsed = extract_json_object(raw)
         if not isinstance(parsed, dict):
             raise RuntimeError("router json parse failed")
@@ -71,7 +86,7 @@ class ChatRouterService:
             "symptom_summary": str(parsed.get("symptom_summary") or "").strip() or message,
             "emergency": bool(parsed.get("emergency")),
             "reason": str(parsed.get("reason") or "").strip(),
-            "engine": "gpt",
+            "engine": "claude",
             "modelName": self._loader.state.model_name,
         }
 
@@ -79,4 +94,4 @@ class ChatRouterService:
 @lru_cache
 def get_chat_router_service() -> ChatRouterService:
     settings = get_settings()
-    return ChatRouterService(GptStructuredClient(settings), settings.chat_history_keep_turns)
+    return ChatRouterService(ClaudeStructuredClient(settings), settings.chat_history_keep_turns)

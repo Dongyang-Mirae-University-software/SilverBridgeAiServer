@@ -101,9 +101,10 @@ class Settings(BaseModel):
     chat_model_path: str = os.getenv("CHAT_MODEL_PATH", "")
     hf_token: str = os.getenv("HF_TOKEN", "")
     chat_enable_llm: bool = _as_bool("CHAT_ENABLE_LLM", True)
-    gpt_api_key: str = os.getenv("GPT_API_KEY", "")
-    gpt_model_name: str = os.getenv("GPT_MODEL_NAME", "gpt-4o-mini")
-    gpt_timeout_sec: int = _as_int("GPT_TIMEOUT_SEC", 60)
+    # 라우터·예약 추출용 Claude. 키는 .env의 ANTHROPIC_API_KEY.
+    anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY") or ""
+    claude_model_name: str = os.getenv("CLAUDE_MODEL_NAME", "claude-opus-5-5")
+    claude_timeout_sec: int = _as_int("CLAUDE_TIMEOUT_SEC", 60)
     chat_upstream_url: str = os.getenv("CHAT_UPSTREAM_URL", "http://127.0.0.1:6012")
     chat_upstream_timeout_sec: int = _as_int("CHAT_UPSTREAM_TIMEOUT_SEC", 1200)
     reservation_api_base_url: str = os.getenv(
