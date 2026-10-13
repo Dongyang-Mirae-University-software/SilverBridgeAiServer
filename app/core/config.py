@@ -201,13 +201,16 @@ class Settings(BaseModel):
     frame_quality_lap_max: float = _as_float_in_range("FRAME_QUALITY_LAP_MAX", 10.0, 0.0, 500.0)
     frame_quality_blur_std_max: float = _as_float_in_range("FRAME_QUALITY_BLUR_STD_MAX", 30.0, 0.0, 100.0)
 
-    # 화재·연기 유지 조건: 한 장짜리 양성(흔들림·렌즈 가림 같은 순간적 오탐)으로는 알리지 않는다. 최근
-    # FIRE_HOLD_WINDOW 번의 분석 중 FIRE_HOLD_MIN_POSITIVE 번 이상이 양성(한 장 기준 danger)이어야 danger 다.
-    # 시간이 아니라 횟수 기준이라 카메라 수·부하로 분석 간격이 늘어도 판정이 난다(대신 알림이 분석 N회만큼 늦다).
-    # FIRE_HOLD_ENABLED=false 면 한 장 판정 그대로(킬 스위치). 마지막 분석 후 FIRE_HOLD_MAX_GAP_SEC 가 지나면 다시 센다.
+    # 화재·연기 유지 조건: 한 장짜리 양성(흔들림·철판 같은 순간적 오탐)으로는 알리지 않는다. 최근 FIRE_HOLD_SEC 초 동안의
+    # 분석 중 FIRE_HOLD_RATIO 이상이 양성(한 장 기준 danger)이고, 그 구간에 분석이 FIRE_HOLD_MIN_SCENES 회 이상 있으며,
+    # 연속 관찰이 FIRE_HOLD_SEC 초 이상일 때만 danger 다(알림이 대략 SEC x RATIO 초 늦다).
+    # 시간 기준이다: 분석은 정상 상태에서 초당 약 10회라 횟수 기준은 0.3초에 불과했다. 분석이 느려져 창 안에 MIN_SCENES 회가
+    # 안 들어오면 최근 MIN_SCENES 회를 본다. FIRE_HOLD_ENABLED=false 면 한 장 판정 그대로(킬 스위치).
+    # 마지막 분석 후 FIRE_HOLD_MAX_GAP_SEC 가 지나면 다시 센다.
     fire_hold_enabled: bool = _as_bool("FIRE_HOLD_ENABLED", True)
-    fire_hold_window: int = _as_int_in_range("FIRE_HOLD_WINDOW", 4, 1, 20)
-    fire_hold_min_positive: int = _as_int_in_range("FIRE_HOLD_MIN_POSITIVE", 3, 1, 20)
+    fire_hold_sec: float = _as_float_in_range("FIRE_HOLD_SEC", 2.0, 0.5, 30.0)
+    fire_hold_ratio: float = _as_float_in_range("FIRE_HOLD_RATIO", 0.6, 0.3, 1.0)
+    fire_hold_min_scenes: int = _as_int_in_range("FIRE_HOLD_MIN_SCENES", 3, 1, 20)
     fire_hold_max_gap_sec: float = _as_float_in_range("FIRE_HOLD_MAX_GAP_SEC", 10.0, 1.0, 120.0)
 
     # 실시간 영상(MJPEG·latest-frame)의 감지 박스. 보여주는 복사본에만 그리고 원본·분석 입력·클립은 건드리지 않는다.

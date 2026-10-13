@@ -13,10 +13,10 @@ from app.services.fall_hold_tracker import fall_hold_tracker
 from app.services.fire_hold_tracker import FireHoldTracker, fire_hold_tracker
 from app.services.session_analysis_store import session_analysis_store
 
-KW = dict(window=4, min_positive=3, max_gap_sec=10.0)
+KW = dict(window_sec=2.0, ratio=0.6, min_scenes=3, max_gap_sec=10.0)
 
 
-def _step(tr: FireHoldTracker, seq: list[bool], *, start: float = 0.0, dt: float = 0.65, sid: str = "s", **kw: Any):
+def _step(tr: FireHoldTracker, seq: list[bool], *, start: float = 0.0, dt: float = 0.09, sid: str = "s", **kw: Any):
     kw = {**KW, **kw}
     out = []
     for i, pos in enumerate(seq):
@@ -32,32 +32,53 @@ def test_single_positive_is_held() -> None:
     assert d.danger is False and d.positives == 1
 
 
-def test_three_of_four_is_danger() -> None:
-    ds = _step(FireHoldTracker(), [True, False, True, True])
-    assert [d.danger for d in ds] == [False, False, False, True]
+def test_regression_fast_analysis_short_burst_does_not_alert() -> None:
+    # 10/13 실물: 분석이 초당 11회라 "4회 중 3회"가 0.3초 만에 알림이 됐다. 1초(11회) 연속 양성도 막아야 한다.
+    ds = _step(FireHoldTracker(), [True] * 12, dt=0.09)
+    assert not any(d.danger for d in ds)
+
+
+def test_sustained_positives_alert_after_window() -> None:
+    ds = _step(FireHoldTracker(), [True] * 30, dt=0.09)  # 2.7초
+    first = next(i for i, d in enumerate(ds) if d.danger)
+    assert 0.09 * first >= 2.0 - 1e-9  # 관찰이 window_sec 이상 이어진 뒤에만
     assert ds[-1].detected_type == "smoke" and ds[-1].confidence == pytest.approx(0.7)
 
 
-def test_two_of_four_is_not_danger() -> None:
-    assert not any(d.danger for d in _step(FireHoldTracker(), [True, False, True, False, False, True]))
+def test_intermittent_below_ratio_never_alerts() -> None:
+    seq = ([True, False, False] * 12)  # 양성 33%
+    assert not any(d.danger for d in _step(FireHoldTracker(), seq, dt=0.09))
 
 
-def test_window_is_by_count_not_time_so_slow_analysis_still_fires() -> None:
-    # 카메라 3대 부하로 분석 간격이 2.5초여도(시간 창이었다면 리셋) 3회 양성이면 danger.
-    ds = _step(FireHoldTracker(), [True, True, True], dt=2.5)
-    assert ds[-1].danger is True
+def test_flicker_above_ratio_alerts() -> None:
+    seq = ([True, True, False] * 14)  # 양성 67%
+    assert any(d.danger for d in _step(FireHoldTracker(), seq, dt=0.09))
+
+
+def test_slow_analysis_uses_last_min_scenes_and_still_fires() -> None:
+    # 카메라 3대 부하로 분석 간격이 2.5초 - 시간 창 안에는 1회뿐이지만 최근 3회를 본다.
+    ds = _step(FireHoldTracker(), [True, True, True, True], dt=2.5)
+    assert [d.danger for d in ds] == [False, False, True, True]
+
+
+def test_slow_analysis_single_positive_is_held() -> None:
+    ds = _step(FireHoldTracker(), [False, False, True, False, False], dt=2.5)
+    assert not any(d.danger for d in ds)
 
 
 def test_gap_resets_history() -> None:
     tr = FireHoldTracker()
-    _step(tr, [True, True])
+    _step(tr, [True] * 30, dt=0.09)
     d = tr.update("s", True, 0.7, "smoke", 100.0, **KW)  # 간격 > max_gap_sec
     assert d.danger is False and d.scenes == 1
 
 
 def test_danger_drops_when_positives_leave_window() -> None:
-    ds = _step(FireHoldTracker(), [True, True, True, False, False])
-    assert [d.danger for d in ds] == [False, False, True, True, False]
+    tr = FireHoldTracker()
+    ds = _step(tr, [True] * 30, dt=0.09)
+    assert ds[-1].danger is True
+    after = _step(tr, [False] * 40, start=30 * 0.09, dt=0.09)
+    assert after[-1].danger is False
 
 
 def test_sessions_are_independent_and_clear_works() -> None:
@@ -68,19 +89,14 @@ def test_sessions_are_independent_and_clear_works() -> None:
     assert tr.tracked_sessions() == 1
 
 
-def test_min_positive_larger_than_window_is_clamped() -> None:
-    ds = _step(FireHoldTracker(), [True, True], window=2, min_positive=9)
-    assert ds[-1].danger is True
-
-
 def test_pending_log_is_rate_limited(caplog: pytest.LogCaptureFixture) -> None:
     now = [0.0]
     tr = FireHoldTracker(clock=lambda: now[0])
     with caplog.at_level("INFO", logger="app.services.fire_hold_tracker"):
         tr.update("s", True, 0.7, "smoke", 0.0, **KW)
-        tr.update("s", True, 0.7, "smoke", 0.1, window=4, min_positive=4, max_gap_sec=10.0)
+        tr.update("s", True, 0.7, "smoke", 0.1, **KW)
         now[0] += 61
-        tr.update("s", True, 0.7, "smoke", 0.2, window=4, min_positive=4, max_gap_sec=10.0)
+        tr.update("s", True, 0.7, "smoke", 0.2, **KW)
     lines = [r.getMessage() for r in caplog.records if "FIRE-HOLD-PENDING" in r.getMessage()]
     assert len(lines) == 2 and all("sessionId=s" in m for m in lines)
 
@@ -91,7 +107,7 @@ def test_int_range_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FH_T_OK", "3")
     assert _as_int_in_range("FH_T_BIG", 4, 1, 20) == 4
     assert _as_int_in_range("FH_T_BAD", 4, 1, 20) == 4
-    assert _as_int_in_range("FH_T_OK", 4, 1, 20) == 3
+    assert _as_int_in_range("FH_T_OK", 3, 1, 20) == 3
 
 
 # --- 라이브 분석 통합 -----------------------------------------------------------
@@ -125,8 +141,8 @@ def live(monkeypatch: pytest.MonkeyPatch):
 
     def make(**overrides: Any) -> sss.StreamSessionService:
         update = {"fire_smoke_enabled": True, "knife_enabled": True, "fall_enabled": True,
-                  "stream_sample_every_n_frames": 1, "fire_hold_enabled": True, "fire_hold_window": 4,
-                  "fire_hold_min_positive": 3, "fire_hold_max_gap_sec": 10.0,
+                  "stream_sample_every_n_frames": 1, "fire_hold_enabled": True, "fire_hold_sec": 2.0,
+                  "fire_hold_ratio": 0.6, "fire_hold_min_scenes": 3, "fire_hold_max_gap_sec": 10.0,
                   "frame_quality_gate_enabled": False, **overrides}
         settings = get_settings().model_copy(update=update)
         monkeypatch.setattr(sss, "get_settings", lambda: settings)
@@ -142,7 +158,7 @@ def _sid(name: str) -> str:
     return name
 
 
-def _run(service, sid, clock, n, dt=0.65, frame=b"jpeg"):
+def _run(service, sid, clock, n, dt=0.1, frame=b"jpeg"):
     out = []
     for _ in range(n):
         out.append(service._detect_and_store(sid, frame))
@@ -150,13 +166,14 @@ def _run(service, sid, clock, n, dt=0.65, frame=b"jpeg"):
     return out
 
 
-def test_single_frame_alert_is_held_then_fires_on_third(live) -> None:
+def test_single_frame_alert_is_held_then_fires_after_window(live) -> None:
     fakes, make, clock = live
     fakes["fire"].set("smoke", 0.76, True)
-    out = _run(make(), _sid("fh_basic"), clock, 3)
-    assert [p["danger"] for p in out] == [False, False, True]
+    out = _run(make(), _sid("fh_basic"), clock, 30)  # 0.1초 간격 3초
+    assert out[0]["danger"] is False and out[10]["danger"] is False  # 1초까지는 알리지 않는다
+    assert out[-1]["danger"] is True
     assert out[0]["detectedType"] == "smoke" and out[0]["confidence"] == 0.76  # 점수는 그대로 내려간다
-    assert out[2]["detectedType"] == "smoke"
+    assert out[-1]["detectedType"] == "smoke"
 
 
 def test_transient_single_positive_never_alerts(live) -> None:
@@ -165,7 +182,7 @@ def test_transient_single_positive_never_alerts(live) -> None:
     fakes["fire"].set("smoke", 0.76, True)
     first = _run(svc, sid, clock, 1)[0]
     fakes["fire"].set("normal")
-    rest = _run(svc, sid, clock, 6)
+    rest = _run(svc, sid, clock, 40)
     assert first["danger"] is False and not any(p["danger"] for p in rest)
 
 
@@ -196,7 +213,7 @@ def test_quality_gate_blocked_frames_count_as_negative(live) -> None:
     ok, buf = cv2.imencode(".jpg", np.full((240, 320, 3), 255, np.uint8))
     white = buf.tobytes()
     fakes["fire"].set("smoke", 0.8, True)
-    out = _run(make(frame_quality_gate_enabled=True), _sid("fh_gate"), clock, 5, frame=white)
+    out = _run(make(frame_quality_gate_enabled=True), _sid("fh_gate"), clock, 40, frame=white)
     assert not any(p["danger"] for p in out)
     # 게이트가 막은 장면은 양성으로 쌓이지 않는다: 이어서 정상 화면 양성 1회로는 알리지 않는다.
     assert fire_hold_tracker.tracked_sessions() >= 1
