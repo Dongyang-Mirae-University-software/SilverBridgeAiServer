@@ -15,7 +15,7 @@ from app.utils.json_extract import extract_json_fields_lenient, extract_json_obj
 
 _LOG = logging.getLogger(__name__)
 
-_STRING_KEYS = ["symptoms", "features", "department", "emergencySign", "reply"]
+_STRING_KEYS = ["empathy", "symptoms", "features", "advice", "reply"]
 _LIST_KEYS: list[str] = []
 _EMERGENCY_REPLY = "지금은 응급 상황일 수 있어요. 바로 119 또는 가까운 응급실에 연락하세요."
 
@@ -70,34 +70,23 @@ class MedicalLlmService:
 
     @staticmethod
     def format_answer(data: dict[str, Any], emergency: bool = False) -> str:
-        """말풍선 문장. 모델이 낸 짧은 재료를 고정 틀로 조립한다.
-
-        많이 힘드셨겠어요. 말씀해 주신 내용을 정리했어요.
-        · 증상: 두통, 어지럼증 (1일째)
-        · 특징: 일어날 때 심해짐
-        신경과 진료를 권해드려요. 갑자기 심해지거나 말이 어눌해지면 바로 119에 연락하세요."""
+        """말풍선 문장. 모델이 쓴 공감·증상·특징·권고를 줄바꿈으로 잇는다. 비어 있는 값만 기본 문장으로 메운다."""
         symptoms = str(data.get("symptoms") or "").strip()
         if not symptoms:
             return str(data.get("reply") or "").strip() or "증상을 조금 더 구체적으로 말씀해 주시면 도와드릴게요."
 
-        lines = ["많이 힘드셨겠어요. 말씀해 주신 내용을 정리했어요.", f"· 증상: {symptoms}"]
+        lines = [str(data.get("empathy") or "").strip() or "말씀해 주신 내용을 정리했어요.", f"· 증상: {symptoms}"]
         features = str(data.get("features") or "").strip()
-        if features:
+        if features and not re.search(r"없음|불명확|모름|알 수 없", features):  # "유발 요인 불명확" 같은 빈말은 줄을 빼는 게 낫다
             lines.append(f"· 특징: {features}")
+        advice = str(data.get("advice") or "").strip()
         if emergency:
-            # 응급 경고 문구는 말풍선 위 빨간 박스(emergencyWarning)가 맡는다. 여기선 진료과 안내를 하지 않는다.
-            lines.append("지금은 병원 예약보다 119 연락이 먼저예요.")
-            return "\n".join(lines)
-
-        department = str(data.get("department") or "").strip()
-        advice = f"{department} 진료를 권해드려요." if department else "증상이 계속되면 가까운 병원 진료를 권해드려요."
-        sign = str(data.get("emergencySign") or "").strip().rstrip(".")
-        if sign and not sign.endswith("면"):
-            sign = f"{sign} 경우"
-        lines.append(f"{advice} {sign or '갑자기 심해지면'} 바로 119에 연락하세요.")
+            # 응급이면 모델이 진료과를 권해도 쓰지 않는다. 경고 문구는 말풍선 위 빨간 박스(emergencyWarning)가 맡는다.
+            advice = "지금은 병원 예약보다 119 연락이 먼저예요."
+        lines.append(advice or "증상이 계속되면 가까운 병원 진료를 권해드려요. 갑자기 심해지면 바로 119에 연락하세요.")
         return "\n".join(lines)
 
-    PLACEHOLDERS = {"...", "…", "문자열", "-", "n/a", "없음"}
+    PLACEHOLDERS = {"...", "…", "문자열", "-", "n/a", "없음", "정보 없음", "해당 없음", "알 수 없음", "해당사항 없음"}
 
     @staticmethod
     def _normalize_text(value: Any) -> str:
@@ -163,16 +152,23 @@ class MedicalLlmService:
         return " ".join(lines).strip()
 
     @classmethod
+    def _plain_sentence(cls, raw_text: str) -> str:
+        """모델 원문의 첫 문장. 잘린 JSON 조각이면 빈 값(사용자에게 JSON을 보여주지 않는다)."""
+        text = cls._sanitize_unstructured_text(raw_text)
+        if not text or text.lstrip().startswith("{") or '"' in text[:20]:
+            return ""
+        sentences = cls._split_sentences(text)
+        return sentences[0] if sentences else ""
+
+    @classmethod
     def _fallback_payload(cls, message: str, intent: str, emergency_hint: bool, raw_text: str) -> dict[str, Any]:
         """JSON을 못 받았을 때. 증상 상담이면 사용자 문장을 증상으로 두고, 일반 대화면 모델 문장을 그대로 쓴다."""
-        sanitized = cls._sanitize_unstructured_text(raw_text)
-        sentences = cls._split_sentences(sanitized)
+        empty = {key: "" for key in _STRING_KEYS}
         if emergency_hint or intent == "emergency_guidance":
-            return {"symptoms": (message or "").strip(), "features": "", "department": "응급의학과",
-                    "emergencySign": "", "reply": _EMERGENCY_REPLY}
+            return {**empty, "symptoms": (message or "").strip()[:60], "advice": _EMERGENCY_REPLY}
         if intent == "medical_advice":
-            return {"symptoms": (message or "").strip()[:60], "features": "", "department": "", "emergencySign": "", "reply": ""}
-        return {"symptoms": "", "features": "", "department": "", "emergencySign": "", "reply": sentences[0] if sentences else ""}
+            return {**empty, "symptoms": (message or "").strip()[:60]}
+        return {**empty, "reply": cls._plain_sentence(raw_text)}
 
     @classmethod
     def _normalize_payload(
@@ -190,12 +186,13 @@ class MedicalLlmService:
             if not out["symptoms"]:
                 # 모델이 증상을 비우면 사용자 문장으로 메운다 - 상담인데 일반 답변 틀로 빠지지 않게.
                 out["symptoms"] = (message or "").strip()[:60]
-            # 진료과는 예약 흐름과 같은 규칙을 먼저 쓴다(두통→신경과 등). 상담에서 권한 과와 예약에서 찾는 과가 어긋나지 않게.
-            out["department"] = _symptom_department(message or "") or out["department"]
+            department = _symptom_department(message or "")
+            if not out["advice"] and department:
+                out["advice"] = f"{department} 진료를 권해드려요. 갑자기 심해지면 바로 119에 연락하세요."
         else:
             # 인사·일반 질문인데 모델이 증상 칸을 채우면("고마워요") 상담 틀로 빠지므로 비운다.
             out["symptoms"] = ""
-            out["reply"] = out["reply"] or cls._split_sentences(cls._sanitize_unstructured_text(raw_text))[:1] and cls._split_sentences(cls._sanitize_unstructured_text(raw_text))[0] or "네, 말씀해 주세요. 궁금한 점이 있으면 언제든 물어보세요."
+            out["reply"] = out["reply"] or cls._plain_sentence(raw_text) or "네, 말씀해 주세요. 궁금한 점이 있으면 언제든 물어보세요."
         return out
 
     def generate(
@@ -225,6 +222,8 @@ class MedicalLlmService:
             intent=intent,
             emergency_hint=emergency_hint,
             processed_symptom=processed_symptom,
+            # 예약 흐름과 같은 증상→진료과 규칙을 힌트로 준다. 상담에서 권한 과와 예약에서 찾는 과가 어긋나지 않게.
+            department_hint=_symptom_department(message or ""),
         )
 
         if not self._settings.chat_enable_llm:

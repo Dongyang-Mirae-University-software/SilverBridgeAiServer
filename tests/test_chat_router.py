@@ -41,9 +41,9 @@ def test_router_rejects_unknown_route() -> None:
 
 
 def test_reply_is_single_bubble_without_sections() -> None:
-    reply = MedicalLlmService.format_answer({"symptoms": "기침 (3일째)", "features": "", "department": "내과", "emergencySign": ""})
-    assert "가능한 원인" not in reply and "자가 관리" not in reply
-    assert reply.endswith("내과 진료를 권해드려요. 갑자기 심해지면 바로 119에 연락하세요.")
+    reply = MedicalLlmService.format_answer({"empathy": "기침이 오래가면 힘드시죠.", "symptoms": "기침 (3일째)", "advice": "내과 진료를 권해드려요."})
+    assert reply == "기침이 오래가면 힘드시죠.\n· 증상: 기침 (3일째)\n내과 진료를 권해드려요."
+    assert "특징" not in MedicalLlmService.format_answer({"symptoms": "기침", "features": "유발 요인 불명확", "advice": "내과 진료를 권해드려요."})
 
 
 def test_department_from_current_message_beats_history() -> None:
