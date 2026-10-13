@@ -500,17 +500,23 @@ class ReservationOrchestrator:
         if isinstance(hid, int) and hid > 0:
             draft.hospital_id = hid
 
-    def _shape_make_appointment(self, raw: dict[str, Any], patient_name: str, phone_in: str) -> dict[str, Any]:
+    @staticmethod
+    def _shape_reservation_row(raw: dict[str, Any]) -> dict[str, Any]:
+        """예약 서비스 행(hospitalName·reservationDate…)에 화면 카드가 읽는 키(hospital_name·date·time)를 덧붙인다."""
         rid = raw.get("reservationId")
-        rdate = str(raw.get("reservationDate", ""))
-        display_id = f"{rid}" if rid is None else str(rid)
         return {
-            "reservationId": display_id,
+            **raw,
+            "reservationId": str(rid) if rid is not None else None,
             "reservation_id": rid,
             "hospital": raw.get("hospitalName"),
-            "department": raw.get("department"),
+            "hospital_name": raw.get("hospitalName"),
             "date": raw.get("reservationDate"),
             "time": raw.get("reservationTime"),
+        }
+
+    def _shape_make_appointment(self, raw: dict[str, Any], patient_name: str, phone_in: str) -> dict[str, Any]:
+        return {
+            **self._shape_reservation_row(raw),
             "patient_name": patient_name.strip(),
             "phone": _digits(phone_in),
             "status": raw.get("status"),
@@ -557,7 +563,8 @@ class ReservationOrchestrator:
                 st = int(result.get("httpStatus") or 0)
                 data = result.get("data")
                 if 200 <= st < 300 and isinstance(data, list):
-                    reservations = [item for item in data if isinstance(item, dict)]
+                    reservations = [self._shape_reservation_row(item) for item in data if isinstance(item, dict)]
+                    data = reservations
                     options = []
                     for item in reservations:
                         reservation_id = item.get("reservationId") or item.get("id")
@@ -653,6 +660,7 @@ class ReservationOrchestrator:
             st = int(result.get("httpStatus") or 0)
             data = result.get("data")
             if 200 <= st < 300 and isinstance(data, dict):
+                data = self._shape_reservation_row(data)
                 return {
                     "reply": "예약 상세를 불러왔습니다.",
                     "riskLevel": "medium",
@@ -700,6 +708,7 @@ class ReservationOrchestrator:
             st = int(result.get("httpStatus") or 0)
             data = result.get("data")
             if 200 <= st < 300 and isinstance(data, list):
+                data = [self._shape_reservation_row(item) for item in data if isinstance(item, dict)]
                 _trace(meta, "reservation_lookup_success", count=len(data))
                 return {
                     "reply": "예약 내역을 불러왔습니다.",
@@ -785,10 +794,15 @@ class ReservationOrchestrator:
         )
 
         if draft.hospital_name and draft.hospital_id is None:
-            draft.hospital_id = self._reservation.resolve_hospital_id(
+            draft.hospital_id, resolved_name = self._reservation.resolve_hospital(
                 draft.hospital_name,
                 api_key_override=reservation_api_key,
             )
+            if draft.hospital_id is None:
+                # 이름이 안 맞으면 병원 없이 검색으로 넘긴다("정형외과 강남"처럼 과만 말한 경우). 엉뚱한 병원을 잡지 않는다.
+                draft.hospital_name = None
+            else:
+                draft.hospital_name = resolved_name or draft.hospital_name  # 사용자가 줄여 말해도 화면엔 실제 병원명
             _trace(meta, "hospital_id_resolved", hospital_name=draft.hospital_name, hospital_id=draft.hospital_id)
 
         if draft.hospital_id is None and not draft.hospital_name:
@@ -882,7 +896,7 @@ class ReservationOrchestrator:
                     "decisionTrace": meta.get("decisionTrace") or [],
                 }
             draft.hospital_name = str(unique_rows[0].get("hospital") or "").strip() or draft.hospital_name
-            draft.hospital_id = self._reservation.resolve_hospital_id(
+            draft.hospital_id, _ = self._reservation.resolve_hospital(
                 draft.hospital_name or "",
                 api_key_override=reservation_api_key,
             )

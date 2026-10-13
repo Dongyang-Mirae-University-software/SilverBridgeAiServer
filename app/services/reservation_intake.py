@@ -159,9 +159,11 @@ def _find_hospital_name(text: str) -> str | None:
         r"([가-힣A-Za-z0-9]+(?:메디|의료원|센터))",
     )
     for pattern in patterns:
-        m = re.search(pattern, raw)
-        if m:
-            return m.group(1).strip()
+        for m in re.finditer(pattern, raw):
+            name = m.group(1).strip()
+            # "정형외과"처럼 진료과 이름만 있는 건 병원명이 아니다(정형+외과로 잘못 잡힌다).
+            if name not in _DEPARTMENT_ALIASES:
+                return name
     return None
 
 

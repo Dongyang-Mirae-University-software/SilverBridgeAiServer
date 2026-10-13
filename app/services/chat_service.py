@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import logging
 from uuid import uuid4
 from typing import Any
@@ -15,6 +16,7 @@ from app.services.reservation_credential_service import get_reservation_credenti
 from app.services.chat_router_service import get_chat_router_service
 from app.services.chat_upstream_service import get_chat_upstream_service
 from app.services.medical_llm_service import get_medical_llm_service
+from app.services.reservation_intake import _find_department
 from app.services.reservation_orchestrator import ReservationOrchestrator, get_reservation_orchestrator
 
 _LOG = logging.getLogger(__name__)
@@ -89,7 +91,10 @@ class ChatService:
             }
             # 1차 감별: GPT 라우터. 실패하면 키워드 분류로 내려간다.
             route_info: dict = {}
-            if message:
+            department_answer = self._department_question_reply(message, history) if message else None
+            if department_answer:
+                result = department_answer
+            elif message:
                 try:
                     route_info = get_chat_router_service().route(
                         message, history, user_context,
@@ -111,7 +116,9 @@ class ChatService:
                 if route_info and route_info.get("route") == "reservation" and ReservationOrchestrator._is_new_request(message):
                     # 새 요청은 라우터 규격화 문장(이전 병원·시간이 딸려옴) 대신 원문을 넘긴다. 다음 턴의 상태 기억도 원문 기준.
                     route_info = {**route_info, "normalized_message": message}
-            if not route_info and not message and ui_selection and ui_selection["field"] in reservation_ui_fields:
+            if department_answer:
+                route_info = {"route": "general", "engine": "rule", "normalized_message": message, "symptom_summary": "", "emergency": False}
+            elif not route_info and not message and ui_selection and ui_selection["field"] in reservation_ui_fields:
                 # UI 블록 선택 턴: 직전 규격화 문장에 선택값을 붙여 상태를 이어간다.
                 prev = self._last_reservation_state(db, payload.userId, session_id) or "병원 예약:"
                 value = ui_selection["value"]
@@ -123,7 +130,7 @@ class ChatService:
                     "emergency": False,
                     "engine": "ui",
                 }
-            if not route_info:
+            if not route_info and not department_answer:
                 kw_intent = self.classify_intent(message)
                 route_info = {
                     "route": {"hospital_reservation": "reservation", "medical_advice": "symptom", "emergency_guidance": "symptom"}.get(kw_intent, "general"),
@@ -144,7 +151,9 @@ class ChatService:
                     reservation_email=payload.context.email if payload.context and payload.context.email else None,
                     client=reservation_api_client,
                 )
-            if reservation_flow_hint:
+            if department_answer:
+                pass  # 이미 result가 있다
+            elif reservation_flow_hint:
                 reservation_orchestrator = get_reservation_orchestrator()
                 # 규격화된 문장("병원 예약: 서울 강남구 / 이비인후과 / ...")을 원래 예약 로직에 넘긴다.
                 routed_payload = payload.model_copy(update={"message": route_info["normalized_message"]})
@@ -336,6 +345,30 @@ class ChatService:
         if intent in {"hospital_reservation", "medical_advice"} or any(keyword in text for keyword in cls.MEDIUM_RISK_KEYWORDS):
             return "medium", "guardian_contact", intent == "hospital_reservation"
         return "low", "home_monitoring", False
+
+    @staticmethod
+    def _department_question_reply(message: str, history: list[dict[str, str]]) -> dict | None:
+        """"무슨 과로 가야 해?"에는 직전 상담에서 권한 진료과를 한 줄로 답한다(같은 상담 답변을 반복하지 않게)."""
+        if not re.search(r"(무슨|어느|어떤)\s*과", message or ""):
+            return None
+        last_assistant = next((h.get("content", "") for h in reversed(history) if h.get("role") == "assistant"), "")
+        department = _find_department(last_assistant)
+        if not department:
+            return None
+        return {
+            "reply": f"{department}로 가시면 돼요. 가까운 {department}를 찾아드릴까요? \"병원 찾아줘\"라고 말씀해 주세요.",
+            "riskLevel": "medium",
+            "recommendedAction": "guardian_contact",
+            "reservationRequired": False,
+            "intent": "medical_advice",
+            "engine": "rule",
+            "modelName": None,
+            "summary": None,
+            "possibleCauses": [],
+            "homeCare": [],
+            "visitHospitalIf": [],
+            "emergencyWarning": [],
+        }
 
     def _fallback_reply(self, message: str, history: list[dict[str, str]]) -> dict:
         intent = self.classify_intent(message)

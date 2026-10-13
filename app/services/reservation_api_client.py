@@ -317,9 +317,13 @@ class ReservationApiClient:
         return {"success": True, "rows": rows}
 
     def resolve_hospital_id(self, name_query: str, *, api_key_override: str | None = None) -> int | None:
+        return self.resolve_hospital(name_query, api_key_override=api_key_override)[0]
+
+    def resolve_hospital(self, name_query: str, *, api_key_override: str | None = None) -> tuple[int | None, str | None]:
+        """이름으로 병원 하나를 찾는다(정확 일치 > 부분 일치). 못 찾으면 (None, None) - 아무 병원이나 고르지 않는다."""
         query = (name_query or "").strip()
         if not query:
-            return None
+            return None, None
         auth_mode = "api_key" if self._resolve_api_key(api_key_override) else "none"
         st, raw = self._request("GET", "/hospitals", params={"name": query}, auth=auth_mode, token_override=api_key_override)
         rows: list[dict[str, Any]] = []
@@ -330,7 +334,7 @@ class ReservationApiClient:
             if st_all == 200 and isinstance(raw_all, list):
                 rows = [r for r in raw_all if isinstance(r, dict)]
             if not rows:
-                return None
+                return None, None
         needle = re.sub(r"\s+", "", query).casefold()
         exact_match: dict[str, Any] | None = None
         partial_match: dict[str, Any] | None = None
@@ -343,9 +347,11 @@ class ReservationApiClient:
                 break
             if partial_match is None and needle in name:
                 partial_match = row
-        chosen = exact_match or partial_match or rows[0]
+        chosen = exact_match or partial_match
+        if chosen is None:
+            return None, None
         hid = chosen.get("id")
-        return int(hid) if isinstance(hid, int) else None
+        return (int(hid) if isinstance(hid, int) else None), (str(chosen.get("name") or "").strip() or None)
 
     def list_departments(self, hospital_id: int, *, api_key_override: str | None = None) -> dict[str, Any]:
         auth_mode = "api_key" if self._resolve_api_key(api_key_override) else "none"

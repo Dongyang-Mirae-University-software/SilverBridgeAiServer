@@ -113,3 +113,24 @@ def test_where_to_go_answers_department_before_asking_region() -> None:
     assert reply.startswith("내과로 가시면 돼요.") and "지역" in reply
     assert orch._ask_location({})["reply"] == "어느 지역에서 병원을 찾을까요?"
     assert _with_copula("내과") == "내과예요" and _with_copula("병원") == "병원이에요"
+
+
+def test_bare_department_word_is_not_a_hospital_name() -> None:
+    from app.services.reservation_intake import _find_hospital_name
+
+    assert _find_hospital_name("알았어 정형외과 강남에 있는곳으로 예약해줘") is None
+    assert _find_hospital_name("강남정형외과로 예약해줘") == "강남정형외과"
+
+
+def test_reservation_row_gets_card_keys() -> None:
+    row = ReservationOrchestrator._shape_reservation_row({"reservationId": 7, "hospitalName": "강남메디내과", "reservationDate": "2026-10-14", "reservationTime": "09:30"})
+    assert (row["hospital_name"], row["date"], row["time"], row["reservation_id"]) == ("강남메디내과", "2026-10-14", "09:30", 7)
+
+
+def test_department_question_answers_from_last_reply() -> None:
+    from app.services.chat_service import ChatService
+
+    hist = [{"role": "assistant", "content": "· 증상: 다리 부상\n정형외과 진료를 권해드려요."}]
+    out = ChatService._department_question_reply("병원 무슨과로 가야되는지 알려줘", hist)
+    assert out and out["reply"].startswith("정형외과로 가시면 돼요.")
+    assert ChatService._department_question_reply("병원 예약해줘", hist) is None
