@@ -45,6 +45,12 @@ def _as_float_in_range(name: str, default: float, low: float, high: float) -> fl
     return value if low <= value <= high else default
 
 
+def _as_int_in_range(name: str, default: int, low: int, high: int) -> int:
+    """범위 밖(또는 정수가 아닌) 값은 기본값으로 대체한다."""
+    value = _as_int(name, default)
+    return value if low <= value <= high else default
+
+
 class Settings(BaseModel):
     app_name: str = os.getenv("APP_NAME", "SilverBridge AI Server")
     app_env: str = os.getenv("APP_ENV", "development")
@@ -194,6 +200,15 @@ class Settings(BaseModel):
     frame_quality_std_min: float = _as_float_in_range("FRAME_QUALITY_STD_MIN", 12.0, 0.0, 60.0)
     frame_quality_lap_max: float = _as_float_in_range("FRAME_QUALITY_LAP_MAX", 10.0, 0.0, 500.0)
     frame_quality_blur_std_max: float = _as_float_in_range("FRAME_QUALITY_BLUR_STD_MAX", 30.0, 0.0, 100.0)
+
+    # 화재·연기 유지 조건: 한 장짜리 양성(흔들림·렌즈 가림 같은 순간적 오탐)으로는 알리지 않는다. 최근
+    # FIRE_HOLD_WINDOW 번의 분석 중 FIRE_HOLD_MIN_POSITIVE 번 이상이 양성(한 장 기준 danger)이어야 danger 다.
+    # 시간이 아니라 횟수 기준이라 카메라 수·부하로 분석 간격이 늘어도 판정이 난다(대신 알림이 분석 N회만큼 늦다).
+    # FIRE_HOLD_ENABLED=false 면 한 장 판정 그대로(킬 스위치). 마지막 분석 후 FIRE_HOLD_MAX_GAP_SEC 가 지나면 다시 센다.
+    fire_hold_enabled: bool = _as_bool("FIRE_HOLD_ENABLED", True)
+    fire_hold_window: int = _as_int_in_range("FIRE_HOLD_WINDOW", 4, 1, 20)
+    fire_hold_min_positive: int = _as_int_in_range("FIRE_HOLD_MIN_POSITIVE", 3, 1, 20)
+    fire_hold_max_gap_sec: float = _as_float_in_range("FIRE_HOLD_MAX_GAP_SEC", 10.0, 1.0, 120.0)
 
     # 실시간 영상(MJPEG·latest-frame)의 감지 박스. 보여주는 복사본에만 그리고 원본·분석 입력·클립은 건드리지 않는다.
     # LIVE_DRAW_BBOX=false 면 원본 바이트를 그대로 내보낸다(비상 스위치). 박스 표시 기준은 기본 "danger" =

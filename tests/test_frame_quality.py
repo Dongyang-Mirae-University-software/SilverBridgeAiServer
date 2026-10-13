@@ -158,7 +158,7 @@ def live(monkeypatch: pytest.MonkeyPatch):
 
     def make(**overrides: Any) -> sss.StreamSessionService:
         update = {"fire_smoke_enabled": True, "knife_enabled": True, "fall_enabled": True,
-                  "stream_sample_every_n_frames": 1, **overrides}
+                  "stream_sample_every_n_frames": 1, "fire_hold_enabled": False, **overrides}
         settings = get_settings().model_copy(update=update)
         monkeypatch.setattr(sss, "get_settings", lambda: settings)
         return sss.StreamSessionService(db=None, frame_store=sss.frame_store)  # type: ignore[arg-type]

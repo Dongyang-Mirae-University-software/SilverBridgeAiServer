@@ -51,7 +51,7 @@ def detector(monkeypatch: pytest.MonkeyPatch) -> _SlowDetector:
     fake = _SlowDetector(delay=0.4)
     monkeypatch.setattr(sss, "get_fire_smoke_detector", lambda: fake)
     settings = get_settings().model_copy(
-        update={"api_key": API_KEY, "fire_smoke_enabled": True, "stream_sample_every_n_frames": 1},
+        update={"api_key": API_KEY, "fire_smoke_enabled": True, "stream_sample_every_n_frames": 1, "fire_hold_enabled": False},
     )
     monkeypatch.setattr(sss, "get_settings", lambda: settings)
     return fake
