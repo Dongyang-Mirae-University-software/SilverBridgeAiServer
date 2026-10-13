@@ -77,7 +77,7 @@ class MedicalLlmService:
 
         lines = [str(data.get("empathy") or "").strip() or "말씀해 주신 내용을 정리했어요.", f"· 증상: {symptoms}"]
         features = str(data.get("features") or "").strip()
-        if features and not re.search(r"없음|불명확|모름|알 수 없", features):  # "유발 요인 불명확" 같은 빈말은 줄을 빼는 게 낫다
+        if features and not re.search(r"없음|없습니다|불명확|모름|알 수 없|언급되지|말씀하지|제공되지", features):  # "유발 요인 불명확" 같은 빈말은 줄을 빼는 게 낫다
             lines.append(f"· 특징: {features}")
         advice = str(data.get("advice") or "").strip()
         if emergency:

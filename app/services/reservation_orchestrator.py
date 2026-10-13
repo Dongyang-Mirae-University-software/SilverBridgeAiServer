@@ -92,6 +92,13 @@ def _symptom_department(text: str) -> str | None:
     return None
 
 
+def _with_copula(word: str) -> str:
+    """'내과예요' / '병원이에요' - 받침 유무로 고른다."""
+    code = ord(word[-1]) - 0xAC00
+    has_final = 0 <= code < 11172 and code % 28 != 0
+    return f"{word}{'이에요' if has_final else '예요'}"
+
+
 def _gap_label(field: str) -> str:
     return _GAP_PROMPTS.get(field, ("아래에서 값을 선택하거나 입력해 주세요.", None))[0]
 
@@ -357,11 +364,17 @@ class ReservationOrchestrator:
             "decisionTrace": meta.get("decisionTrace") or [],
         }
 
-    def _ask_location(self, meta: dict[str, Any]) -> dict[str, Any]:
+    def _ask_location(self, meta: dict[str, Any], department: str | None = None) -> dict[str, Any]:
         _trace(meta, "reservation_gap", missing="location")
+        # "병원 어디로 가야 돼요?"에는 먼저 어느 과인지 답하고, 가까운 곳을 찾으려 지역을 묻는다(예약 양식처럼 보이지 않게).
+        reply = (
+            f"{department}로 가시면 돼요. 가까운 {department}를 찾아드릴게요. 어느 지역에서 찾을까요?"
+            if department
+            else "어느 지역에서 병원을 찾을까요?"
+        )
         return self._ui_reply(
             meta,
-            "어느 지역에서 병원을 찾을까요?",
+            reply,
             UiPayload(kind="text", field="location", label="지역을 입력해 주세요", placeholder="예: 서울 강남구"),
         )
 
@@ -756,7 +769,7 @@ class ReservationOrchestrator:
                 draft.location = value or draft.location
             elif field == "location_confirm":
                 if value == "__other__":
-                    return self._ask_location(meta)
+                    return self._ask_location(meta, draft.department)
                 draft.location = value or draft.location
 
         _trace(
@@ -792,7 +805,7 @@ class ReservationOrchestrator:
                     ),
                 )
             if not draft.location:
-                return self._ask_location(meta)
+                return self._ask_location(meta, draft.department)
             # 프로필 지역은 되묻지 않고 바로 쓴다(한 턴 절약). 어느 지역으로 찾았는지는 결과 문구에 적고,
             # 다른 지역을 원하면 사용자가 말한 지역이 현재 문장 우선 규칙으로 덮어쓴다.
 
@@ -849,7 +862,7 @@ class ReservationOrchestrator:
             if len(unique_rows) > 1:
                 _trace(meta, "hospital_selection_needed", candidate_count=len(unique_rows))
                 return {
-                    "reply": f"{region} 기준으로 찾은 병원이에요. 예약할 병원을 선택해 주세요.",
+                    "reply": f"{region} 기준으로 찾은 {_with_copula(draft.department or '병원')}. 예약하려면 병원을 선택해 주세요.",
                     "riskLevel": "medium",
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,

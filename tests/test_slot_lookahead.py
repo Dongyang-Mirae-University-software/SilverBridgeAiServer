@@ -102,3 +102,14 @@ def test_symptom_department_rule() -> None:
     assert _symptom_department("머리가 너무 아파서 병원 예약하고 싶어요") == "신경과"
     assert _symptom_department("눈이 충혈됐어요") == "안과"
     assert _symptom_department("강남메디내과 예약 잡아줘") is None
+
+
+def test_where_to_go_answers_department_before_asking_region() -> None:
+    from app.services.reservation_orchestrator import _with_copula
+
+    orch = ReservationOrchestrator.__new__(ReservationOrchestrator)
+    orch._loader = type("L", (), {"state": type("S", (), {"model_name": "x"})()})()
+    reply = orch._ask_location({}, "내과")["reply"]
+    assert reply.startswith("내과로 가시면 돼요.") and "지역" in reply
+    assert orch._ask_location({})["reply"] == "어느 지역에서 병원을 찾을까요?"
+    assert _with_copula("내과") == "내과예요" and _with_copula("병원") == "병원이에요"
