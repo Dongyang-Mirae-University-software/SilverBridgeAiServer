@@ -107,9 +107,10 @@ class Settings(BaseModel):
     chat_model_path: str = os.getenv("CHAT_MODEL_PATH", "")
     hf_token: str = os.getenv("HF_TOKEN", "")
     chat_enable_llm: bool = _as_bool("CHAT_ENABLE_LLM", True)
-    gpt_api_key: str = os.getenv("GPT_API_KEY", "")
-    gpt_model_name: str = os.getenv("GPT_MODEL_NAME", "gpt-4o-mini")
-    gpt_timeout_sec: int = _as_int("GPT_TIMEOUT_SEC", 60)
+    # 라우터·예약 추출용 Claude. 키는 .env의 ANTHROPIC_API_KEY.
+    anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY") or ""
+    claude_model_name: str = os.getenv("CLAUDE_MODEL_NAME", "claude-opus-5-5")
+    claude_timeout_sec: int = _as_int("CLAUDE_TIMEOUT_SEC", 60)
     chat_upstream_url: str = os.getenv("CHAT_UPSTREAM_URL", "http://127.0.0.1:6012")
     chat_upstream_timeout_sec: int = _as_int("CHAT_UPSTREAM_TIMEOUT_SEC", 1200)
     reservation_api_base_url: str = os.getenv(
@@ -122,6 +123,8 @@ class Settings(BaseModel):
     )
     reservation_user_jwt: str = os.getenv("RESERVATION_USER_JWT", "")
     reservation_admin_jwt: str = os.getenv("RESERVATION_ADMIN_JWT", "")
+    # 사용자별 예약 계정(sb-<userId>@silverbridge.local) 비밀번호 파생 비밀. 프론트 BFF(RESERVATION_ACCOUNT_SECRET)와 같아야 한다.
+    reservation_account_secret: str = os.getenv("RESERVATION_ACCOUNT_SECRET", "silverbridge-reservation-dev-secret")
     reservation_service_email: str = os.getenv("RESERVATION_SERVICE_EMAIL", "user1@example.com")
     reservation_service_password: str = os.getenv("RESERVATION_SERVICE_PASSWORD", "User123456!")
     torch_dtype: str = os.getenv("TORCH_DTYPE", "float16")

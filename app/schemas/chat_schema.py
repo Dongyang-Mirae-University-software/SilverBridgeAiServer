@@ -21,6 +21,10 @@ class ChatContext(BaseModel):
     guardianId: int | None = None
     location: str | None = None
     role: str | None = None
+    # 보호자가 피보호자 대신 상담·예약할 때. 예약은 이 사람 계정으로 들어가고 환자명·연락처도 이 사람 것.
+    wardId: str | None = None
+    wardName: str | None = None
+    wardPhone: str | None = None
 
 
 class ChatHistoryItem(BaseModel):

@@ -5,6 +5,9 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
 
+# 시간 선택지에 붙는 "다른 날짜 선택" 버튼 값
+CHANGE_DATE_OPTION = "__change_date__"
+
 _PHONE_RE = re.compile(r"(?<!\d)(01\d[-\s]?\d{3,4}[-\s]?\d{4})(?!\d)")
 _DEPARTMENT_ALIASES = {
     "소아과": "소아청소년과",
@@ -42,6 +45,18 @@ class ReservationDraft:
     search_hint: str | None = None
     source_text: str = ""
     extras: dict[str, Any] = field(default_factory=dict)
+
+    def apply_time_selection(self, value: str) -> None:
+        """시간 버튼 값 적용. 값은 "HH:mm" 또는 자동으로 넘긴 날짜를 담은 "YYYY-MM-DD HH:mm"이고, 날짜 변경 버튼이면 날짜·시간을 비운다."""
+        if value == CHANGE_DATE_OPTION:
+            self.reservation_date = None
+            self.reservation_time = None
+            return
+        parts = value.split()
+        if len(parts) == 2:
+            self.reservation_date, self.reservation_time = parts
+        else:
+            self.reservation_time = value or self.reservation_time
 
     def required_gap(self) -> str | None:
         if not (self.department or "").strip():
@@ -144,9 +159,11 @@ def _find_hospital_name(text: str) -> str | None:
         r"([가-힣A-Za-z0-9]+(?:메디|의료원|센터))",
     )
     for pattern in patterns:
-        m = re.search(pattern, raw)
-        if m:
-            return m.group(1).strip()
+        for m in re.finditer(pattern, raw):
+            name = m.group(1).strip()
+            # "정형외과"처럼 진료과 이름만 있는 건 병원명이 아니다(정형+외과로 잘못 잡힌다).
+            if name not in _DEPARTMENT_ALIASES:
+                return name
     return None
 
 
@@ -258,7 +275,7 @@ def build_reservation_draft(
         elif ui_field == "date":
             draft.reservation_date = ui_value
         elif ui_field == "time":
-            draft.reservation_time = ui_value
+            draft.apply_time_selection(ui_value)
         elif ui_field == "patient_name":
             draft.patient_name = ui_value
         elif ui_field == "phone":

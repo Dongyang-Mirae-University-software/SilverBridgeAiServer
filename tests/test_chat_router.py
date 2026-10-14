@@ -11,7 +11,7 @@ class _FakeGpt:
         self._reply = reply
         self.state = type("S", (), {"model_name": "fake-gpt"})()
 
-    def generate_structured_text(self, system_prompt: str, user_prompt: str) -> str:
+    def generate_structured_text(self, system_prompt: str, user_prompt: str, schema: dict | None = None) -> str:
         assert "[사용자 문장]" in user_prompt
         return json.dumps(self._reply, ensure_ascii=False)
 
@@ -40,15 +40,10 @@ def test_router_rejects_unknown_route() -> None:
     raise AssertionError("unknown route must raise so chat_service falls back to keywords")
 
 
-def test_reply_no_longer_duplicates_sections() -> None:
-    reply = MedicalLlmService.format_answer({
-        "finalMessage": "따뜻한 물을 드세요.",
-        "summary": "추위로 인한 기침 안내입니다.",
-        "possibleCauses": ["기관지 자극"],
-        "homeCare": ["따뜻한 차"],
-    })
-    assert "가능한 원인" not in reply and "기관지 자극" not in reply
-    assert "따뜻한 물을 드세요." in reply and "의료진 상담" in reply
+def test_reply_is_single_bubble_without_sections() -> None:
+    reply = MedicalLlmService.format_answer({"empathy": "기침이 오래가면 힘드시죠.", "symptoms": "기침 (3일째)", "advice": "내과 진료를 권해드려요."})
+    assert reply == "기침이 오래가면 힘드시죠.\n· 증상: 기침 (3일째)\n내과 진료를 권해드려요."
+    assert "특징" not in MedicalLlmService.format_answer({"symptoms": "기침", "features": "유발 요인 불명확", "advice": "내과 진료를 권해드려요."})
 
 
 def test_department_from_current_message_beats_history() -> None:

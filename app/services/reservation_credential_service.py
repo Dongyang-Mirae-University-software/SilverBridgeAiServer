@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import re
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
@@ -74,59 +77,71 @@ class ReservationCredentialService:
     def has_credential(self, db: Session, user_id: str) -> bool:
         return self.get_api_key(db, user_id) is not None
 
+    PHONE_PATTERN = re.compile(r"^01[0-9]-?[0-9]{3,4}-?[0-9]{4}$")
+
+    @staticmethod
+    def account_for(user_id: str, secret: str) -> tuple[str, str]:
+        """프론트 BFF와 같은 규칙의 사용자별 예약 계정. 이메일 sb-<userId>@silverbridge.local, 비밀번호 HMAC(secret, userId)."""
+        email = f"sb-{user_id}@silverbridge.local"
+        password = hmac.new(secret.encode("utf-8"), user_id.encode("utf-8"), hashlib.sha256).hexdigest()
+        return email, password
+
     def ensure_credential(
         self,
         db: Session,
         *,
         user_id: str,
-        reservation_email: str | None,
         client: ReservationApiClient,
+        name: str | None = None,
+        phone: str | None = None,
     ) -> str | None:
+        """user_id(예약 당사자, 보호자가 대신하면 피보호자) 계정의 API 키. 없으면 로그인/가입해서 발급한다.
+
+        예전엔 공용 계정(RESERVATION_SERVICE_EMAIL) 하나로 모든 예약을 넣어 웹(사용자별 계정)에서 보이지 않았다.
+        같은 계정 규칙을 쓰면 챗봇·보호자 웹·피보호자 웹이 같은 예약 목록을 본다."""
+        email, password = self.account_for(user_id, client._settings.reservation_account_secret)
         current = db.query(ReservationCredential).filter(ReservationCredential.user_id == user_id).first()
-        if current and client.has_valid_reservation_key(current.api_key):
+        # 저장된 키가 다른 계정(공용 계정) 것이면 버리고 다시 발급한다.
+        if current and current.reservation_email == email and client.has_valid_reservation_key(current.api_key):
             return current.api_key.strip()
 
-        service_email = (
-            (current.reservation_email if current and current.reservation_email else "").strip()
-            or client._settings.reservation_service_email.strip()
-        )
-        service_password = client._settings.reservation_service_password
-        if not service_email or not service_password:
-            return current.api_key.strip() if current and current.api_key.strip() else None
-
-        login_result = client.login_account(service_email, service_password)
+        login_result = client.login_account(email, password)
         login_status = int(login_result.get("httpStatus") or 0)
+        if login_status in {400, 401, 404}:
+            safe_phone = (phone or "").strip()
+            if not self.PHONE_PATTERN.match(safe_phone):
+                safe_phone = "010-0000-0000"
+            client.signup_account(email, password, (name or "").strip() or "사용자", safe_phone)
+            login_result = client.login_account(email, password)
+            login_status = int(login_result.get("httpStatus") or 0)
         login_data = login_result.get("data")
         if not (200 <= login_status < 300 and isinstance(login_data, dict)):
-            return current.api_key.strip() if current and current.api_key.strip() else None
+            return None
 
         access_token = str(login_data.get("accessToken") or login_data.get("access_token") or "").strip()
         if not access_token:
-            return current.api_key.strip() if current and current.api_key.strip() else None
+            return None
 
         issued = client.issue_api_key(access_token, f"AI-{user_id}")
-        issued_status = int(issued.get("httpStatus") or 0)
         issued_data = issued.get("data")
-        if not (200 <= issued_status < 300 and isinstance(issued_data, dict)):
-            return current.api_key.strip() if current and current.api_key.strip() else None
-
+        if not (200 <= int(issued.get("httpStatus") or 0) < 300 and isinstance(issued_data, dict)):
+            return None
         raw_api_key = str(issued_data.get("apiKey") or issued_data.get("api_key") or "").strip()
         if not raw_api_key:
-            return current.api_key.strip() if current and current.api_key.strip() else None
+            return None
 
         if current is None:
             current = ReservationCredential(
                 user_id=user_id,
-                reservation_email=service_email or None,
+                reservation_email=email,
                 api_key_prefix=self._extract_prefix(raw_api_key),
                 api_key=raw_api_key,
             )
             db.add(current)
         else:
-            current.reservation_email = service_email or None
+            current.reservation_email = email
             current.api_key_prefix = self._extract_prefix(raw_api_key)
             current.api_key = raw_api_key
-
         db.commit()
         db.refresh(current)
         return current.api_key.strip()

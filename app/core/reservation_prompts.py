@@ -38,6 +38,34 @@ SYSTEM_PROMPT = """너는 병원 예약 정보 추출기다.
 """
 
 
+_STR = {"type": "string"}
+# SYSTEM_PROMPT의 출력 JSON과 같은 스키마. Claude 구조화 출력으로 강제한다.
+EXTRACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "intent": {"type": "string", "enum": ["hospital_reservation", "hospital_search", "general_chat"]},
+        "hospital_name": _STR,
+        "department": _STR,
+        "location": _STR,
+        "reservation_date": _STR,
+        "reservation_time": _STR,
+        "patient_name": _STR,
+        "phone": _STR,
+        "birth_date": _STR,
+        "symptom_summary": _STR,
+        "memo": _STR,
+        "missing_fields": {"type": "array", "items": _STR},
+        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+        "needs_search": {"type": "boolean"},
+    },
+    "required": [
+        "intent", "hospital_name", "department", "location", "reservation_date", "reservation_time",
+        "patient_name", "phone", "birth_date", "symptom_summary", "memo", "missing_fields", "confidence", "needs_search",
+    ],
+    "additionalProperties": False,
+}
+
+
 def build_user_prompt(
     *,
     message: str,
@@ -73,6 +101,7 @@ def build_user_prompt(
 - 눈/충혈/가려움은 안과, 귀/코/목은 이비인후과처럼 증상에서 진료과를 추론하라.
 - 병원명, 진료과, 날짜, 시간, 환자명, 전화번호를 가능한 한 채워라.
 - "오늘/내일/모레/다음 주 월요일" 같은 상대 날짜는 반드시 위 [오늘 날짜] 기준으로 YYYY-MM-DD로 계산하라. 과거 날짜는 절대 쓰지 마라.
+- 예약 의도인데 날짜를 말하지 않았으면 reservation_date는 오늘 날짜로 둔다(빈 시간이 없으면 서버가 다음 날을 찾는다).
 - 사용자 프로필에 이미 있는 이름, 전화, 생년월일, 주소는 다시 묻지 말고 우선 반영하라.
 - 예약에 꼭 필요한 값이 부족하면 missing_fields에 남겨라.
 - search가 가능한 상태이면 needs_search를 true로 둬라.
