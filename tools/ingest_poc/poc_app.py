@@ -54,6 +54,39 @@ def _recording_set_frame(self, session_id: str, frame_bytes: bytes):
 
 sss.StreamFrameStore.set_frame = _recording_set_frame  # type: ignore[method-assign]
 
+# 감지 결과 기록(감지 일치 시험): 분석이 끝날 때마다 (그때까지 저장된 프레임 수, 대표 판정, 종류별 판정)을 남긴다.
+# 프레임 번호로 두 경로(JPEG·H.264)의 같은 원본 구간을 맞춰 비교한다.
+_original_detect = sss.StreamSessionService._detect_and_store
+
+
+def _recording_detect(self, session_id: str, frame_bytes: bytes):
+    payload = _original_detect(self, session_id, frame_bytes)
+    with _lock:
+        rec = _records.get(session_id)
+        if rec is not None:
+            kinds = {}
+            for item in payload.get("results") or []:
+                if isinstance(item, dict):
+                    kinds[str(item.get("kind") or item.get("detectedType"))] = {
+                        "type": item.get("detectedType"),
+                        "conf": item.get("confidence"),
+                        "danger": item.get("danger"),
+                    }
+            rec["analysis"].append({
+                "idx": rec["count"],
+                "t": round(time.monotonic() - rec["t0"], 3),
+                "type": payload.get("detectedType"),
+                "conf": payload.get("confidence"),
+                "danger": bool(payload.get("danger")),
+                "boxes": len(payload.get("detections") or []),
+                "kinds": kinds,
+                "quality": (payload.get("frameQuality") or {}).get("ok"),
+            })
+    return payload
+
+
+sss.StreamSessionService._detect_and_store = _recording_detect  # type: ignore[method-assign]
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -61,6 +94,22 @@ async def lifespan(_: FastAPI):
 
     live_ws_manager.bind_loop(asyncio.get_running_loop())
     Base.metadata.create_all(bind=engine)
+    # 감지 모델은 켜진 것만 올린다(운영 main.py 와 같은 try_load). 세 종류가 모두 꺼져 있으면 아무것도 올리지 않는다.
+    from app.core.config import get_settings
+
+    cfg = get_settings()
+    if cfg.fire_smoke_enabled:
+        from app.services.fire_smoke_detection_service import get_fire_smoke_detector
+
+        get_fire_smoke_detector().try_load()
+    if cfg.knife_enabled:
+        from app.services.knife_detection_service import get_knife_detector
+
+        get_knife_detector().try_load()
+    if cfg.fall_enabled:
+        from app.services.fall_detection_service import get_fall_detector
+
+        get_fall_detector().try_load()
     yield
 
 
@@ -81,7 +130,7 @@ def record_start(session_id: str) -> dict:
     for old in target.glob("*.jpg"):
         old.unlink()
     with _lock:
-        _records[session_id] = {"dir": target, "count": 0, "bytes": 0, "times": []}
+        _records[session_id] = {"dir": target, "count": 0, "bytes": 0, "times": [], "analysis": [], "t0": time.monotonic()}
     return {"recording": session_id, "dir": str(target)}
 
 
@@ -91,6 +140,9 @@ def record_stop(session_id: str) -> dict:
         rec = _records.pop(session_id, None)
     if rec is None:
         return {"error": "not recording"}
+    import json
+
+    (rec["dir"] / "analysis.json").write_text(json.dumps(rec["analysis"]))
     times = rec["times"]
     gaps = [(b - a) * 1000.0 for a, b in zip(times, times[1:])]
     gaps_sorted = sorted(gaps)
@@ -107,5 +159,6 @@ def record_stop(session_id: str) -> dict:
             "max": round(max(gaps), 1) if gaps else None,
             "mean": round(statistics.fmean(gaps), 1) if gaps else None,
         },
+        "analysisCount": len(rec["analysis"]),
         "dir": str(rec["dir"]),
     }
