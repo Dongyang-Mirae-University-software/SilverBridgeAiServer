@@ -236,6 +236,19 @@ class Settings(BaseModel):
     collect_min_free_gb: float = _as_float("COLLECT_MIN_FREE_GB", 5.0)
     collect_retention_days: int = _as_int("COLLECT_RETENTION_DAYS", 14)
 
+    # H.264 WebSocket 수신(/api/v1/stream-sessions/{id}/ingest-ws). 기본 꺼짐 - 꺼져 있으면 연결을 받자마자 닫고 기존 /frame 경로는 영향 없다.
+    # 접속자는 백엔드뿐이다(브라우저 직결 없음, X-API-Key 헤더). 범위 밖 값은 기본값으로 대체한다.
+    ingest_ws_enabled: bool = _as_bool("INGEST_WS_ENABLED", False)
+    ingest_ws_max_connections: int = _as_int_in_range("INGEST_WS_MAX_CONNECTIONS", 5, 1, 20)
+    ingest_ws_max_message_bytes: int = _as_int_in_range("INGEST_WS_MAX_MESSAGE_BYTES", 256 * 1024, 4096, 4 * 1024 * 1024)
+    ingest_ws_idle_timeout_sec: float = _as_float_in_range("INGEST_WS_IDLE_TIMEOUT_SEC", 15.0, 3.0, 120.0)
+    ingest_ws_keyframe_timeout_sec: float = _as_float_in_range("INGEST_WS_KEYFRAME_TIMEOUT_SEC", 5.0, 1.0, 60.0)
+    ingest_ws_max_consecutive_failures: int = _as_int_in_range("INGEST_WS_MAX_CONSECUTIVE_FAILURES", 30, 5, 300)
+    ingest_ws_max_fps: float = _as_float_in_range("INGEST_WS_MAX_FPS", 30.0, 1.0, 60.0)
+    # ffmpeg MJPEG 품질(-q:v, 낮을수록 고화질·큰 파일). FE 현행 JPEG 0.8 근처가 4 - PoC 에서 같은 장면으로 비교해 고정한다.
+    ingest_ws_jpeg_quality: int = _as_int_in_range("INGEST_WS_JPEG_QUALITY", 4, 1, 31)
+    ingest_ws_log_interval_sec: float = _as_float_in_range("INGEST_WS_LOG_INTERVAL_SEC", 5.0, 1.0, 300.0)
+
 
 @lru_cache
 def get_settings() -> Settings:

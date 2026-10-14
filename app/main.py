@@ -21,6 +21,7 @@ from app.routers.camera_router import router as camera_router
 from app.routers.chat_router import router as chat_router
 from app.routers.game_router import router as game_router
 from app.routers.health_router import router as health_router
+from app.routers.live_ingest_ws_router import router as live_ingest_ws_router
 from app.routers.live_stream_router import router as live_stream_router
 from app.routers.live_ws_router import router as live_ws_router
 from app.routers.model_router import router as model_router
@@ -134,4 +135,6 @@ app.include_router(chat_router, dependencies=[Depends(require_api_key)])
 app.include_router(game_router, dependencies=game_router_dependencies(settings))
 app.include_router(live_stream_router, dependencies=[Depends(require_api_key)])
 app.include_router(live_ws_router)
+# 자체 인증(X-API-Key 헤더, 상수 시간 비교)을 핸들러 안에서 한다 - WebSocket 은 라우터 의존성 대신 직접 검사.
+app.include_router(live_ingest_ws_router)
 app.include_router(reservation_credential_router, dependencies=[Depends(require_api_key)])

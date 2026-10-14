@@ -174,3 +174,71 @@
 5. PoC를 **시험 인스턴스**에서 할지(권장), 운영 시간대 외 gosky에서 할지.
 
 > 승인 전에는 구현하지 않는다. 구현(PHASE 2)은 [전환-BE] 자격 설계 확정 뒤 AI -> BE -> FE 순서.
+
+---
+
+## 9. 구현 확정 사항 (2026-10-14, 통합 계약 반영)
+
+> 통합 계약: BE `docs/(2026-10-14) design-video-transport-contract.md`. 위 2절과 다르면 **이 절이 우선**한다.
+
+### 9-1. 2절에서 바뀐 것
+
+| 2절 | 확정 |
+|---|---|
+| ① BE 서명(HMAC) 자격을 AI가 로컬 검증, `INGEST_TICKET_SECRET` | **폐지.** 접속자는 BE 한 곳이고 인증은 기존 `X-API-Key` 헤더(상수 시간 비교). 쿼리 키는 받지 않는다. 자격 검증·소유 확인·60초 재확인은 BE가 한다 |
+| ③ 최대 연결 시간 = `maxSec` | **없음.** 무수신 15초(`INGEST_WS_IDLE_TIMEOUT_SEC`)만 종료 조건 |
+| 2-3 4 `/stop`으로 WS 닫기 | BE가 자기 WS를 닫으면 AI 연결도 닫힌다. `/stop`의 WS 종료 연계는 하지 않았다 |
+| 7절 질문 1 | 브라우저 직결 없음(BE 중계)으로 확정 |
+
+### 9-2. 엔드포인트·메시지
+
+`/api/v1/stream-sessions/{session_id}/ingest-ws` (WebSocket, `app/routers/live_ingest_ws_router.py`)
+
+- 첫 메시지(텍스트): `{"type":"config","codec":"avc1...","width":W,"height":H,"framerate":F,"format":"annexb"}`. 5초 안에 오지 않거나 형식이 틀리면 close 1003 `CONFIG_REQUIRED`. 이후 새 `config`가 오면 디코더를 새로 띄운다(회전·해상도 변경).
+- 이후(바이너리): `[8B 타임스탬프(us)][1B 플래그, bit0=키프레임][H.264 Annex B 액세스 유닛]`. 타임스탬프는 쓰지 않는다(프레임 시각 = 서버 수신 시각).
+- 서버 -> 클라이언트(텍스트): `{"type":"keyframe_request"}` (1초에 한 번 이하).
+
+### 9-3. 종료 코드
+
+| code | reason | 의미 |
+|---|---|---|
+| 1008 | `AUTH_INVALID_KEY` / `INGEST_DISABLED` / `SESSION_NOT_FOUND` | 인증 실패 / 플래그 꺼짐 / 세션 미등록 |
+| 1003 | `CONFIG_REQUIRED` / `BAD_PAYLOAD` | 첫 메시지가 config 아님 / Annex B 아닌 payload 연속 |
+| 1009 | `MESSAGE_TOO_LARGE` | 메시지 256KB 초과(텍스트는 4KB) |
+| 1011 | `NO_KEYFRAME` / `DECODE_FAILED` / `DECODER_STALLED` / `DECODER_EXITED` / `DECODER_UNAVAILABLE` | 키프레임 5초 없음 / 출력 없이 30유닛 / stdin 막힘 / ffmpeg 종료 / 바이너리 없음 |
+| 1013 | `REPLACED` / `BUSY` | 같은 세션의 새 연결에 교체됨 / 전체 동시 상한 |
+| 1000 | `IDLE_TIMEOUT` | 무수신 |
+
+### 9-4. 방어와 동작 규칙
+
+- **세션당 1연결**: 새 연결이 이기고 기존은 1013 `REPLACED`. 전체 동시 상한 5(`INGEST_WS_MAX_CONNECTIONS`).
+- **속도 제한**: `config.framerate x 1.5`(상한 `INGEST_WS_MAX_FPS`, 기본 30) 토큰 버킷. 키프레임은 버리지 않는다. **델타를 버리면 이후 델타를 모두 버리고 키프레임을 요청한다**(참조가 깨진 프레임을 디코더에 넣지 않으려는 규칙 - 단순히 초과분만 버리면 화면이 깨진다).
+- 첫 키프레임 전의 델타는 버리고 키프레임을 요청한다.
+- 디코드한 JPEG는 기존 `/frame`과 같은 함수(`app/services/frame_ingest.py::process_ingested_frame`)를 탄다. HTTP 경로는 이 함수를 쓰도록만 바뀌었고 동작은 같다.
+- 분석이 진행 중이면 다음 프레임은 분석을 건너뛴다(기존 규칙 그대로, `_InFlightSessions`).
+- 로그: `sessionId`·집계 수치(`INGEST_WS_LOG_INTERVAL_SEC`, 기본 5초)·종료 코드만. 프레임·키 원문 없음.
+
+### 9-5. 환경변수 (모두 기본 꺼짐/보수적)
+
+| 이름 | 기본 | 설명 |
+|---|---|---|
+| `INGEST_WS_ENABLED` | `false` | 꺼져 있으면 연결을 받자마자 1008 `INGEST_DISABLED`. 기존 `/frame` 경로는 무관 |
+| `INGEST_WS_MAX_CONNECTIONS` | 5 | 전체 동시 연결(범위 1~20) |
+| `INGEST_WS_MAX_MESSAGE_BYTES` | 262144 | 메시지 상한 |
+| `INGEST_WS_IDLE_TIMEOUT_SEC` | 15 | 무수신 종료 |
+| `INGEST_WS_KEYFRAME_TIMEOUT_SEC` | 5 | 키프레임 없음 종료 |
+| `INGEST_WS_MAX_CONSECUTIVE_FAILURES` | 30 | 출력 없이 넣은 유닛 수 / 잘못된 payload 연속 수 |
+| `INGEST_WS_MAX_FPS` | 30 | 속도 제한 상한 |
+| `INGEST_WS_JPEG_QUALITY` | 4 | ffmpeg `-q:v`(PoC에서 같은 장면으로 비교해 고정) |
+| `INGEST_WS_LOG_INTERVAL_SEC` | 5 | 집계 로그 간격 |
+
+### 9-6. 구현 중 실측으로 확인한 것 (ffmpeg 7.0.2 번들, 합성 장면)
+
+- **`-fflags nobuffer`를 쓰면 프레임을 잃는다**: 30장 중 0~15장만 출력(첫 GOP 유실). 넣지 말 것. `-flags low_delay -probesize 32 -analyzeduration 0`만 쓴다 - 이 조합이 없으면 첫 출력이 약 1.5초 늦다.
+- **출력은 입력보다 1장 늦다**(raw H.264 파서가 다음 유닛의 시작을 봐야 프레임 경계를 안다). 15fps에서 약 67ms. 합격 기준 "변환 지연 p99 100ms"에는 이 1장이 포함돼 빠듯하다 - 측정에서 넘으면 FE가 유닛마다 AUD(NAL 9)를 붙이는 것으로 줄일 수 있는지 확인한다.
+- 테스트용 합성 스트림은 `-threads 1`로 만든다. libx264의 슬라이스 스레딩은 프레임당 슬라이스 5개를 내서 "한 메시지 = 한 액세스 유닛" 가정을 깬다(WebCodecs 인코더는 보통 프레임당 슬라이스 1개 - FE 실측 필요).
+
+### 9-7. 아직 하지 않은 것
+
+- 합성 영상 기준 **감지 일치·CPU·지연 측정**은 PHASE 4(시험 인스턴스)에서 한다. 이 PR은 수신·변환 경로와 방어까지다.
+- 운영 AI 컨테이너 재시작은 송출 세션을 끊는다 - 배포 전에 멈추고 확인한다. 먼저 별도 포트의 시험 인스턴스에서 검증한다.

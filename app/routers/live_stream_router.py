@@ -16,6 +16,7 @@ from app.schemas.clip_schema import ClipRequest
 from app.schemas.stream_session_schema import StreamSessionCreate
 from app.services.bbox_overlay import bbox_overlay
 from app.services.clip_service import ClipError, clip_service
+from app.services.frame_ingest import process_ingested_frame
 from app.services.live_ws_manager import live_ws_manager
 from app.services.stream_session_service import StreamSessionService, frame_store
 
@@ -72,17 +73,7 @@ async def ingest_stream_frame(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_response("프레임 데이터가 비어 있습니다.", "STREAM_FRAME_EMPTY", None),
         )
-    updated = service.ingest_frame(session, frame_bytes)
-    latest_analysis = await service.analyze_stream_frame_async(updated.session_id, frame_bytes)
-    status_payload = service.get_status_payload(updated.session_id)
-    live_ws_manager.broadcast_nowait(
-        {"type": "session_status", "sessionId": updated.session_id, "data": status_payload},
-        session_id=updated.session_id,
-    )
-    live_ws_manager.broadcast_nowait(
-        {"type": "latest_analysis", "sessionId": updated.session_id, "data": latest_analysis},
-        session_id=updated.session_id,
-    )
+    updated = await process_ingested_frame(service, session, frame_bytes)
     return success_response(
         "프레임 수신 완료",
         {
