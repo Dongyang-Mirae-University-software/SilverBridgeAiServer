@@ -325,3 +325,16 @@ def test_undecodable_stream_closes_with_decode_failed(env):
         for _ in range(8):
             ws.send_bytes(frame_message(True, junk))
         assert _expect_close(ws).reason == "DECODE_FAILED"
+
+
+def test_last_access_unit_is_output_without_waiting_for_the_next_one(env):
+    """AUD 를 붙이기 전에는 마지막 유닛이 다음 유닛이 올 때까지 나오지 않았다(출력이 입력보다 1장 늦음)."""
+    client, _ = env
+    sid = _new_session(client)
+    _, seq0 = frame_store.get_frame_with_seq(sid)
+    with client.websocket_connect(_url(sid), headers=HEADERS) as ws:
+        ws.send_text(_config())
+        for key, au in _UNITS[:10]:
+            ws.send_bytes(frame_message(key, au))
+        # 더 보내지 않아도 10장이 모두 나와야 한다(1장이 파서에 남아 있으면 9장에서 멈춘다)
+        assert _wait(lambda: frame_store.get_frame_with_seq(sid)[1] - seq0 >= 10, 5.0)

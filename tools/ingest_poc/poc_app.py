@@ -32,6 +32,10 @@ from app.routers.live_stream_router import router as stream_router
 from app.services import stream_session_service as sss
 from app.services.live_ws_manager import live_ws_manager
 
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")  # [INGEST-WS] 집계 로그를 보려고
+
 RECORD_DIR = Path(os.getenv("POC_RECORD_DIR", "/tmp/poc_frames"))
 _records: dict[str, dict] = {}
 _lock = threading.Lock()
