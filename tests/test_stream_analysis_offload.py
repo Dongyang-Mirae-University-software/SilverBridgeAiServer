@@ -29,7 +29,7 @@ class _SlowDetector:
         self.max_active = 0
         self._lock = threading.Lock()
 
-    def detect_from_jpeg(self, frame_bytes: bytes) -> dict:
+    def detect_from_frame(self, frame) -> dict:  # noqa: ANN001
         with self._lock:
             self.calls += 1
             self.active += 1

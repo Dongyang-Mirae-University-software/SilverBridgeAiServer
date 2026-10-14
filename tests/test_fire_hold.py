@@ -121,7 +121,7 @@ class _Fake:
     def set(self, t: str, c: float = 0.0, d: bool = False) -> None:
         self.r = (t, c, d)
 
-    def detect_from_jpeg(self, frame_bytes: bytes) -> dict[str, Any]:
+    def detect_from_frame(self, frame: Any) -> dict[str, Any]:
         self.calls += 1
         t, c, d = self.r
         det = [] if t in {"normal", "unknown"} else [
