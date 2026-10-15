@@ -91,17 +91,6 @@ def assess_jpeg(frame_bytes: bytes, t: QualityThresholds) -> QualityVerdict | No
     return assess_gray(gray, t)
 
 
-def assess_bgr(frame: np.ndarray | None, t: QualityThresholds) -> QualityVerdict | None:
-    """디코드된 BGR 화면의 품질 판정(라이브 경로가 감지기와 같은 디코드 결과를 쓴다). None 이면 판정 불가.
-
-    흑백 디코드(assess_jpeg)와 색 변환 흑백은 색 경계에서 화소 값이 조금 다르지만, 합성 화면 825장(기준값
-    근처 225장 포함)에서 판정이 한 번도 달라지지 않았다(2026-10-14 측정).
-    """
-    if cv2 is None or frame is None or frame.size == 0:
-        return None
-    return assess_gray(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), t)
-
-
 class _BlockLogLimiter:
     """같은 세션의 차단 로그는 1분에 한 번만 남긴다(프레임마다 쏟아지지 않게)."""
 

@@ -140,7 +140,7 @@ class _Fake:
         self.calls = 0
         self.r = (detected_type, confidence, danger)
 
-    def detect_from_frame(self, frame: Any) -> dict[str, Any]:
+    def detect_from_jpeg(self, frame_bytes: bytes) -> dict[str, Any]:
         self.calls += 1
         t, c, d = self.r
         det = [] if t in {"normal", "unknown"} else [

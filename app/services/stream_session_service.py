@@ -19,7 +19,6 @@ from app.services.clip_buffer import clip_frame_buffer
 from app.services.fall_detection_service import get_fall_detector
 from app.services.fall_hold_tracker import fall_hold_tracker
 from app.services import frame_quality
-from app.services.frame_decode import decode_bgr
 from app.services.fire_hold_tracker import fire_hold_tracker
 from app.services.fire_smoke_detection_service import get_fire_smoke_detector
 from app.services.knife_detection_service import get_knife_detector
@@ -248,23 +247,11 @@ class StreamSessionService:
         """
         kind_results: list[tuple[str, dict[str, Any]]] = []
         timings_ms: dict[str, float] = {}
-        # 디코드는 프레임당 한 번 — 감지기·품질 검사가 같은 배열을 읽기만 한다(감지기마다 디코드하면 장당 약 2ms씩 더 든다).
-        # 저장·클립·박스 오버레이·학습 수집은 JPEG 바이트를 그대로 쓴다.
-        started = time.perf_counter()
-        try:
-            frame = decode_bgr(frame_bytes)
-        except Exception:  # noqa: BLE001 - 디코드 오류는 판정 불가(unknown)로 — 분석 자체를 멈추지 않는다
-            _LOG.exception("[LIVE-DECODE-FAILED] sessionId=%s", session_id)
-            frame = None
-        timings_ms["decode"] = (time.perf_counter() - started) * 1000
-        started = time.perf_counter()
-        verdict = self._assess_frame_quality(frame)
-        if verdict is not None:
-            timings_ms["quality"] = (time.perf_counter() - started) * 1000
+        verdict = self._assess_frame_quality(frame_bytes)
         for kind, detector in self._enabled_detectors():
             started = time.perf_counter()
             try:
-                result = detector.detect_from_frame(frame)
+                result = detector.detect_from_jpeg(frame_bytes)
             except Exception:  # noqa: BLE001 - 한 종류의 오류가 다른 종류(특히 화재) 판정을 막지 않게
                 _LOG.exception("[LIVE-DETECT-FAILED] kind=%s sessionId=%s", kind, session_id)
                 result = {"detectedType": "unknown", "confidence": 0.0, "danger": False, "detections": []}
@@ -290,12 +277,12 @@ class StreamSessionService:
             pass
         return payload
 
-    def _assess_frame_quality(self, frame: Any) -> frame_quality.QualityVerdict | None:
+    def _assess_frame_quality(self, frame_bytes: bytes) -> frame_quality.QualityVerdict | None:
         """화재 판정용 화면 품질. 꺼져 있거나 판정할 수 없으면(디코딩 실패·오류) None - 이때는 막지 않는다."""
         if not self.settings.fire_smoke_enabled or not self.settings.frame_quality_gate_enabled:
             return None
         try:
-            return frame_quality.assess_bgr(frame, frame_quality.thresholds_from(self.settings))
+            return frame_quality.assess_jpeg(frame_bytes, frame_quality.thresholds_from(self.settings))
         except Exception:  # noqa: BLE001 - 품질 검사 오류가 분석을 막으면 안 된다(알림 우선)
             _LOG.exception("[FRAME-QUALITY-FAILED]")
             return None

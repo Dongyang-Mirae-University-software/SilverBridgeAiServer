@@ -15,7 +15,7 @@ from app.services.session_analysis_store import session_analysis_store
 
 
 class _FakeDetector:
-    """detect_from_frame 형태만 흉내 낸다. result 를 테스트가 프레임마다 바꾼다."""
+    """detect_from_jpeg 형태만 흉내 낸다. result 를 테스트가 프레임마다 바꾼다."""
 
     def __init__(self, detected_type: str = "normal", confidence: float = 0.0, danger: bool = False) -> None:
         self.calls = 0
@@ -24,7 +24,7 @@ class _FakeDetector:
     def set(self, detected_type: str, confidence: float = 0.0, danger: bool = False) -> None:
         self.result = {"detectedType": detected_type, "confidence": confidence, "danger": danger}
 
-    def detect_from_frame(self, frame: Any) -> dict[str, Any]:
+    def detect_from_jpeg(self, frame_bytes: bytes) -> dict[str, Any]:
         self.calls += 1
         detections = []
         if self.result["detectedType"] not in {"normal", "unknown"}:
@@ -149,10 +149,10 @@ def test_one_detector_crash_does_not_block_fire(fakes: dict[str, Any]) -> None:
     sid = _fresh("multi_crash")
     fakes["detectors"]["fire"].set("fire", 0.9, True)
 
-    def boom(_: Any) -> dict:
+    def boom(_: bytes) -> dict:
         raise RuntimeError("knife model exploded")
 
-    fakes["detectors"]["knife"].detect_from_frame = boom  # type: ignore[method-assign]
+    fakes["detectors"]["knife"].detect_from_jpeg = boom  # type: ignore[method-assign]
     payload = service._detect_and_store(sid, b"jpeg")
 
     assert (payload["detectedType"], payload["danger"]) == ("fire", True)
@@ -319,7 +319,7 @@ def test_fire_only_payload_matches_previous_contract(
     sid = _fresh(f"fire_contract_{detected_type}")
     fire = fakes["detectors"]["fire"]
     fire.set(detected_type, confidence, danger)
-    raw = fire.detect_from_frame(None)
+    raw = fire.detect_from_jpeg(b"jpeg")
 
     payload = service._detect_and_store(sid, b"jpeg")
 
