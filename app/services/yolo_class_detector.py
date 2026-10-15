@@ -10,7 +10,6 @@ from typing import Any
 import numpy as np
 
 from app.core.config import Settings
-from app.services.frame_decode import decode_bgr
 
 _LOG = logging.getLogger(__name__)
 
@@ -141,18 +140,17 @@ class YoloClassDetector:
         danger 는 이 한 장만 본 판정이다(점수 >= danger 임계). 추론 실패·모델 미로드 등 판정 불가
         상황에서는 False 를 유지한다(알람은 확신할 때만).
         """
-        if not frame_bytes:
-            return self._base_result(unknown=True)
-        return self.detect_from_frame(decode_bgr(frame_bytes))
-
-    def detect_from_frame(self, frame: np.ndarray | None) -> dict[str, Any]:
-        """디코드된 BGR 프레임 1장 분석(라이브 경로는 프레임당 한 번 디코드해 감지기들이 함께 쓴다).
-
-        frame 은 읽기만 한다 — 다른 감지기·품질 검사가 같은 배열을 이어서 쓴다. None(디코드 실패)이면
-        모델 확인 뒤 unknown 이다(detect_from_jpeg 와 같은 결과).
-        """
         config = self._config()
-        base = self._base_result()
+        base: dict[str, Any] = {
+            "detectedType": "normal",
+            "confidence": 0.0,
+            "danger": False,
+            "detectedAt": datetime.utcnow().isoformat(),
+            "detections": [],
+        }
+        if not frame_bytes:
+            base["detectedType"] = "unknown"
+            return base
         if not config.enabled:
             return base
         if not self._loaded or self._model is None:
@@ -168,6 +166,8 @@ class YoloClassDetector:
             base["loadError"] = "torch 미설치"
             return base
 
+        arr = np.frombuffer(frame_bytes, dtype=np.uint8)
+        frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         if frame is None or frame.size == 0:
             base["detectedType"] = "unknown"
             return base
@@ -193,16 +193,6 @@ class YoloClassDetector:
         base["detections"] = detections
         base["danger"] = best_type != "normal" and best_conf >= config.danger_threshold
         return base
-
-    @staticmethod
-    def _base_result(unknown: bool = False) -> dict[str, Any]:
-        return {
-            "detectedType": "unknown" if unknown else "normal",
-            "confidence": 0.0,
-            "danger": False,
-            "detectedAt": datetime.utcnow().isoformat(),
-            "detections": [],
-        }
 
     def _parse_boxes(self, results: Any) -> tuple[list[dict[str, Any]], str, float]:
         detections: list[dict[str, Any]] = []

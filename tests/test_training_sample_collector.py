@@ -235,7 +235,7 @@ class _Det:
     def __init__(self, dt: str, conf: float, danger: bool) -> None:
         self.r = _res(dt, conf, danger)
 
-    def detect_from_frame(self, _frame: Any) -> dict[str, Any]:
+    def detect_from_jpeg(self, _b: bytes) -> dict[str, Any]:
         return dict(self.r)
 
 
