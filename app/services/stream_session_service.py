@@ -248,7 +248,11 @@ class StreamSessionService:
         """
         kind_results: list[tuple[str, dict[str, Any]]] = []
         timings_ms: dict[str, float] = {}
+        quality_started = time.perf_counter()
         verdict = self._assess_frame_quality(frame_bytes)
+        if self.settings.fire_smoke_enabled and self.settings.frame_quality_gate_enabled:
+            # 품질 검사(자체 디코드 포함)도 프레임당 비용이다. 게이트가 꺼져 있으면 항목을 만들지 않는다(0으로 채우지 않는다).
+            timings_ms["quality"] = (time.perf_counter() - quality_started) * 1000
         for kind, detector in self._enabled_detectors():
             started = time.perf_counter()
             try:

@@ -249,3 +249,24 @@ def test_laplacian_f32_verdict_matches_f64_reference() -> None:
         if (v.reason == fq.REASON_BLUR_FLAT) != ref_blur and v.reason in (None, fq.REASON_BLUR_FLAT):
             mismatches += 1
     assert mismatches == 0
+
+
+def test_quality_time_is_recorded_in_live_infer_timings(live, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import stream_session_service as sss_mod
+
+    recorded: list[dict[str, float]] = []
+    monkeypatch.setattr(sss_mod._inference_timing, "record", lambda t: recorded.append(dict(t)))
+    fakes, make = live
+    make(frame_quality_gate_enabled=True)._detect_and_store(_sid("fq_timing"), GOOD)
+    assert "quality" in recorded[-1] and recorded[-1]["quality"] >= 0.0
+    assert {"fire", "knife", "fall"} <= set(recorded[-1])
+
+
+def test_quality_time_is_absent_when_gate_is_off(live, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import stream_session_service as sss_mod
+
+    recorded: list[dict[str, float]] = []
+    monkeypatch.setattr(sss_mod._inference_timing, "record", lambda t: recorded.append(dict(t)))
+    fakes, make = live
+    make(frame_quality_gate_enabled=False)._detect_and_store(_sid("fq_timing_off"), GOOD)
+    assert "quality" not in recorded[-1]
