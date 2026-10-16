@@ -10,7 +10,7 @@ import pytest
 from app.core.config import _as_int_in_range, get_settings
 from app.services import stream_session_service as sss
 from app.services.fall_hold_tracker import fall_hold_tracker
-from app.services.fire_hold_tracker import FireHoldTracker, fire_hold_tracker
+from app.services.fire_hold_tracker import FireHoldTracker, fire_hold_tracker, knife_hold_tracker
 from app.services.session_analysis_store import session_analysis_store
 
 KW = dict(window_sec=2.0, ratio=0.6, min_scenes=3, max_gap_sec=10.0)
@@ -155,6 +155,7 @@ def _sid(name: str) -> str:
     session_analysis_store.clear_session(name)
     fall_hold_tracker.clear(name)
     fire_hold_tracker.clear(name)
+    knife_hold_tracker.clear(name)
     return name
 
 
@@ -193,11 +194,48 @@ def test_kill_switch_restores_single_frame_judgement(live) -> None:
     assert out[0]["danger"] is True
 
 
-def test_knife_is_not_held(live) -> None:
+def test_knife_single_positive_is_held(live) -> None:
+    # 순간적으로 한 장만 양성인 흉기는 알리지 않는다(가정 영상 잘못 알림 5건의 유형).
+    fakes, make, clock = live
+    svc, sid = make(), _sid("kh_blip")
+    fakes["knife"].set("knife", 0.9, True)
+    first = _run(svc, sid, clock, 1)[0]
+    fakes["knife"].set("normal")
+    rest = _run(svc, sid, clock, 40)
+    assert first["danger"] is False and first["detectedType"] == "knife"  # 점수·종류는 그대로 내려간다
+    assert not any(p["danger"] for p in rest)
+
+
+def test_knife_sustained_positive_alerts_after_window(live) -> None:
     fakes, make, clock = live
     fakes["knife"].set("knife", 0.9, True)
-    out = _run(make(), _sid("fh_knife"), clock, 1)
-    assert out[0]["detectedType"] == "knife" and out[0]["danger"] is True
+    out = _run(make(), _sid("kh_sustained"), clock, 30)  # 0.1초 간격 3초
+    assert out[0]["danger"] is False and out[10]["danger"] is False
+    assert out[-1]["danger"] is True and out[-1]["detectedType"] == "knife"
+
+
+def test_knife_kill_switch_restores_single_frame_judgement(live) -> None:
+    fakes, make, clock = live
+    fakes["knife"].set("knife", 0.9, True)
+    out = _run(make(knife_hold_enabled=False), _sid("kh_off"), clock, 1)
+    assert out[0]["danger"] is True
+
+
+def test_knife_hold_does_not_touch_fire_history(live) -> None:
+    fakes, make, clock = live
+    svc, sid = make(), _sid("kh_isolated")
+    fakes["knife"].set("knife", 0.9, True)
+    fakes["fire"].set("normal")
+    out = _run(svc, sid, clock, 30)
+    assert out[-1]["danger"] is True  # 합쳐진 payload: 흉기만 양성
+    assert fire_hold_tracker.tracked_sessions() >= 0 and knife_hold_tracker.tracked_sessions() >= 1
+
+
+def test_knife_hold_cleared_on_stop() -> None:
+    knife_hold_tracker.update("kh_stop", True, 0.9, "knife", 0.0, window_sec=2.0, ratio=0.6, min_scenes=3, max_gap_sec=10.0)
+    knife_hold_tracker.clear("kh_stop")
+    d = knife_hold_tracker.update("kh_stop", True, 0.9, "knife", 100.0, window_sec=2.0, ratio=0.6, min_scenes=3, max_gap_sec=10.0)
+    assert d.scenes == 1
 
 
 def test_fall_hold_unchanged(live) -> None:

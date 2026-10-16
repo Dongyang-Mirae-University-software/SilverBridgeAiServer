@@ -215,6 +215,12 @@ class Settings(BaseModel):
     fire_hold_ratio: float = _as_float_in_range("FIRE_HOLD_RATIO", 0.6, 0.3, 1.0)
     fire_hold_min_scenes: int = _as_int_in_range("FIRE_HOLD_MIN_SCENES", 3, 1, 20)
     fire_hold_max_gap_sec: float = _as_float_in_range("FIRE_HOLD_MAX_GAP_SEC", 10.0, 1.0, 120.0)
+    # 흉기 유지 조건: 화재와 같은 구조(한 장짜리 양성으로는 알리지 않는다). KNIFE_HOLD_ENABLED=false 면 한 장 판정 그대로(킬 스위치).
+    knife_hold_enabled: bool = _as_bool("KNIFE_HOLD_ENABLED", True)
+    knife_hold_sec: float = _as_float_in_range("KNIFE_HOLD_SEC", 2.0, 0.5, 30.0)
+    knife_hold_ratio: float = _as_float_in_range("KNIFE_HOLD_RATIO", 0.6, 0.3, 1.0)
+    knife_hold_min_scenes: int = _as_int_in_range("KNIFE_HOLD_MIN_SCENES", 3, 1, 20)
+    knife_hold_max_gap_sec: float = _as_float_in_range("KNIFE_HOLD_MAX_GAP_SEC", 10.0, 1.0, 120.0)
 
     # 실시간 영상(MJPEG·latest-frame)의 감지 박스. 보여주는 복사본에만 그리고 원본·분석 입력·클립은 건드리지 않는다.
     # LIVE_DRAW_BBOX=false 면 원본 바이트를 그대로 내보낸다(비상 스위치). 박스 표시 기준은 기본 "danger" =
