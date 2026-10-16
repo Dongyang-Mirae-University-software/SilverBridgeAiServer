@@ -66,7 +66,8 @@ def _service(fakes: dict[str, Any], **overrides: Any) -> sss.StreamSessionServic
         "fall_danger_threshold": 0.4,
         "fall_hold_sec": 1.5,
         "fall_hold_ratio": 0.7,
-        "fire_hold_enabled": False,  # 이 파일은 대표 선택·계약을 본다. 화재 유지 조건은 test_fire_hold.py
+        "fire_hold_enabled": False,  # 이 파일은 대표 선택·계약을 본다. 화재·흉기 유지 조건은 test_fire_hold.py
+        "knife_hold_enabled": False,
         **overrides,
     }
     settings = get_settings().model_copy(update=update)

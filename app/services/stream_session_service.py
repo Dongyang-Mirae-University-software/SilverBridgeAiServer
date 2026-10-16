@@ -19,7 +19,7 @@ from app.services.clip_buffer import clip_frame_buffer
 from app.services.fall_detection_service import get_fall_detector
 from app.services.fall_hold_tracker import fall_hold_tracker
 from app.services import frame_quality
-from app.services.fire_hold_tracker import fire_hold_tracker
+from app.services.fire_hold_tracker import fire_hold_tracker, knife_hold_tracker
 from app.services.fire_smoke_detection_service import get_fire_smoke_detector
 from app.services.knife_detection_service import get_knife_detector
 from app.services.live_detection_merge import merge_kind_results
@@ -122,6 +122,7 @@ class StreamSessionService:
         clip_frame_buffer.clear(session_id)
         fall_hold_tracker.clear(session_id)
         fire_hold_tracker.clear(session_id)
+        knife_hold_tracker.clear(session_id)
         if self.use_memory_state:
             return self._state_store.create_or_restart(session_id, camera_identifier, device_type)
 
@@ -260,6 +261,8 @@ class StreamSessionService:
                 result = self._apply_frame_quality(session_id, result, verdict)
             if kind == "fire" and self.settings.fire_hold_enabled:
                 result = self._apply_fire_hold(session_id, result)
+            if kind == "knife" and self.settings.knife_hold_enabled:
+                result = self._apply_knife_hold(session_id, result)
             if kind == "fall":
                 result = self._apply_fall_hold(session_id, result)
             kind_results.append((kind, result))
@@ -323,6 +326,28 @@ class StreamSessionService:
             held["confidence"] = round(decision.confidence or 0.0, 4)
         return held
 
+    def _apply_knife_hold(self, session_id: str, result: dict[str, Any]) -> dict[str, Any]:
+        """흉기도 한 장으로 알리지 않는다 - 최근 KNIFE_HOLD_SEC 초 동안 양성 비율이 KNIFE_HOLD_RATIO 이상이어야 danger 다."""
+        if result.get("detectedType") == "unknown":
+            return result
+        decision = knife_hold_tracker.update(
+            session_id,
+            bool(result.get("danger")),
+            float(result.get("confidence") or 0.0),
+            str(result.get("detectedType") or "normal"),
+            _analysis_clock(),
+            window_sec=self.settings.knife_hold_sec,
+            ratio=self.settings.knife_hold_ratio,
+            min_scenes=self.settings.knife_hold_min_scenes,
+            max_gap_sec=self.settings.knife_hold_max_gap_sec,
+        )
+        held = dict(result)
+        held["danger"] = decision.danger
+        if decision.danger:
+            held["detectedType"] = decision.detected_type
+            held["confidence"] = round(decision.confidence or 0.0, 4)
+        return held
+
     def _apply_fall_hold(self, session_id: str, result: dict[str, Any]) -> dict[str, Any]:
         """낙상은 한 장으로 판정하지 않는다 — 세션별 유지 조건(FallHoldTracker)으로 danger 를 다시 정한다."""
         if result.get("detectedType") == "unknown":
@@ -355,6 +380,7 @@ class StreamSessionService:
         clip_frame_buffer.clear(session.session_id)
         fall_hold_tracker.clear(session.session_id)
         fire_hold_tracker.clear(session.session_id)
+        knife_hold_tracker.clear(session.session_id)
         frame_quality.block_log_limiter.clear(session.session_id)
         if self.use_memory_state:
             return self._state_store.stop(session.session_id)

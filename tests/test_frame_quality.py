@@ -158,7 +158,8 @@ def live(monkeypatch: pytest.MonkeyPatch):
 
     def make(**overrides: Any) -> sss.StreamSessionService:
         update = {"fire_smoke_enabled": True, "knife_enabled": True, "fall_enabled": True,
-                  "stream_sample_every_n_frames": 1, "fire_hold_enabled": False, **overrides}
+                  "stream_sample_every_n_frames": 1, "fire_hold_enabled": False, "knife_hold_enabled": False,
+                  **overrides}
         settings = get_settings().model_copy(update=update)
         monkeypatch.setattr(sss, "get_settings", lambda: settings)
         return sss.StreamSessionService(db=None, frame_store=sss.frame_store)  # type: ignore[arg-type]
@@ -224,3 +225,27 @@ def test_unknown_fire_result_is_kept_unknown(live) -> None:
     payload = make()._detect_and_store(_sid("fq_unknown"), WHITE)
     fire = next(r for r in payload["results"] if "frameQuality" in r)
     assert fire["available"] is False
+
+
+def test_laplacian_f32_verdict_matches_f64_reference() -> None:
+    # 속도 개선(CV_64F -> CV_32F)이 판정을 바꾸지 않는다: lap_max 근처 화면 포함 400장에서 기존 계산과 비교.
+    rng = np.random.default_rng(3)
+
+    def reference(gray: np.ndarray) -> bool:
+        h, w = gray.shape
+        g = cv2.resize(gray, (640, max(1, int(h * 640 / w))), interpolation=cv2.INTER_AREA) if w > 640 else gray
+        if g.std() < T.blur_std_max and float(cv2.Laplacian(g, cv2.CV_64F).var()) < T.lap_max and g.std() >= T.std_min:
+            return False
+        return True
+
+    mismatches = 0
+    for i in range(400):
+        base, amp, noise = rng.uniform(40, 200), rng.uniform(0, 14), rng.uniform(0.2, 3.0)
+        y, x = np.mgrid[0:360, 0:640]
+        g = np.clip(base + amp * np.sin(x / 40.0) * np.cos(y / 30.0) + rng.normal(0, noise, (360, 640)), 0, 255).astype(np.uint8)
+        v = fq.assess_gray(g, T)
+        # reference 는 white/black/flat 단계를 생략하므로 blur_flat 여부만 비교한다.
+        ref_blur = not reference(g)
+        if (v.reason == fq.REASON_BLUR_FLAT) != ref_blur and v.reason in (None, fq.REASON_BLUR_FLAT):
+            mismatches += 1
+    assert mismatches == 0

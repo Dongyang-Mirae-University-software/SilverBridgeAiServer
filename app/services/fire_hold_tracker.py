@@ -45,7 +45,8 @@ class FireHoldTracker:
     - 품질 게이트가 막은 장면은 음성으로 센다.
     """
 
-    def __init__(self, clock=time.monotonic) -> None:
+    def __init__(self, clock=time.monotonic, label: str = "FIRE") -> None:
+        self._label = label
         self._lock = Lock()
         self._sessions: dict[str, _SessionHistory] = {}
         self._clock = clock
@@ -88,7 +89,8 @@ class FireHoldTracker:
                 return FireHoldDecision(True, positives[-1][3], avg, len(positives), total)
             if positive and self._pending_log_due(history):
                 _LOG.info(
-                    "[FIRE-HOLD-PENDING] sessionId=%s 양성 %d/%d회 관찰 %.1f/%.1f초 - 유지 조건 전이라 알리지 않는다",
+                    "[%s-HOLD-PENDING] sessionId=%s 양성 %d/%d회 관찰 %.1f/%.1f초 - 유지 조건 전이라 알리지 않는다",
+                    self._label,
                     session_id,
                     len(positives),
                     total,
@@ -115,3 +117,6 @@ class FireHoldTracker:
 
 
 fire_hold_tracker = FireHoldTracker()
+
+# 흉기도 같은 구조(시간 기준 창·최소 장면 수·끊김 리셋)다. 세션 이력은 종류별로 분리된다.
+knife_hold_tracker = FireHoldTracker(label="KNIFE")
