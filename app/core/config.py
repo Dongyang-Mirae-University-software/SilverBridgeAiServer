@@ -241,6 +241,11 @@ class Settings(BaseModel):
     collect_max_total_gb: float = _as_float("COLLECT_MAX_TOTAL_GB", 20.0)
     collect_min_free_gb: float = _as_float("COLLECT_MIN_FREE_GB", 5.0)
     collect_retention_days: int = _as_int("COLLECT_RETENTION_DAYS", 14)
+    # 무작위 장면 수집(모델 비교용). 점수·위험과 무관하게 세션별로 간격마다 1장(±30% 흔들림). 간격 0 = 끔.
+    # 대상은 COLLECT_RANDOM_SESSION_IDS 의 정확한 세션 ID 만(와일드카드 거부). 비면 저장 0. COLLECT_ENABLED 도 켜져 있어야 한다.
+    collect_random_interval_sec: float = _as_float("COLLECT_RANDOM_INTERVAL_SEC", 0.0)
+    collect_random_session_ids: str = os.getenv("COLLECT_RANDOM_SESSION_IDS", "")
+    collect_random_daily_max: int = _as_int("COLLECT_RANDOM_DAILY_MAX", 300)
 
 
 @lru_cache
