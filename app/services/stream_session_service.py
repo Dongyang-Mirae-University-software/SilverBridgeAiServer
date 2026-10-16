@@ -279,7 +279,13 @@ class StreamSessionService:
             payload["analyzedAt"] = datetime.utcnow().isoformat()
         session_analysis_store.set_result(session_id, payload)
         try:
-            training_sample_collector.offer(session_id, frame_bytes, kind_results, settings=self.settings)
+            training_sample_collector.offer(
+                session_id,
+                frame_bytes,
+                kind_results,
+                settings=self.settings,
+                frame_quality=verdict.as_payload() if verdict is not None else None,
+            )
         except Exception:  # noqa: BLE001 - 학습용 수집이 분석 응답에 영향을 주면 안 된다
             pass
         return payload

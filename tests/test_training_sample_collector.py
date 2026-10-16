@@ -281,3 +281,221 @@ def test_detect_and_store_survives_collector_exception(tmp_path, monkeypatch):
 def test_defaults_are_off():
     s = get_settings()
     assert s.collect_enabled is False and s.collect_session_ids == ""
+
+
+# --- 무작위 장면(reason=random, 모델 비교용) ----------------------------------------------------
+
+RSID = "ward_random_cam"
+
+
+def _rand_settings(tmp_path: Path, **kw: Any):
+    base = {"collect_random_interval_sec": 100.0, "collect_random_session_ids": RSID, "collect_session_ids": ""}
+    return _settings(tmp_path, **{**base, **kw})
+
+
+def _rcol(clocks, fraction: float = 0.5):
+    mono, wall = clocks
+    return TrainingSampleCollector(inline=True, now_fn=wall, mono_fn=mono, random_fn=lambda: fraction)
+
+
+def _randoms(tmp_path: Path) -> list[Path]:
+    return [p for p in _files(tmp_path) if p.parent.name == "random"]
+
+
+def _tick(clocks, sec: float) -> None:
+    mono, wall = clocks
+    mono.t += sec
+    wall.t += timedelta(seconds=sec)
+
+
+def _drive(col, s, clocks, sid: str = RSID, steps: int = 1, step_sec: float = 1.0, kinds=None) -> None:
+    for _ in range(steps):
+        _tick(clocks, step_sec)
+        col.offer(sid, JPEG, kinds or _kinds(), settings=s)
+
+
+def test_random_defaults_are_off():
+    s = get_settings()
+    assert s.collect_random_interval_sec == 0.0 and s.collect_random_session_ids == ""
+    assert s.collect_random_daily_max == 300
+
+
+def test_random_interval_zero_saves_nothing(tmp_path, clocks):
+    col = _rcol(clocks)
+    s = _rand_settings(tmp_path, collect_random_interval_sec=0.0)
+    _drive(col, s, clocks, steps=500)
+    assert _files(tmp_path) == []
+
+
+def test_random_requires_collect_enabled(tmp_path, clocks):
+    col = _rcol(clocks)
+    s = _rand_settings(tmp_path, collect_enabled=False)
+    _drive(col, s, clocks, steps=500)
+    assert _files(tmp_path) == []
+
+
+def test_random_only_listed_sessions(tmp_path, clocks):
+    col = _rcol(clocks)
+    s = _rand_settings(tmp_path)
+    _drive(col, s, clocks, sid="ward_other_cam", steps=300)
+    assert _files(tmp_path) == []
+    _drive(col, s, clocks, steps=300)
+    assert len(_randoms(tmp_path)) >= 1
+    assert {p.stem.split("_", 2)[2].rsplit("_", 1)[0] for p in _randoms(tmp_path)} == {RSID}
+
+
+def test_random_empty_list_saves_nothing(tmp_path, clocks):
+    col = _rcol(clocks)
+    s = _rand_settings(tmp_path, collect_random_session_ids="")
+    _drive(col, s, clocks, steps=500)
+    assert _files(tmp_path) == []
+
+
+@pytest.mark.parametrize("spec", ["*", "ward_*", "ward_random_*", f"{RSID}*", "a*b"])
+def test_random_wildcards_rejected_with_warning(tmp_path, clocks, caplog, spec):
+    col = _rcol(clocks)
+    s = _rand_settings(tmp_path, collect_random_session_ids=spec)
+    with caplog.at_level("WARNING", logger=tsc._LOG.name):
+        _drive(col, s, clocks, steps=500)
+    assert _files(tmp_path) == []
+    assert "wildcard entries rejected" in caplog.text
+
+
+def test_random_mixed_list_keeps_exact_ids_only(tmp_path, clocks):
+    col = _rcol(clocks)
+    s = _rand_settings(tmp_path, collect_random_session_ids=f"*, {RSID}")
+    _drive(col, s, clocks, sid="ward_other_cam", steps=300)
+    assert _files(tmp_path) == []
+    _drive(col, s, clocks, steps=300)
+    assert len(_randoms(tmp_path)) >= 1
+
+
+def test_random_first_frame_not_saved_and_jitter_lower_bound(tmp_path, clocks):
+    col = _rcol(clocks, fraction=0.0)  # 간격 x 0.7 = 70초
+    s = _rand_settings(tmp_path)
+    _drive(col, s, clocks)  # 처음 본 세션: 저장하지 않고 70초 뒤로 예약
+    assert _randoms(tmp_path) == []
+    _tick(clocks, 69.0)
+    col.offer(RSID, JPEG, _kinds(), settings=s)
+    assert _randoms(tmp_path) == []
+    _tick(clocks, 1.0)
+    col.offer(RSID, JPEG, _kinds(), settings=s)
+    assert len(_randoms(tmp_path)) == 1
+
+
+def test_random_jitter_upper_bound(tmp_path, clocks):
+    col = _rcol(clocks, fraction=1.0)  # 간격 x 1.3 = 130초
+    s = _rand_settings(tmp_path)
+    _drive(col, s, clocks)
+    _tick(clocks, 129.0)
+    col.offer(RSID, JPEG, _kinds(), settings=s)
+    assert _randoms(tmp_path) == []
+    _tick(clocks, 1.0)
+    col.offer(RSID, JPEG, _kinds(), settings=s)
+    assert len(_randoms(tmp_path)) == 1
+    _tick(clocks, 129.0)  # 저장 뒤 다시 한 간격(최대 130초)을 기다린다
+    col.offer(RSID, JPEG, _kinds(), settings=s)
+    assert len(_randoms(tmp_path)) == 1
+    _tick(clocks, 1.0)
+    col.offer(RSID, JPEG, _kinds(), settings=s)
+    assert len(_randoms(tmp_path)) == 2
+
+
+def test_random_actual_gaps_stay_within_30_percent(tmp_path, clocks):
+    mono, wall = clocks
+    col = TrainingSampleCollector(inline=True, now_fn=wall, mono_fn=mono)  # 진짜 난수
+    s = _rand_settings(tmp_path, collect_random_daily_max=10_000)
+    times: list[float] = []
+    last = len(_randoms(tmp_path))
+    for _ in range(8_000):
+        _tick(clocks, 1.0)
+        col.offer(RSID, JPEG, _kinds(), settings=s)
+        now_count = len(_randoms(tmp_path))
+        if now_count != last:
+            times.append(mono.t)
+            last = now_count
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    assert len(gaps) > 40
+    assert all(70.0 <= g <= 131.0 for g in gaps)  # 1초 틱 단위 반올림 여유 1초
+    assert len({round(g) for g in gaps}) > 5  # 고정 주기가 아니다
+
+
+def test_random_saved_regardless_of_score_and_meta_has_all_kinds(tmp_path, clocks):
+    col = _rcol(clocks, fraction=0.0)
+    s = _rand_settings(tmp_path)
+    fq = {"ok": False, "reason": "blur"}
+    _drive(col, s, clocks)
+    _tick(clocks, 70.0)
+    col.offer(RSID, JPEG, _kinds(knife=("knife", 0.31, False), fall=("normal", 0.0, False)), settings=s, frame_quality=fq)
+    jpg = _randoms(tmp_path)[0]
+    assert jpg.parent.parent.name == "20261007"  # <day>/random/ - 종류 폴더 밖
+    assert jpg.name.startswith("r_") and jpg.read_bytes() == JPEG
+    meta = json.loads(jpg.with_suffix(".json").read_text(encoding="utf-8"))
+    assert meta["kind"] == "random" and meta["reason"] == "random" and meta["sessionId"] == RSID
+    by_kind = {r["kind"]: r for r in meta["results"]}
+    assert set(by_kind) == {"fire", "knife", "fall"}
+    assert by_kind["knife"]["confidence"] == 0.31 and by_kind["knife"]["detectedType"] == "knife"
+    assert all({"confidence", "danger", "detectedType"} <= set(r) for r in meta["results"])
+    assert meta["frameQuality"] == fq
+    assert not list((tmp_path / "collect").rglob(".*.tmp"))
+
+
+def test_random_daily_cap_separate_from_near_alert(tmp_path, clocks):
+    col = _rcol(clocks, fraction=0.0)
+    s = _rand_settings(
+        tmp_path, collect_random_daily_max=2, collect_session_ids=RSID, collect_daily_max_per_session=2000,
+    )
+    _drive(col, s, clocks)
+    for _ in range(5):
+        _tick(clocks, 70.0)
+        col.offer(RSID, JPEG, _kinds(), settings=s)
+    assert len(_randoms(tmp_path)) == 2  # 상한 2
+    _tick(clocks, 11.0)
+    col.offer(RSID, JPEG, _kinds(fire=("fire", 0.9, True)), settings=s)  # near/alert 는 별개 카운터
+    assert len([p for p in _files(tmp_path) if p.parent.name == "alert"]) == 1
+
+
+def test_random_does_not_change_near_alert(tmp_path, clocks):
+    col = _rcol(clocks, fraction=0.0)
+    s = _rand_settings(tmp_path, collect_session_ids=RSID)
+    _drive(col, s, clocks)
+    _tick(clocks, 70.0)
+    col.offer(RSID, JPEG, _kinds(fire=("fire", 0.9, True)), settings=s)  # 같은 프레임: random + alert
+    names = sorted((p.parent.name, p.name) for p in _files(tmp_path))
+    assert [n[0] for n in names] == ["alert", "random"]
+    assert len({n[1] for n in names}) == 2  # 파일 이름이 겹치지 않는다
+    # random 대상이 아닌 세션의 near/alert 는 그대로 저장된다
+    s2 = _rand_settings(tmp_path, collect_session_ids="ward_other_cam")
+    col.offer("ward_other_cam", JPEG, _kinds(fire=("fire", 0.3, False)), settings=s2)
+    assert any(p.parent.name == "near" for p in _files(tmp_path))
+
+
+def test_random_session_not_in_near_alert_list_saves_only_random(tmp_path, clocks):
+    col = _rcol(clocks, fraction=0.0)
+    s = _rand_settings(tmp_path, collect_session_ids="ward_other_cam")
+    _drive(col, s, clocks)
+    _tick(clocks, 70.0)
+    col.offer(RSID, JPEG, _kinds(fire=("fire", 0.9, True)), settings=s)
+    assert [p.parent.name for p in _files(tmp_path)] == ["random"]
+
+
+def test_random_write_failure_never_raises(tmp_path, clocks, monkeypatch):
+    col = _rcol(clocks, fraction=0.0)
+    s = _rand_settings(tmp_path)
+    _drive(col, s, clocks)
+    _tick(clocks, 70.0)
+    monkeypatch.setattr(TrainingSampleCollector, "_write_atomic", staticmethod(lambda *a, **k: (_ for _ in ()).throw(OSError("x"))))
+    col.offer(RSID, JPEG, _kinds(), settings=s)  # 예외가 올라오지 않는다
+    assert _files(tmp_path) == []
+
+
+def test_detect_and_store_passes_frame_quality_to_collector(tmp_path, monkeypatch):
+    seen: dict[str, Any] = {}
+
+    class Spy:
+        def offer(self, *a, **k):
+            seen.update(k)
+
+    monkeypatch.setattr(sss, "training_sample_collector", Spy())
+    _run(_service(monkeypatch, tmp_path))
+    assert "frame_quality" in seen
