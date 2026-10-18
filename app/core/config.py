@@ -99,6 +99,9 @@ class Settings(BaseModel):
     fall_danger_threshold: float = _as_float("FALL_DANGER_THRESHOLD", 0.4)
     fall_hold_sec: float = _as_float("FALL_HOLD_SEC", 1.5)
     fall_hold_ratio: float = _as_float("FALL_HOLD_RATIO", 0.7)
+    # 화면 면적 대비 이 비율 이상인 fallen 상자는 낙상 판정에서 무시한다(0 이하 = 끔). 화면 공유·TV 영상처럼 화면
+    # 대부분을 덮는 상자가 낮은 점수로 유지 조건을 채우는 오탐을 막는다. 방 카메라 실측 최대는 31%(99%가 24% 이하).
+    fall_max_box_area: float = _as_float("FALL_MAX_BOX_AREA", 0.35)
     # 라이브 추론 시간 요약 로그 주기(초, 0 이하 = 끔). 감지기를 여러 개 켜면 프레임당 추론이 길어진다 —
     # 너무 느리면 STREAM_SAMPLE_EVERY_N_FRAMES 를 늘린다.
     stream_infer_log_interval_sec: float = _as_float("STREAM_INFER_LOG_INTERVAL_SEC", 60.0)

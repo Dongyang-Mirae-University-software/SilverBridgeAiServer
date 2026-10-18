@@ -31,6 +31,8 @@ class DetectorConfig:
     conf_threshold: float
     iou_threshold: float
     danger_threshold: float
+    # 화면 면적 대비 이 비율 이상인 상자는 점수 후보·detections 에서 뺀다(0 이하 = 끔).
+    max_box_area_ratio: float = 0.0
 
 
 class YoloClassDetector:
@@ -187,22 +189,37 @@ class YoloClassDetector:
             base["loadError"] = str(exc)
             return base
 
-        detections, best_type, best_conf = self._parse_boxes(results)
+        frame_h, frame_w = frame.shape[:2]
+        detections, best_type, best_conf, ignored = self._parse_boxes(
+            results, frame_w=frame_w, frame_h=frame_h, max_area_ratio=config.max_box_area_ratio
+        )
+        if ignored:
+            # 내부용 - merge_kind_results 가 응답으로 옮기지 않는다. 세션 단위 로그는 호출한 쪽이 남긴다.
+            base["ignoredBoxes"] = ignored
         base["detectedType"] = best_type
         base["confidence"] = round(best_conf, 4)
         base["detections"] = detections
         base["danger"] = best_type != "normal" and best_conf >= config.danger_threshold
         return base
 
-    def _parse_boxes(self, results: Any) -> tuple[list[dict[str, Any]], str, float]:
+    def _parse_boxes(
+        self,
+        results: Any,
+        *,
+        frame_w: int = 0,
+        frame_h: int = 0,
+        max_area_ratio: float = 0.0,
+    ) -> tuple[list[dict[str, Any]], str, float, list[dict[str, float]]]:
         detections: list[dict[str, Any]] = []
+        ignored: list[dict[str, float]] = []
         best_type = "normal"
         best_conf = 0.0
         if not results:
-            return detections, best_type, best_conf
+            return detections, best_type, best_conf, ignored
         boxes = getattr(results[0], "boxes", None)
         if boxes is None or not len(boxes):
-            return detections, best_type, best_conf
+            return detections, best_type, best_conf, ignored
+        frame_area = frame_w * frame_h
         xyxy = getattr(boxes, "xyxy", None)
         conf = getattr(boxes, "conf", None)
         cls = getattr(boxes, "cls", None)
@@ -214,6 +231,11 @@ class YoloClassDetector:
                 continue
             score = float(conf[i].item()) if conf is not None else 0.0
             x1, y1, x2, y2 = [int(round(float(v))) for v in xyxy[i].tolist()]
+            if max_area_ratio > 0 and frame_area > 0:
+                area = max(x2 - x1, 0) * max(y2 - y1, 0) / frame_area
+                if area >= max_area_ratio:
+                    ignored.append({"area": round(area, 4), "confidence": round(score, 4)})
+                    continue
             detections.append(
                 {
                     "detectedType": detected_type,
@@ -224,4 +246,4 @@ class YoloClassDetector:
             if score > best_conf:
                 best_conf = score
                 best_type = detected_type
-        return detections, best_type, best_conf
+        return detections, best_type, best_conf, ignored

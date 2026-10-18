@@ -27,6 +27,7 @@ class FallDetectionService(YoloClassDetector):
             conf_threshold=s.fall_conf_threshold,
             iou_threshold=s.fall_iou_threshold,
             danger_threshold=s.fall_danger_threshold,
+            max_box_area_ratio=s.fall_max_box_area,
         )
 
 

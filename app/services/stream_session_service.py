@@ -17,7 +17,7 @@ from app.core.response import error_response
 from app.services.bbox_overlay import bbox_overlay
 from app.services.clip_buffer import clip_frame_buffer
 from app.services.fall_detection_service import get_fall_detector
-from app.services.fall_hold_tracker import fall_hold_tracker
+from app.services.fall_hold_tracker import fall_hold_tracker, ignored_box_log_limiter
 from app.services import frame_quality
 from app.services.fire_hold_tracker import fire_hold_tracker, knife_hold_tracker
 from app.services.fire_smoke_detection_service import get_fire_smoke_detector
@@ -268,6 +268,8 @@ class StreamSessionService:
             if kind == "knife" and self.settings.knife_hold_enabled:
                 result = self._apply_knife_hold(session_id, result)
             if kind == "fall":
+                for box in result.get("ignoredBoxes") or []:
+                    ignored_box_log_limiter.log_ignored(session_id, box["area"], box["confidence"])
                 result = self._apply_fall_hold(session_id, result)
             kind_results.append((kind, result))
         _inference_timing.record(timings_ms)
@@ -389,6 +391,7 @@ class StreamSessionService:
         bbox_overlay.clear_session(session.session_id)
         clip_frame_buffer.clear(session.session_id)
         fall_hold_tracker.clear(session.session_id)
+        ignored_box_log_limiter.clear(session.session_id)
         fire_hold_tracker.clear(session.session_id)
         knife_hold_tracker.clear(session.session_id)
         frame_quality.block_log_limiter.clear(session.session_id)

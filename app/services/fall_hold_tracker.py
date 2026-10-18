@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from threading import Lock
@@ -87,3 +88,29 @@ class FallHoldTracker:
 
 
 fall_hold_tracker = FallHoldTracker()
+
+
+class _IgnoredBoxLogLimiter:
+    """너무 큰 낙상 상자를 무시했다는 로그는 같은 세션에서 1분에 한 번만 남긴다."""
+
+    def __init__(self, interval_sec: float = 60.0, clock=time.monotonic) -> None:
+        self._interval = interval_sec
+        self._clock = clock
+        self._last: dict[str, float] = {}
+        self._lock = Lock()
+
+    def log_ignored(self, session_id: str, area: float, score: float) -> None:
+        now = self._clock()
+        with self._lock:
+            last = self._last.get(session_id)
+            if last is not None and now - last < self._interval:
+                return
+            self._last[session_id] = now
+        _LOG.info("[FALL-BOX-IGNORED] session=%s area=%.2f score=%.2f", session_id[-6:], area, score)
+
+    def clear(self, session_id: str) -> None:
+        with self._lock:
+            self._last.pop(session_id, None)
+
+
+ignored_box_log_limiter = _IgnoredBoxLogLimiter()
