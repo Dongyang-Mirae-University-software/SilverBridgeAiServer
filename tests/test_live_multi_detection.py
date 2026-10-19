@@ -375,7 +375,7 @@ def test_knife_accepts_only_knife_class_case_insensitively() -> None:
     detector = KnifeDetectionService(get_settings())
     detector._class_names = {0: "knife", 1: "knife_handle"}  # try_load 가 소문자로 만든 상태(6월 모델: Knife·Knife_Handle)
 
-    detections, best_type, best_conf = detector._parse_boxes([_Result([(1, 0.9), (0, 0.6)])])
+    detections, best_type, best_conf, _ = detector._parse_boxes([_Result([(1, 0.9), (0, 0.6)])])
 
     assert (best_type, best_conf) == ("knife", 0.6)  # 손잡이 0.9 는 버린다
     assert [d["detectedType"] for d in detections] == ["knife"]
@@ -385,7 +385,7 @@ def test_fall_maps_fallen_class_to_fall_type() -> None:
     detector = FallDetectionService(get_settings())
     detector._class_names = {0: "fallen"}
 
-    detections, best_type, _ = detector._parse_boxes([_Result([(0, 0.5)])])
+    detections, best_type, _, _ = detector._parse_boxes([_Result([(0, 0.5)])])
 
     assert best_type == "fall"  # 백엔드는 fallen 을 모른다
     assert detections[0]["detectedType"] == "fall"
