@@ -3,12 +3,15 @@ from __future__ import annotations
 import hashlib
 import hmac
 import re
+import logging
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
 from app.services.reservation_api_client import ReservationApiClient
 from app.models.reservation_credential import ReservationCredential
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass
@@ -99,6 +102,10 @@ class ReservationCredentialService:
 
         예전엔 공용 계정(RESERVATION_SERVICE_EMAIL) 하나로 모든 예약을 넣어 웹(사용자별 계정)에서 보이지 않았다.
         같은 계정 규칙을 쓰면 챗봇·보호자 웹·피보호자 웹이 같은 예약 목록을 본다."""
+        if not client._settings.has_reservation_account_secret:
+            # 비밀값이 없으면 계정 비밀번호를 만들 수 없다 - 예약 기능만 끈다(다른 기능은 영향 없음). 값은 로그에 남기지 않는다.
+            _LOG.warning("[예약계정] RESERVATION_ACCOUNT_SECRET 미설정 - 예약 계정 발급을 건너뜁니다")
+            return None
         email, password = self.account_for(user_id, client._settings.reservation_account_secret)
         current = db.query(ReservationCredential).filter(ReservationCredential.user_id == user_id).first()
         # 저장된 키가 다른 계정(공용 계정) 것이면 버리고 다시 발급한다.

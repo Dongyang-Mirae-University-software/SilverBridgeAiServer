@@ -145,6 +145,8 @@ class ChatService:
                 ui_selection and ui_selection["field"] in reservation_ui_fields
             )
             reservation_api_key = None
+            # 예약 계정 비밀값이 없으면 예약 기능만 끈다(상담·이상감지 등 나머지는 그대로).
+            reservation_disabled = reservation_flow_hint and not self._settings.has_reservation_account_secret
             if reservation_flow_hint:
                 # 보호자가 피보호자 대신이면 피보호자 계정으로 예약한다(피보호자 웹·보호자 웹과 같은 목록).
                 ward_id = (payload.context.wardId or "").strip() if payload.context else ""
@@ -167,7 +169,7 @@ class ChatService:
                         update={"name": routed_context.wardName or routed_context.name, "phone": routed_context.wardPhone or routed_context.phone}
                     )
                 routed_payload = payload.model_copy(update={"message": route_info["normalized_message"], "context": routed_context})
-                reservation_result = reservation_orchestrator.handle(
+                reservation_result = None if reservation_disabled else reservation_orchestrator.handle(
                     routed_payload,
                     {
                         "rawMessage": message,
@@ -180,7 +182,11 @@ class ChatService:
                     result = reservation_result
                 else:
                     result = {
-                        "reply": "예약 정보를 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+                        "reply": (
+                            "지금은 병원 예약 기능을 사용할 수 없어요. 병원에 직접 전화해 예약해 주세요."
+                            if reservation_disabled
+                            else "예약 정보를 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."
+                        ),
                         "riskLevel": "medium",
                         "recommendedAction": "guardian_contact",
                         "reservationRequired": True,
@@ -197,7 +203,7 @@ class ChatService:
                         "visitHospitalIf": [],
                         "emergencyWarning": [],
                         "meta": {"reservationFlowHint": True},
-                        "decisionTrace": [{"event": "reservation_flow_fallback"}],
+                        "decisionTrace": [{"event": "reservation_disabled" if reservation_disabled else "reservation_flow_fallback"}],
                     }
             else:
                 local_llm = get_medical_llm_service()

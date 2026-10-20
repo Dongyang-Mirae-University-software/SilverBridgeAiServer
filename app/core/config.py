@@ -127,9 +127,11 @@ class Settings(BaseModel):
     reservation_user_jwt: str = os.getenv("RESERVATION_USER_JWT", "")
     reservation_admin_jwt: str = os.getenv("RESERVATION_ADMIN_JWT", "")
     # 사용자별 예약 계정(sb-<userId>@silverbridge.local) 비밀번호 파생 비밀. 프론트 BFF(RESERVATION_ACCOUNT_SECRET)와 같아야 한다.
-    reservation_account_secret: str = os.getenv("RESERVATION_ACCOUNT_SECRET", "silverbridge-reservation-dev-secret")
-    reservation_service_email: str = os.getenv("RESERVATION_SERVICE_EMAIL", "user1@example.com")
-    reservation_service_password: str = os.getenv("RESERVATION_SERVICE_PASSWORD", "User123456!")
+    # 코드에 기본값을 두지 않는다(저장소를 보는 누구나 계정 비밀번호를 계산할 수 있다). 비어 있으면 예약 기능만 꺼진다.
+    reservation_account_secret: str = os.getenv("RESERVATION_ACCOUNT_SECRET", "").strip()
+    # 옛 공용 예약 계정. 기본값 없음 - 둘 다 .env에 있을 때만 쓴다.
+    reservation_service_email: str = os.getenv("RESERVATION_SERVICE_EMAIL", "")
+    reservation_service_password: str = os.getenv("RESERVATION_SERVICE_PASSWORD", "")
     torch_dtype: str = os.getenv("TORCH_DTYPE", "float16")
     device_map: str = os.getenv("DEVICE_MAP", "auto")
     require_gpu: bool = _as_bool("REQUIRE_GPU", False)
@@ -152,6 +154,10 @@ class Settings(BaseModel):
         if not self.reservation_api_key.strip():
             return None
         return {"Authorization": f"Bearer {self.reservation_api_key.strip()}"}
+
+    @property
+    def has_reservation_account_secret(self) -> bool:
+        return bool(self.reservation_account_secret.strip())
 
     @property
     def has_reservation_service_credentials(self) -> bool:
