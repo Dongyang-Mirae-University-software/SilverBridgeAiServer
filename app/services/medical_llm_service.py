@@ -17,18 +17,29 @@ _LOG = logging.getLogger(__name__)
 
 _STRING_KEYS = ["empathy", "symptoms", "features", "advice", "reply"]
 _LIST_KEYS: list[str] = []
-_EMERGENCY_REPLY = "지금은 응급 상황일 수 있어요. 바로 119 또는 가까운 응급실에 연락하세요."
+_EMERGENCY_REPLY = "지금은 응급 상황일 수 있어요. 지금 바로 119에 전화하세요. 혼자 계시면 문을 열어 두고, 가족이나 이웃에게도 알려 주세요."
 
 
 class MedicalLlmService:
+    # 응급 신호 목록의 단일 출처(chat_service도 이 목록을 쓴다). 공백을 뺀 문장에 부분 일치시킨다("숨을 못 쉬겠어요"→"숨을못쉬").
+    # 경계 케이스("숨이 차요", "가슴이 답답해요", "코피가 안 멈춰요")는 일부러 뺐다 - docs/chat-eval-set.md 참고.
     EMERGENCY_KEYWORDS = (
-        "숨이 안 쉬어",
-        "호흡곤란",
-        "가슴 통증",
-        "의식 없음",
-        "쓰러짐",
-        "피가 멈추지",
-        "경련",
+        # 호흡
+        "숨이안쉬", "숨을못쉬", "숨쉬기힘", "숨쉬기가힘", "숨이막", "호흡곤란", "호흡이곤란", "질식", "목에걸려", "입술이파래", "입술이파랗",
+        # 심장·가슴
+        "가슴통증", "가슴이아", "가슴이조이", "가슴이조여", "가슴을쥐어", "가슴이찢어", "심장이아",
+        # 의식·실신·낙상
+        "의식없", "의식이없", "의식을잃", "정신을잃", "기절", "실신", "쓰러짐", "쓰러졌", "쓰러져", "쓰러지", "깨어나지", "불러도반응", "못일어나",
+        # 출혈
+        "피가멈추지", "피가안멈", "피를토", "토혈", "피가많이", "출혈이심", "피가계속",
+        # 경련
+        "경련", "발작", "거품을물",
+        # 뇌졸중 의심
+        "말이어눌", "말이안나", "발음이이상", "한쪽팔", "한쪽다리", "한쪽이마비", "한쪽얼굴", "얼굴이한쪽", "입이돌아", "팔다리에힘이", "갑자기앞이안보", "벼락", "갑자기심한두통", "망치로맞은",
+        # 중독·자해
+        "약을많이먹", "약을한꺼번에", "과다복용", "농약", "죽고싶", "자살", "극단적인", "극단적선택",
+        # 기타
+        "응급", "심한화상", "화상이심", "온몸에두드러기",
     )
     RESERVATION_KEYWORDS = ("예약", "병원 찾", "근처 병원", "진료 가능", "응급실", "잡아", "접수", "병원 좀", "병원 추천", "진료 받")
     MEDICAL_KEYWORDS = (
@@ -43,9 +54,15 @@ class MedicalLlmService:
         self._loader = loader
 
     @classmethod
+    def emergency_signals(cls, message: str) -> list[str]:
+        """문장에 든 응급 신호 키워드. 비어 있지 않으면 응급이다. 판단 근거로 meta·로그에 남긴다."""
+        compact = re.sub(r"\s+", "", (message or "").lower())
+        return [keyword for keyword in cls.EMERGENCY_KEYWORDS if keyword in compact]
+
+    @classmethod
     def classify_intent(cls, message: str) -> str:
         text = (message or "").strip().lower()
-        if any(keyword in text for keyword in cls.EMERGENCY_KEYWORDS):
+        if cls.emergency_signals(text):
             return "emergency_guidance"
         if any(keyword in text for keyword in cls.RESERVATION_KEYWORDS):
             return "hospital_reservation"
@@ -82,7 +99,7 @@ class MedicalLlmService:
         advice = str(data.get("advice") or "").strip()
         if emergency:
             # 응급이면 모델이 진료과를 권해도 쓰지 않는다. 경고 문구는 말풍선 위 빨간 박스(emergencyWarning)가 맡는다.
-            advice = "지금은 병원 예약보다 119 연락이 먼저예요."
+            advice = "지금은 병원 예약보다 119 연락이 먼저예요. 바로 119에 전화해 주세요."
         lines.append(advice or "증상이 계속되면 가까운 병원 진료를 권해드려요. 갑자기 심해지면 바로 119에 연락하세요.")
         return "\n".join(lines)
 
@@ -205,7 +222,8 @@ class MedicalLlmService:
         processed_symptom: str | None = None,
     ) -> dict[str, Any]:
         intent = intent or self.classify_intent(message)
-        emergency_hint = intent == "emergency_guidance" or any(keyword in message.lower() for keyword in self.EMERGENCY_KEYWORDS)
+        signals = self.emergency_signals(message)
+        emergency_hint = intent == "emergency_guidance" or bool(signals)
 
         recent, summary = normalize_history(
             history,
@@ -258,6 +276,8 @@ class MedicalLlmService:
             "homeCare": [],
             "visitHospitalIf": [],
             "emergencyWarning": emergency_warning,
+            # 근거: 어떤 키워드로 응급을 봤는지(없으면 라우터 판단). chat_service가 router 정보를 덧붙여 로그에 남긴다.
+            "meta": {"emergencySignals": signals},
         }
 
 

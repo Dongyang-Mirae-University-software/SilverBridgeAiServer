@@ -15,7 +15,7 @@ from app.services.reservation_api_client import get_reservation_api_client
 from app.services.reservation_credential_service import get_reservation_credential_service
 from app.services.chat_router_service import get_chat_router_service
 from app.services.chat_upstream_service import get_chat_upstream_service
-from app.services.medical_llm_service import get_medical_llm_service
+from app.services.medical_llm_service import MedicalLlmService, get_medical_llm_service
 from app.services.reservation_intake import _find_department
 from app.services.reservation_orchestrator import ReservationOrchestrator, get_reservation_orchestrator
 
@@ -46,7 +46,7 @@ class ChatService:
     def __init__(self) -> None:
         self._settings = get_settings()
 
-    EMERGENCY_KEYWORDS = ("숨이 안 쉬어", "호흡곤란", "가슴 통증", "의식 없음", "쓰러짐", "피가 멈추지", "경련")
+    EMERGENCY_KEYWORDS = MedicalLlmService.EMERGENCY_KEYWORDS  # 단일 출처
     HIGH_RISK_KEYWORDS = ("가슴", "호흡곤란", "숨이", "의식", "실신", "출혈", "마비")
     MEDIUM_RISK_KEYWORDS = (
         "어지럽", "어지러", "어지럼", "복통", "발열", "기침", "두통", "구토", "아파", "아프", "통증", "더부룩", "속이", "소화",
@@ -139,6 +139,7 @@ class ChatService:
                     "emergency": kw_intent == "emergency_guidance",
                     "engine": "keyword",
                 }
+            route_info = self._force_emergency(route_info, message)
             _LOG.info("[라우터] route=%s engine=%s normalized=%s", route_info["route"], route_info.get("engine"), route_info.get("normalized_message") if route_info["route"] == "reservation" else route_info.get("symptom_summary"))
             reservation_flow_hint = route_info["route"] == "reservation" or bool(
                 ui_selection and ui_selection["field"] in reservation_ui_fields
@@ -232,7 +233,7 @@ class ChatService:
         if route_info:
             result.setdefault("meta", {})
             if isinstance(result["meta"], dict):
-                result["meta"]["router"] = {k: route_info.get(k) for k in ("route", "engine", "reason", "normalized_message", "symptom_summary")}
+                result["meta"]["router"] = {k: route_info.get(k) for k in ("route", "engine", "reason", "normalized_message", "symptom_summary", "emergency", "emergency_signals")}
 
         context_payload = {
             "sessionId": session_id,
@@ -342,10 +343,25 @@ class ChatService:
             ctx["role"] = payload.context.role.strip()
         return ctx
 
+    @staticmethod
+    def _force_emergency(route_info: dict, message: str) -> dict:
+        """응급 신호가 있으면 라우트와 상관없이 증상 상담(119 안내)으로 보낸다.
+        라우터가 emergency=True를 주고도 route를 reservation·general로 두거나, 라우터가 놓친 키워드가 있어도 응급이 묻히지 않게."""
+        signals = MedicalLlmService.emergency_signals(message)
+        if not route_info or not (signals or route_info.get("emergency")):
+            return route_info
+        return {
+            **route_info,
+            "route": "symptom",
+            "emergency": True,
+            "emergency_signals": signals,
+            "symptom_summary": route_info.get("symptom_summary") or message,
+        }
+
     @classmethod
     def classify_intent(cls, message: str) -> str:
         text = (message or "").strip().lower()
-        if any(keyword in text for keyword in cls.EMERGENCY_KEYWORDS):
+        if MedicalLlmService.emergency_signals(text):
             return "emergency_guidance"
         if any(keyword in text for keyword in cls.RESERVATION_KEYWORDS):
             return "hospital_reservation"

@@ -17,7 +17,7 @@ SYSTEM_PROMPT = """너는 노인 돌봄 챗봇의 1차 분류기다. 사용자 �
 
 route 판단:
 - "reservation": 병원 예약·병원 검색·진료과 찾기·예약 조회/변경/취소. 직전 대화가 예약 흐름이면 짧은 후속 문장("내과 찾아 줘", "내일로")도 reservation.
-- "symptom": 증상·통증·복약·건강 상태 질문. 의료 안내가 필요한 경우.
+- "symptom": 증상·통증·복약·건강 상태 질문. 의료 안내가 필요한 경우. 증상과 예약 요청이 함께 있으면 reservation이지만, 응급 신호가 있으면 symptom.
 - "general": 인사, 감사, 작별, 잡담, 그 외. 직전이 예약 흐름이어도 "고마워", "알겠어", "잘 지내"처럼 예약 정보가 전혀 없는 문장은 general이다.
 
 normalized_message (route=reservation일 때): 예약 로직에 넘길 한 문장. 형식 "병원 예약: 지역 / 진료과 / 날짜 / 시간 / 병원명 / 환자명 / 전화". 모르는 항목은 생략.
@@ -28,7 +28,7 @@ normalized_message (route=reservation일 때): 예약 로직에 넘길 한 문�
 
 symptom_summary (route=symptom일 때): 의료 LLM에 줄 규격화된 증상 문장. "주증상 / 시작 시점·유발 요인 / 동반 증상 / 사용자가 알고 싶은 것" 순서로 2~3문장, 사용자 표현을 의학적으로 정리하되 새 정보를 지어내지 않는다.
 
-emergency: 호흡곤란·의식 저하·심한 가슴 통증·대량 출혈·경련 등 즉시 119가 필요한 신호가 있으면 true.
+emergency: 호흡곤란·의식 저하·실신·심한 가슴 통증·대량 출혈·토혈·경련·갑작스러운 말 어눌함이나 한쪽 마비·극심한 두통·약물 과다복용·자해 언급처럼 즉시 119가 필요한 신호가 있으면 true. true면 route는 반드시 symptom이다(예약 문장이어도).
 
 출력 형식(키 고정, JSON 외 텍스트 금지):
 {"route":"reservation|symptom|general","normalized_message":"","symptom_summary":"","emergency":false,"reason":""}
