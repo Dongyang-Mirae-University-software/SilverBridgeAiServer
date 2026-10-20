@@ -20,7 +20,6 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings, get_settings
 from app.core.response import error_response
-from app.core.security import game_router_dependencies
 from app.database.base import Base
 from app.database.session import get_db
 from app.models import game as game_models  # noqa: F401
@@ -244,21 +243,25 @@ def _game_client(game_require_api_key: bool):
     settings = get_settings().model_copy(update={"api_key": API_KEY, "game_require_api_key": game_require_api_key})
     with _db() as session:
         app = _with_handler(FastAPI())
-        app.include_router(game_router.router, dependencies=game_router_dependencies(settings))
+        app.include_router(game_router.router)
         app.dependency_overrides[get_db] = lambda: session
         app.dependency_overrides[security.get_settings] = lambda: settings  # require_api_key 가 참조하는 쪽
         with TestClient(app) as client:
             yield client
 
 
-# 피보호자 게임 화면이 브라우저에서 키 없이 부르는 형태(iframe + embed 내부 JS)와 보호자 프록시 경로
-_GAME_CALLS = [
+# 피보호자 게임 화면이 브라우저에서 키 없이 부르는 형태(iframe + embed 내부 JS) - 플래그와 무관하게 항상 열림
+_GAME_BROWSER_CALLS = [
     ("GET", "/api/v1/games/embed?userId=7&gameSlug=maze", None),
     ("GET", "/api/v1/games/maze/state?userId=7", None),
     ("POST", "/api/v1/games/maze/reset", {"userId": 7, "gameSlug": "maze"}),
+]
+# 보호자 FE 가 /api/streams 프록시(키 헤더)로 부르는 서버 간 경로 - 플래그가 켜지면 키 필요
+_GAME_SERVER_CALLS = [
     ("GET", "/api/v1/games/progress?userId=7", None),
     ("GET", "/api/v1/games/activity?userId=7", None),
 ]
+_GAME_CALLS = _GAME_BROWSER_CALLS + _GAME_SERVER_CALLS
 
 
 @pytest.mark.parametrize(("method", "path", "body"), _GAME_CALLS)
@@ -268,7 +271,14 @@ def test_game_flag_off_keeps_keyless_calls_working(method: str, path: str, body:
     assert res.status_code == 200, res.text
 
 
-@pytest.mark.parametrize(("method", "path", "body"), _GAME_CALLS)
+@pytest.mark.parametrize(("method", "path", "body"), _GAME_BROWSER_CALLS)
+def test_game_flag_on_keeps_browser_calls_keyless(method: str, path: str, body: dict | None) -> None:
+    with _game_client(game_require_api_key=True) as client:
+        res = client.request(method, path, json=body)
+    assert res.status_code == 200, res.text
+
+
+@pytest.mark.parametrize(("method", "path", "body"), _GAME_SERVER_CALLS)
 def test_game_flag_on_requires_api_key(method: str, path: str, body: dict | None) -> None:
     with _game_client(game_require_api_key=True) as client:
         no_key = client.request(method, path, json=body)
@@ -283,4 +293,3 @@ def test_game_flag_on_requires_api_key(method: str, path: str, body: dict | None
 
 def test_game_require_api_key_defaults_off() -> None:
     assert Settings().game_require_api_key is False
-    assert game_router_dependencies(Settings()) == []

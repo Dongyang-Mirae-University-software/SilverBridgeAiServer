@@ -21,10 +21,14 @@ def require_api_key(
         )
 
 
-def game_router_dependencies(settings: Settings) -> list:
-    """게임 라우터에 붙일 의존성. GAME_REQUIRE_API_KEY 가 꺼져 있으면(기본) 지금처럼 키 없이 연다.
+def require_game_api_key(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    settings: Settings = Depends(get_settings),
+) -> None:
+    """게임 라우터 중 서버 간(보호자 FE 프록시) 호출에만 붙인다. GAME_REQUIRE_API_KEY 가 꺼져 있으면(기본) 통과.
 
-    피보호자 게임 iframe 과 그 안의 JS(/state·/answer·/reset)가 브라우저에서 키 없이 직접 부르므로,
-    FE 가 이 호출들을 프록시 경유로 바꾸기 전에 켜면 게임 화면이 401 로 멈춘다.
+    피보호자 게임 iframe 과 그 안의 JS 가 브라우저에서 키 없이 직접 부르는 /embed·/state·/answer·/reset 에는
+    붙이지 않는다 - 거기에 키를 요구하면 게임 화면이 401 로 멈춘다.
     """
-    return [Depends(require_api_key)] if settings.game_require_api_key else []
+    if settings.game_require_api_key:
+        require_api_key(x_api_key, settings)

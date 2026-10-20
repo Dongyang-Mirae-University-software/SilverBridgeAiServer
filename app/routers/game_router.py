@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from app.core.response import error_response, success_response
+from app.core.security import require_game_api_key
 from app.database.session import get_db
 from app.schemas.game_schema import GameAnswerRequest, GameStartRequest
 from app.services.game_service import GameService
@@ -12,13 +13,13 @@ from app.services.game_service import GameService
 router = APIRouter(prefix="/api/v1/games", tags=["Games"])
 
 
-@router.get("", summary="게임 목록 조회")
+@router.get("", summary="게임 목록 조회", dependencies=[Depends(require_game_api_key)])
 def list_games(db: Session = Depends(get_db)) -> dict:
     service = GameService(db)
     return success_response("게임 목록 조회 완료", service.list_games())
 
 
-@router.post("/start", summary="게임 시작")
+@router.post("/start", summary="게임 시작", dependencies=[Depends(require_game_api_key)])
 def start_game(payload: GameStartRequest, db: Session = Depends(get_db)) -> dict:
     service = GameService(db)
     try:
@@ -40,20 +41,20 @@ def get_game_state(game_slug: str, userId: int, db: Session = Depends(get_db)) -
     return success_response("게임 상태 조회 완료", service.get_state_payload(userId, game_slug))
 
 
-@router.get("/{game_slug}/progress", summary="게임 진행 정보 조회")
+@router.get("/{game_slug}/progress", summary="게임 진행 정보 조회", dependencies=[Depends(require_game_api_key)])
 def get_game_progress(game_slug: str, userId: int, db: Session = Depends(get_db)) -> dict:
     service = GameService(db)
     state = service.get_state_payload(userId, game_slug)
     return success_response("게임 진행 정보 조회 완료", state["progress"])
 
 
-@router.get("/progress", summary="사용자별 게임 진행 목록 조회")
+@router.get("/progress", summary="사용자별 게임 진행 목록 조회", dependencies=[Depends(require_game_api_key)])
 def list_user_progress(userId: int, db: Session = Depends(get_db)) -> dict:
     service = GameService(db)
     return success_response("사용자별 게임 진행 목록 조회 완료", service.list_progress_for_user(userId))
 
 
-@router.get("/activity", summary="사용자별 날짜(KST) 활동량 조회")
+@router.get("/activity", summary="사용자별 날짜(KST) 활동량 조회", dependencies=[Depends(require_game_api_key)])
 def list_user_activity(userId: int, days: int = 182, db: Session = Depends(get_db)) -> dict:
     service = GameService(db)
     return success_response("사용자별 활동량 조회 완료", service.list_activity_for_user(userId, days))
