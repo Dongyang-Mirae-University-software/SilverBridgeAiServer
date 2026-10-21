@@ -440,6 +440,16 @@ class ReservationApiClient:
             st, data = self._request("GET", f"/reservations/{reservation_id}", auth="user", token_override=None)
         return {"httpStatus": st, "data": data}
 
+    def cancel_reservation(self, reservation_id: int, api_key_override: str | None = None) -> dict[str, Any]:
+        """예약 취소. 예약 서비스가 키 소유자의 예약만 취소한다(남의 예약·없는 예약은 404, 취소 불가 상태는 400)."""
+        path = f"/reservations/{int(reservation_id)}/cancel"
+        if self._resolve_api_key(api_key_override):
+            st, data = self._request("PATCH", path, auth="api_key", token_override=api_key_override)
+        else:
+            st, data = self._request("PATCH", path, auth="user", token_override=None)
+        _LOG.info("[예약취소결과] http_status=%s", st)
+        return {"httpStatus": st, "data": data}
+
 
 @lru_cache
 def get_reservation_api_client() -> ReservationApiClient:
