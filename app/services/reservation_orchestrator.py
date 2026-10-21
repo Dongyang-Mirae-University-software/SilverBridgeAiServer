@@ -15,6 +15,7 @@ from app.services.reservation_api_client import ReservationApiClient
 from app.services.reservation_intake import (
     CHANGE_DATE_OPTION,
     ReservationDraft,
+    _find_date,
     _find_department,
     _find_hospital_name,
     _find_time,
@@ -754,10 +755,16 @@ class ReservationOrchestrator:
                 draft.hospital_id = None
             if not _find_time(raw_message):
                 draft.reservation_time = None
+            # 날짜도 이어받지 않는다: 지난 요청의 날짜(이력의 "오늘은 …" 같은 안내 문구 포함)가 새 요청에 조용히 붙는 것을 막는다.
+            # 이번 문장에서 직접 말한 날짜(규칙 파서 또는 LLM 추출)만 남기고, 없으면 날짜를 되묻는다.
+            extracted_date = str((extracted or {}).get("reservation_date") or "").strip()
+            draft.reservation_date = _find_date(raw_message) or (
+                extracted_date if extracted_date and not _is_past_date(extracted_date) else None
+            )
             dept_in_message = _find_department(raw_message) or _symptom_department(raw_message)
             if dept_in_message:
                 draft.department = dept_in_message
-            _trace(meta, "new_request_reset", hospital=draft.hospital_name, time=draft.reservation_time, department=draft.department)
+            _trace(meta, "new_request_reset", hospital=draft.hospital_name, time=draft.reservation_time, date=draft.reservation_date, department=draft.department)
 
         if req.uiSelection:
             field = req.uiSelection.field
