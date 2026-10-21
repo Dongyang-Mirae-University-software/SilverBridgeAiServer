@@ -16,6 +16,7 @@ from app.services.reservation_credential_service import get_reservation_credenti
 from app.services.chat_router_service import get_chat_router_service
 from app.services.chat_upstream_service import get_chat_upstream_service
 from app.services.medical_llm_service import MedicalLlmService, get_medical_llm_service
+from app.services.reservation_confirm_flow import CONFIRM_FIELDS
 from app.services.reservation_intake import _find_department
 from app.services.reservation_orchestrator import ReservationOrchestrator, get_reservation_orchestrator
 
@@ -88,7 +89,7 @@ class ChatService:
                 "location_confirm",
                 "reservation_followup",
                 "reservation_id",
-            }
+            } | CONFIRM_FIELDS
             # 1차 감별: GPT 라우터. 실패하면 키워드 분류로 내려간다.
             route_info: dict = {}
             department_answer = self._department_question_reply(message, history) if message else None
@@ -113,6 +114,14 @@ class ChatService:
                     and ReservationOrchestrator._is_new_request(message)
                 ):
                     route_info = {**route_info, "route": "reservation", "normalized_message": message, "reason": "new-request-override"}
+                # "예약 취소할래"·"예약 바꿔줘"도 라우터가 다른 경로로 보내면 예약 흐름으로 고정한다(응급 신호가 있으면 그대로 상담).
+                if (
+                    route_info
+                    and route_info.get("route") != "reservation"
+                    and not route_info.get("emergency")
+                    and (ReservationOrchestrator._is_cancel_request(message) or ReservationOrchestrator._is_change_request(message))
+                ):
+                    route_info = {**route_info, "route": "reservation", "normalized_message": message, "reason": "cancel-change-override"}
                 if route_info and route_info.get("route") == "reservation" and ReservationOrchestrator._is_new_request(message):
                     # 새 요청은 라우터 규격화 문장(이전 병원·시간이 딸려옴) 대신 원문을 넘긴다. 다음 턴의 상태 기억도 원문 기준.
                     route_info = {**route_info, "normalized_message": message}
@@ -176,6 +185,8 @@ class ChatService:
                         "model": self._settings.claude_model_name,
                         "schemaVersion": "ai-reservation-v1",
                         "reservationApiKey": reservation_api_key,
+                        # 직전 턴이 남긴 확인 대기·고치기 상태. 서버 DB 값이라 클라이언트가 바꿀 수 없다.
+                        "storedFlow": self._last_flow_state(db, payload.userId, session_id),
                     },
                 )
                 if reservation_result is not None:
@@ -295,6 +306,21 @@ class ChatService:
             "chatLogId": log.id,
             "chatNo": log.chat_no,
         }
+
+    @staticmethod
+    def _last_flow_state(db: Session, user_id: str, session_id: str) -> dict:
+        """직전 턴(같은 세션)이 남긴 예약 확인 대기(pendingAction)·고치기 상태(flowState). 그 사이에 다른 대화가 끼면 비어 있다."""
+        log = db.query(ChatLog).filter(ChatLog.user_id == user_id).order_by(ChatLog.id.desc()).first()
+        if not log:
+            return {}
+        try:
+            ctx = json.loads(log.context_json or "{}")
+        except json.JSONDecodeError:
+            return {}
+        if ctx.get("sessionId") != session_id:
+            return {}
+        meta = ctx.get("upstreamMeta") or {}
+        return {k: meta[k] for k in ("pendingAction", "flowState") if isinstance(meta.get(k), dict)}
 
     @staticmethod
     def _last_reservation_state(db: Session, user_id: str, session_id: str) -> str | None:

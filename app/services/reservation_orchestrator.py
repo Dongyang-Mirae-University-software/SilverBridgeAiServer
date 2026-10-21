@@ -12,9 +12,12 @@ from app.core.reservation_prompts import EXTRACTION_SCHEMA, SYSTEM_PROMPT, build
 from app.schemas.chat_schema import ChatRequest, UiOption, UiPayload
 from app.services.claude_structured_client import ClaudeStructuredClient
 from app.services.reservation_api_client import ReservationApiClient
+from app.services.reservation_common import _date_label, _digits, _phone_last4, _trace
+from app.services.reservation_confirm_flow import CONFIRM_FIELDS, ReservationFlowMixin, draft_from_dict
 from app.services.reservation_intake import (
     CHANGE_DATE_OPTION,
     ReservationDraft,
+    _find_date,
     _find_department,
     _find_hospital_name,
     _find_time,
@@ -25,18 +28,6 @@ from app.utils.json_extract import extract_json_object
 
 _LOG = logging.getLogger(__name__)
 _SEOUL_TZ = ZoneInfo("Asia/Seoul")
-_WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"]
-
-
-def _date_label(date_text: str) -> str:
-    """안내 문구용 날짜. 오늘이면 "오늘", 아니면 "10월 13일(화)"."""
-    try:
-        target = datetime.strptime(date_text, "%Y-%m-%d").date()
-    except ValueError:
-        return date_text
-    if target == datetime.now(_SEOUL_TZ).date():
-        return "오늘"
-    return f"{target.month}월 {target.day}일({_WEEKDAYS[target.weekday()]})"
 
 
 def _is_past_date(value: str) -> bool:
@@ -45,23 +36,6 @@ def _is_past_date(value: str) -> bool:
     except ValueError:
         return False
     return parsed < datetime.now(_SEOUL_TZ).date()
-
-
-def _digits(phone: str) -> str:
-    return re.sub(r"\D", "", phone or "")
-
-
-def _phone_last4(phone: str | None) -> str:
-    digits = _digits(phone or "")
-    return digits[-4:] if digits else ""
-
-
-def _trace(meta: dict[str, Any], event: str, **details: Any) -> None:
-    trace = meta.setdefault("decisionTrace", [])
-    if isinstance(trace, list):
-        payload = {"event": event, **{k: v for k, v in details.items() if v is not None}}
-        trace.append(payload)
-        _LOG.info("[예약트레이스] %s %s", event, {k: v for k, v in details.items() if v is not None})
 
 
 # 빠진 값을 물을 때 쓰는 문구·예시. 무엇을 넣어야 하는지 바로 알 수 있어야 한다.
@@ -142,7 +116,7 @@ def _filter_future_times(slot_date: str | None, slots: list[str]) -> list[str]:
     return filtered
 
 
-class ReservationOrchestrator:
+class ReservationOrchestrator(ReservationFlowMixin):
     RESERVATION_KEYWORDS = ("예약", "병원", "진료", "접수", "내 예약", "예약 내역", "예약 조회", "예약 목록")
     LOOKUP_KEYWORDS = ("내 예약", "예약 내역", "예약 조회", "예약 목록")
     SEARCH_KEYWORDS = ("병원 찾아", "근처 병원", "찾아줘", "찾아")
@@ -335,7 +309,7 @@ class ReservationOrchestrator:
             "location_confirm",
             "reservation_followup",
             "reservation_id",
-        }
+        } or field in CONFIRM_FIELDS
 
     STANDARD_DEPARTMENTS = (
         "내과", "이비인후과", "정형외과", "안과", "피부과", "가정의학과",
@@ -363,6 +337,25 @@ class ReservationOrchestrator:
             "meta": meta,
             "decisionTrace": meta.get("decisionTrace") or [],
         }
+
+    def _other_region_ui(self, req: ChatRequest, searched_location: str | None) -> UiPayload | None:
+        """프로필 주소로 찾은 결과에만 "다른 지역으로 찾기"를 붙인다(사용자가 직접 말한 지역이면 이미 원하는 곳이다)."""
+        profile = {
+            re.sub(r"\s+", " ", str(value).strip())
+            for value in (req.context.location if req.context else None, req.context.address if req.context else None)
+            if value and str(value).strip()
+        }
+        _, loc = self._conversation_context(req)
+        hint = self._normalize_location_hint(loc)
+        profile |= {v for v in (hint,) if v}
+        if not searched_location or re.sub(r"\s+", " ", searched_location.strip()) not in profile:
+            return None
+        return UiPayload(
+            kind="select",
+            field="location_confirm",
+            label="다른 지역에서 찾으시려면 눌러 주세요",
+            options=[UiOption(value="__other__", label="다른 지역으로 찾기")],
+        )
 
     def _ask_location(self, meta: dict[str, Any], department: str | None = None) -> dict[str, Any]:
         _trace(meta, "reservation_gap", missing="location")
@@ -543,6 +536,28 @@ class ReservationOrchestrator:
         parts = [part for part in (hospital, date, time, status) if part]
         return " · ".join(parts) if parts else "예약 항목"
 
+    def _apply_ui_selection(self, draft: ReservationDraft, field: str, value: str) -> bool:
+        """선택값을 초안에 반영한다. 지역을 다시 물어야 하면(__other__) True."""
+        if field in {"hospital", "hospital_confirm"}:
+            draft.hospital_name = value or draft.hospital_name
+        elif field == "department":
+            draft.department = value or draft.department
+        elif field == "date":
+            draft.reservation_date = value or draft.reservation_date
+        elif field == "time":
+            draft.apply_time_selection(value)
+        elif field == "patient_name":
+            draft.patient_name = value or draft.patient_name
+        elif field == "phone":
+            draft.phone = value or draft.phone
+        elif field == "location":
+            draft.location = value or draft.location
+        elif field == "location_confirm":
+            if value == "__other__":
+                return True
+            draft.location = value or draft.location
+        return False
+
     def handle(self, req: ChatRequest, meta: dict[str, Any]) -> dict[str, Any] | None:
         reservation_api_key = str(meta.get("reservationApiKey") or "").strip() or None
         ui_field = req.uiSelection.field if req.uiSelection else None
@@ -553,9 +568,21 @@ class ReservationOrchestrator:
         intent = "hospital_reservation" if self._looks_like_reservation(message_text) else "general_chat"
         _trace(meta, "reservation_candidate", intent=intent, ui_field=ui_field)
 
-        should_handle = intent == "hospital_reservation" or self._reservation_related_ui(ui_field)
+        wants_cancel = not req.uiSelection and self._is_cancel_request(raw_message)
+        wants_change = not req.uiSelection and not wants_cancel and self._is_change_request(raw_message)
+        should_handle = (
+            intent == "hospital_reservation" or self._reservation_related_ui(ui_field) or wants_cancel or wants_change
+        )
         if not should_handle:
             return None
+
+        # 확인·취소·변경 버튼은 서버가 저장한 직전 상태(토큰)와 맞을 때만 동작한다. 예약 생성·취소 호출은 여기서만 일어난다.
+        if ui_field in CONFIRM_FIELDS:
+            return self._handle_flow_selection(req, meta, ui_field, ui_value or "", reservation_api_key)
+        if wants_cancel:
+            return self._start_pick(meta, reservation_api_key, change=False)
+        if wants_change:
+            return self._start_pick(meta, reservation_api_key, change=True)
 
         if ui_field == "reservation_followup":
             if ui_value == "show_list":
@@ -734,52 +761,58 @@ class ReservationOrchestrator:
 
         history_text, loc = self._conversation_context(req)
         normalized_loc = self._normalize_location_hint(loc)
-        draft = build_reservation_draft(
-            req.message,
-            history_text=history_text,
-            ui_field=ui_field,
-            ui_value=ui_value,
-            location=normalized_loc or loc,
-            user_context=req.context.model_dump(exclude_none=True) if req.context else None,
+
+        # 고치기·변경 중이면 초안을 이력에서 다시 만들지 않고 직전 턴이 남긴 것을 이어 쓴다(옛 시간·병원이 이력에서 되살아나는 것 방지).
+        flow = (meta.get("storedFlow") or {}).get("flowState") if isinstance(meta.get("storedFlow"), dict) else None
+        in_flow = (
+            isinstance(flow, dict)
+            and isinstance(flow.get("draft"), dict)
+            and bool(req.uiSelection or not self._is_new_request(raw_message))
         )
-        extracted = self._extract_reservation_fields(req, history_text, normalized_loc or loc, meta)
-        if extracted:
-            self._apply_extracted(draft, extracted)
+        replaces: dict[str, Any] | None = None
+        if in_flow:
+            draft = draft_from_dict(flow["draft"])  # type: ignore[index]
+            replaces = flow.get("replaces") if isinstance(flow.get("replaces"), dict) else None  # type: ignore[union-attr]
+            if raw_message and not req.uiSelection:
+                extracted = self._extract_reservation_fields(req, history_text, normalized_loc or loc, meta)
+                if extracted:
+                    self._apply_extracted(draft, extracted)
+                draft.reservation_date = _find_date(raw_message) or draft.reservation_date
+                draft.reservation_time = _find_time(raw_message) or draft.reservation_time
+        else:
+            draft = build_reservation_draft(
+                req.message,
+                history_text=history_text,
+                ui_field=ui_field,
+                ui_value=ui_value,
+                location=normalized_loc or loc,
+                user_context=req.context.model_dump(exclude_none=True) if req.context else None,
+            )
+            extracted = self._extract_reservation_fields(req, history_text, normalized_loc or loc, meta)
+            if extracted:
+                self._apply_extracted(draft, extracted)
 
-        # 새 예약 요청(버튼이 아닌 문장에 진료과·병원·"근처"·증상이 있음)이면 이전 턴에서 고른 병원·시간은 버린다.
-        # 초안은 매 턴 이력 전체에서 다시 만들어지므로, 안 버리면 지난 요청의 병원·시간이 새 요청에 그대로 붙는다.
-        if not req.uiSelection and self._is_new_request(raw_message):
-            if not _find_hospital_name(raw_message):
-                draft.hospital_name = None
-                draft.hospital_id = None
-            if not _find_time(raw_message):
-                draft.reservation_time = None
-            dept_in_message = _find_department(raw_message) or _symptom_department(raw_message)
-            if dept_in_message:
-                draft.department = dept_in_message
-            _trace(meta, "new_request_reset", hospital=draft.hospital_name, time=draft.reservation_time, department=draft.department)
+            # 새 예약 요청(버튼이 아닌 문장에 진료과·병원·"근처"·증상이 있음)이면 이전 턴에서 고른 병원·시간은 버린다.
+            # 초안은 매 턴 이력 전체에서 다시 만들어지므로, 안 버리면 지난 요청의 병원·시간이 새 요청에 그대로 붙는다.
+            if not req.uiSelection and self._is_new_request(raw_message):
+                if not _find_hospital_name(raw_message):
+                    draft.hospital_name = None
+                    draft.hospital_id = None
+                if not _find_time(raw_message):
+                    draft.reservation_time = None
+                # 날짜도 이어받지 않는다: 지난 요청의 날짜(이력의 "오늘은 …" 같은 안내 문구 포함)가 새 요청에 조용히 붙는 것을 막는다.
+                # 이번 문장에서 직접 말한 날짜(규칙 파서 또는 LLM 추출)만 남기고, 없으면 날짜를 되묻는다.
+                extracted_date = str((extracted or {}).get("reservation_date") or "").strip()
+                draft.reservation_date = _find_date(raw_message) or (
+                    extracted_date if extracted_date and not _is_past_date(extracted_date) else None
+                )
+                dept_in_message = _find_department(raw_message) or _symptom_department(raw_message)
+                if dept_in_message:
+                    draft.department = dept_in_message
+                _trace(meta, "new_request_reset", hospital=draft.hospital_name, time=draft.reservation_time, date=draft.reservation_date, department=draft.department)
 
-        if req.uiSelection:
-            field = req.uiSelection.field
-            value = req.uiSelection.value.strip()
-            if field in {"hospital", "hospital_confirm"}:
-                draft.hospital_name = value or draft.hospital_name
-            elif field == "department":
-                draft.department = value or draft.department
-            elif field == "date":
-                draft.reservation_date = value or draft.reservation_date
-            elif field == "time":
-                draft.apply_time_selection(value)
-            elif field == "patient_name":
-                draft.patient_name = value or draft.patient_name
-            elif field == "phone":
-                draft.phone = value or draft.phone
-            elif field == "location":
-                draft.location = value or draft.location
-            elif field == "location_confirm":
-                if value == "__other__":
-                    return self._ask_location(meta, draft.department)
-                draft.location = value or draft.location
+        if req.uiSelection and self._apply_ui_selection(draft, req.uiSelection.field, req.uiSelection.value.strip()):
+            return self._ask_location(meta, draft.department)
 
         _trace(
             meta,
@@ -793,6 +826,18 @@ class ReservationOrchestrator:
             phone_last4=_phone_last4(draft.phone),
         )
 
+        out = self._advance(req, meta, draft, reservation_api_key, replaces)
+        return self._remember_flow(out, meta, draft, replaces) if in_flow else out
+
+    def _advance(
+        self,
+        req: ChatRequest,
+        meta: dict[str, Any],
+        draft: ReservationDraft,
+        reservation_api_key: str | None,
+        replaces: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """초안에서 비어 있는 것을 순서대로 채우고(병원 → 날짜 → 시간 → 환자 정보), 다 채워지면 예약한다."""
         if draft.hospital_name and draft.hospital_id is None:
             draft.hospital_id, resolved_name = self._reservation.resolve_hospital(
                 draft.hospital_name,
@@ -884,7 +929,7 @@ class ReservationOrchestrator:
                     "engine": "claude",
                     "modelName": self._loader.state.model_name,
                     "type": "tool_result",
-                    "ui": None,
+                    "ui": self._other_region_ui(req, draft.location),
                     "tool": "search_hospital",
                     "data": unique_rows,
                     "summary": None,
@@ -1025,102 +1070,7 @@ class ReservationOrchestrator:
                 "decisionTrace": meta.get("decisionTrace") or [],
             }
 
-        _trace(
-            meta,
-            "reservation_submit",
-            hospital_id=draft.hospital_id,
-            hospital_name=draft.hospital_name,
-            department=draft.department,
-            reservation_date=draft.reservation_date,
-            reservation_time=draft.reservation_time,
-            patient_name=draft.patient_name,
-            phone_last4=_phone_last4(draft.phone),
-        )
-        args = draft.to_make_appointment_args()
-        if draft.hospital_id is not None:
-            args["hospital_id"] = draft.hospital_id
-        cr = self._reservation.create_reservation(
-            hospital_id=int(args["hospital_id"]),
-            department=str(args["department"]),
-            reservation_date=str(args["date"]),
-            reservation_time=str(args["time"]),
-            patient_name=str(args["patient_name"]),
-            phone=str(args["phone"]),
-            api_key_override=reservation_api_key,
-            birth_date=str(args["birth_date"]).strip() if args.get("birth_date") else None,
-            symptom_summary=str(args["symptom_summary"]).strip() if args.get("symptom_summary") else None,
-            memo=str(args["memo"]).strip() if args.get("memo") else None,
-        )
-        st = int(cr.get("httpStatus") or 0)
-        data = cr.get("data")
-        if 200 <= st < 300 and isinstance(data, dict):
-            shaped = self._shape_make_appointment(data, str(args["patient_name"]), str(args["phone"]))
-            _trace(meta, "reservation_submit_ok", reservation_id=shaped.get("reservation_id"), status=shaped.get("status"))
-            return {
-                "reply": "예약이 완료되었습니다. 예약 목록을 보여드릴까요?",
-                "riskLevel": "medium",
-                "recommendedAction": "guardian_contact",
-                "reservationRequired": True,
-                "intent": "hospital_reservation",
-                "engine": "claude",
-                "modelName": self._loader.state.model_name,
-                "type": "tool_result",
-                "ui": UiPayload(
-                    kind="select",
-                    field="reservation_followup",
-                    label="예약이 완료되었습니다. 예약 목록을 보여드릴까요?",
-                    options=[
-                        UiOption(value="show_list", label="예약 목록 보기"),
-                        UiOption(value="stay", label="계속 상담하기"),
-                    ],
-                ),
-                "tool": "make_appointment",
-                "data": shaped,
-                "summary": None,
-                "possibleCauses": [],
-                "homeCare": [],
-                "visitHospitalIf": [],
-                "emergencyWarning": [],
-                "meta": meta,
-                "decisionTrace": meta.get("decisionTrace") or [],
-            }
-
-        msg = "예약 처리에 실패했습니다."
-        code = "REQUEST_FAILED"
-        if isinstance(data, dict):
-            msg = str(data.get("message") or msg)
-            code = str(data.get("code") or code)
-        _trace(meta, "reservation_submit_failed", http_status=st, code=code, message=msg[:200])
-        if code == "DUPLICATE_RESERVATION" and draft.hospital_id is not None and draft.reservation_date:
-            # 같은 시간대 중복은 막다른 길이 아니라 시간을 다시 고르게 한다.
-            draft.reservation_time = None
-            slot_date, slots = self._find_slots(draft.hospital_id, draft.reservation_date, reservation_api_key, meta)
-            if slot_date is not None and slots:
-                return self._time_select_reply(
-                    meta, draft, draft.reservation_date, slot_date, slots,
-                    prefix="같은 시간대에 이미 예약이 있어요. 다른 시간을 골라 주세요.",
-                )
-        return {
-            "reply": msg,
-            "riskLevel": "medium",
-            "recommendedAction": "guardian_contact",
-            "reservationRequired": True,
-            "intent": "hospital_reservation",
-            "engine": "claude",
-            "modelName": self._loader.state.model_name,
-            "type": "tool_error",
-            "ui": None,
-            "tool": "make_appointment",
-            "data": data,
-            "error": {"code": code, "message": msg},
-            "summary": None,
-            "possibleCauses": [],
-            "homeCare": [],
-            "visitHospitalIf": [],
-            "emergencyWarning": [],
-            "meta": meta,
-            "decisionTrace": meta.get("decisionTrace") or [],
-        }
+        return self._confirm_reply(req, meta, draft, replaces)
 
 
 @lru_cache
