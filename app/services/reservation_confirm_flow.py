@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import timedelta
 from typing import Any
@@ -39,6 +40,7 @@ _DRAFT_KEYS = (
     "location", "hospital_name", "hospital_id", "department", "reservation_date", "reservation_time",
     "patient_name", "phone", "birth_date", "symptom_summary", "memo",
 )
+_PENDING_TTL_SECONDS = 1800  # 확인 카드는 30분 안에 눌러야 한다(오래된 카드가 며칠 뒤에 예약되지 않게)
 _STALE_REPLY = "확인 시간이 지났어요. 예약하실 병원과 진료과, 날짜를 다시 알려 주세요."
 
 
@@ -156,6 +158,30 @@ class ReservationFlowMixin:
     def _ward_id(req: ChatRequest) -> str:
         return (req.context.wardId or "").strip() if req.context and req.context.wardId else ""
 
+    @classmethod
+    def _pin_ward_patient(cls, req: ChatRequest, draft: ReservationDraft) -> None:
+        """보호자 대리 예약의 환자는 BE가 넘긴 피보호자다. 채팅 문장(LLM 추출)·입력값이 이름·전화를 덮지 못한다.
+        chat_service 가 wardName·wardPhone 을 name·phone 에 옮겨 넘기므로 둘 다 본다.
+        피보호자 전화가 없으면(BE가 비움) 입력받은 연락처를 그대로 쓴다 - 막으면 대리 예약 자체가 불가능하다."""
+        ctx = req.context
+        if not cls._ward_id(req) or ctx is None:
+            return
+        name = (ctx.wardName or ctx.name or "").strip()
+        phone = (ctx.wardPhone or ctx.phone or "").strip()
+        if name:
+            draft.patient_name = name
+        if phone:
+            draft.phone = phone
+
+    @staticmethod
+    def _followup_ui() -> UiPayload:
+        return UiPayload(
+            kind="select",
+            field="reservation_followup",
+            label="예약 목록을 보여드릴까요?",
+            options=[UiOption(value="show_list", label="예약 목록 보기"), UiOption(value="stay", label="계속 상담하기")],
+        )
+
     def _flow_message(self, meta: dict[str, Any], reply: str, ui: UiPayload | None = None) -> dict[str, Any]:
         out = self._ui_reply(meta, reply, ui)  # type: ignore[attr-defined]
         if ui is None:
@@ -180,6 +206,8 @@ class ReservationFlowMixin:
             and token
             and pending.get("token") == token
             and (pending.get("wardId") or "") == ward_id
+            and isinstance(pending.get("createdAt"), int)
+            and 0 <= int(time.time()) - pending["createdAt"] <= _PENDING_TTL_SECONDS
         ):
             return pending
         return None
@@ -192,12 +220,13 @@ class ReservationFlowMixin:
         return " ".join(part for part in (hospital, _date_label(day) if day else "", tm) if part)
 
     def _remember_flow(
-        self, out: dict[str, Any], meta: dict[str, Any], draft: ReservationDraft, replaces: dict[str, Any] | None
+        self, out: dict[str, Any], meta: dict[str, Any], draft: ReservationDraft, replaces: dict[str, Any] | None, ward_id: str
     ) -> dict[str, Any]:
-        """고치기·변경 중이면 다음 턴이 이 초안을 이어 쓰도록 남긴다(확인 카드가 나온 턴은 pendingAction 이 대신한다)."""
+        """고치기·변경 중이면 다음 턴이 이 초안을 이어 쓰도록 남긴다(확인 카드가 나온 턴은 pendingAction 이 대신한다).
+        초안은 시작한 피보호자(wardId)에게 묶인다 - 다른 피보호자 상담에서 이어 쓰면 환자 정보가 섞인다."""
         target = out.get("meta") if isinstance(out.get("meta"), dict) else meta
         if "pendingAction" not in target:
-            target["flowState"] = {"draft": draft_to_dict(draft), "replaces": replaces}
+            target["flowState"] = {"draft": draft_to_dict(draft), "replaces": replaces, "wardId": ward_id}
         out["meta"] = target
         return out
 
@@ -210,11 +239,13 @@ class ReservationFlowMixin:
         ward_id = self._ward_id(req)
         meta["pendingAction"] = {
             "kind": "create", "token": token, "draft": draft_to_dict(draft), "wardId": ward_id, "replaces": replaces,
+            "createdAt": int(time.time()),
         }
         name = (draft.patient_name or "").strip()
         lines: list[str] = []
         if ward_id:
-            who = name or (req.context.wardName if req.context and req.context.wardName else "") or "피보호자"
+            # 계정 주인은 BE가 넘긴 피보호자다(초안 이름은 _pin_ward_patient 로 이미 같은 값).
+            who = (req.context.wardName if req.context and req.context.wardName else "") or name or "피보호자"
             lines.append(f"{who}님의 예약을 보호자님이 대신 잡고 있어요.")
         lines.append("아래 내용으로 예약할까요?")
         lines += [
@@ -253,6 +284,7 @@ class ReservationFlowMixin:
         key: str | None,
         replaces: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        self._pin_ward_patient(req, draft)  # 저장된 초안에서 바로 예약하는 경로도 피보호자 값으로 한 번 더 맞춘다
         _trace(
             meta, "reservation_submit", hospital_id=draft.hospital_id, hospital_name=draft.hospital_name,
             department=draft.department, reservation_date=draft.reservation_date, reservation_time=draft.reservation_time,
@@ -263,7 +295,7 @@ class ReservationFlowMixin:
         booked = self._booked_times(key)  # type: ignore[attr-defined]
         if draft.reservation_time and draft.reservation_time in booked.get(draft.reservation_date or "", set()):
             _trace(meta, "reservation_precheck_duplicate")
-            reselect = self._reselect_time(meta, draft, key, replaces)
+            reselect = self._reselect_time(meta, draft, key, replaces, self._ward_id(req))
             if reselect is not None:
                 return reselect
         args = draft.to_make_appointment_args()
@@ -291,13 +323,13 @@ class ReservationFlowMixin:
         msg, code = _error_text(data, "예약 처리에 실패했습니다.")
         _trace(meta, "reservation_submit_failed", http_status=st, code=code, message=msg[:200])
         if code == "DUPLICATE_RESERVATION":
-            reselect = self._reselect_time(meta, draft, key, replaces)
+            reselect = self._reselect_time(meta, draft, key, replaces, self._ward_id(req))
             if reselect is not None:
                 return reselect
         return self._flow_error(meta, "make_appointment", msg, code, data)
 
     def _reselect_time(
-        self, meta: dict[str, Any], draft: ReservationDraft, key: str | None, replaces: dict[str, Any] | None
+        self, meta: dict[str, Any], draft: ReservationDraft, key: str | None, replaces: dict[str, Any] | None, ward_id: str
     ) -> dict[str, Any] | None:
         """같은 시간대 중복은 막다른 길이 아니라 시간을 다시 고르게 한다. 다시 고를 시간이 없으면 None."""
         if draft.hospital_id is None or not draft.reservation_date:
@@ -310,19 +342,13 @@ class ReservationFlowMixin:
             meta, draft, draft.reservation_date, slot_date, slots,
             prefix="같은 시간대에 이미 예약이 있어요. 다른 시간을 골라 주세요.",
         )
-        return self._remember_flow(out, meta, draft, replaces)
+        return self._remember_flow(out, meta, draft, replaces, ward_id)
 
     def _after_created(
         self, meta: dict[str, Any], shaped: dict[str, Any], key: str | None, replaces: dict[str, Any] | None, req: ChatRequest
     ) -> dict[str, Any]:
-        followup = UiPayload(
-            kind="select",
-            field="reservation_followup",
-            label="예약 목록을 보여드릴까요?",
-            options=[UiOption(value="show_list", label="예약 목록 보기"), UiOption(value="stay", label="계속 상담하기")],
-        )
         reply = "예약이 완료되었습니다."
-        ui: UiPayload | None = followup
+        ui: UiPayload | None = self._followup_ui()
         if replaces:
             # 새 예약이 확정된 뒤에만 기존 예약을 취소한다. 새 예약이 실패했다면 여기까지 오지 않는다.
             cancelled = self._reservation.cancel_reservation(int(replaces["id"]), api_key_override=key)  # type: ignore[attr-defined]
@@ -334,7 +360,7 @@ class ReservationFlowMixin:
                 token = uuid.uuid4().hex[:12]
                 meta["pendingAction"] = {
                     "kind": "cancel", "token": token, "reservationId": int(replaces["id"]),
-                    "wardId": self._ward_id(req), "label": replaces.get("label"),
+                    "wardId": self._ward_id(req), "label": replaces.get("label"), "createdAt": int(time.time()),
                 }
                 reply = f"새 예약은 완료되었지만 기존 예약({replaces.get('label')}) 취소에 실패했어요. 기존 예약을 취소할까요?"
                 ui = self._cancel_confirm_ui(token)
@@ -427,7 +453,10 @@ class ReservationFlowMixin:
                 return err
             token = uuid.uuid4().hex[:12]
             label = self._brief(row)
-            meta["pendingAction"] = {"kind": "cancel", "token": token, "reservationId": int(row["reservationId"]), "wardId": ward_id, "label": label}
+            meta["pendingAction"] = {
+                "kind": "cancel", "token": token, "reservationId": int(row["reservationId"]), "wardId": ward_id, "label": label,
+                "createdAt": int(time.time()),
+            }
             return self._flow_message(meta, f"{label} 예약을 취소할까요?", self._cancel_confirm_ui(token))
 
         if field == "reservation_cancel_confirm":
@@ -444,16 +473,7 @@ class ReservationFlowMixin:
             st, data = int(res.get("httpStatus") or 0), res.get("data")
             if 200 <= st < 300:
                 _trace(meta, "reservation_cancel_ok", reservation_id=pending["reservationId"])
-                out = self._flow_message(
-                    meta,
-                    f"{pending.get('label')} 예약을 취소했어요.",
-                    UiPayload(
-                        kind="select",
-                        field="reservation_followup",
-                        label="예약 목록을 보여드릴까요?",
-                        options=[UiOption(value="show_list", label="예약 목록 보기"), UiOption(value="stay", label="계속 상담하기")],
-                    ),
-                )
+                out = self._flow_message(meta, f"{pending.get('label')} 예약을 취소했어요.", self._followup_ui())
                 out.update({"type": "tool_result", "tool": "cancel_reservation", "data": {"reservationId": pending["reservationId"], "status": "CANCELED"}})
                 return out
             msg, code = _error_text(data, "예약 취소에 실패했습니다.")
@@ -478,7 +498,7 @@ class ReservationFlowMixin:
             out = self._advance(req, meta, draft, key, replaces)  # type: ignore[attr-defined]
             if isinstance(out.get("reply"), str):
                 out["reply"] = f"{replaces['label']} 예약을 바꿀게요. {out['reply']}"
-            return self._remember_flow(out, meta, draft, replaces)
+            return self._remember_flow(out, meta, draft, replaces, ward_id)
 
         if field == "reservation_confirm":
             action, _, token = value.partition(":")
@@ -488,7 +508,7 @@ class ReservationFlowMixin:
             draft = draft_from_dict(pending.get("draft") or {})
             replaces = pending.get("replaces") if isinstance(pending.get("replaces"), dict) else None
             if action == "edit":
-                meta["flowState"] = {"draft": draft_to_dict(draft), "replaces": replaces, "editToken": token}
+                meta["flowState"] = {"draft": draft_to_dict(draft), "replaces": replaces, "editToken": token, "wardId": ward_id}
                 return self._flow_message(
                     meta,
                     "무엇을 고칠까요?",
@@ -509,7 +529,12 @@ class ReservationFlowMixin:
         if field == "reservation_edit":
             item, _, token = value.partition(":")
             flow = stored.get("flowState") if isinstance(stored.get("flowState"), dict) else {}
-            if not token or flow.get("editToken") != token or item not in {i for i, _ in _EDIT_ITEMS}:
+            if (
+                not token
+                or flow.get("editToken") != token
+                or (flow.get("wardId") or "") != ward_id
+                or item not in {i for i, _ in _EDIT_ITEMS}
+            ):
                 return self._stale(meta, "edit")
             draft = draft_from_dict(flow.get("draft") or {})
             replaces = flow.get("replaces") if isinstance(flow.get("replaces"), dict) else None
@@ -522,6 +547,6 @@ class ReservationFlowMixin:
                 draft.reservation_date = None
             _trace(meta, "reservation_edit", item=item)
             out = self._advance(req, meta, draft, key, replaces)  # type: ignore[attr-defined]
-            return self._remember_flow(out, meta, draft, replaces)
+            return self._remember_flow(out, meta, draft, replaces, ward_id)
 
         return self._stale(meta, "unknown")

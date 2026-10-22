@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 # 시간 선택지에 붙는 "다른 날짜 선택" 버튼 값
 CHANGE_DATE_OPTION = "__change_date__"
+_SEOUL_TZ = ZoneInfo("Asia/Seoul")
 
 _PHONE_RE = re.compile(r"(?<!\d)(01\d[-\s]?\d{3,4}[-\s]?\d{4})(?!\d)")
 _DEPARTMENT_ALIASES = {
@@ -197,7 +199,8 @@ def _find_name(text: str) -> str | None:
 
 def _find_date(text: str, base: date | None = None) -> str | None:
     raw = _normalized_text(text)
-    base = base or date.today()
+    # "오늘·내일"은 한국 날짜 기준이다. 서버(컨테이너)는 UTC라 date.today()를 쓰면 KST 00~09시에 하루 밀린다.
+    base = base or datetime.now(_SEOUL_TZ).date()
     m = re.search(r"\b(20\d{2})[./-](\d{1,2})[./-](\d{1,2})\b", raw)
     if m:
         try:
