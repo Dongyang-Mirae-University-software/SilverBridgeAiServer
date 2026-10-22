@@ -119,7 +119,11 @@ class ChatService:
                     route_info
                     and route_info.get("route") != "reservation"
                     and not route_info.get("emergency")
-                    and (ReservationOrchestrator._is_cancel_request(message) or ReservationOrchestrator._is_change_request(message))
+                    and (
+                        ReservationOrchestrator._is_cancel_request(message)
+                        or ReservationOrchestrator._is_change_request(message)
+                        or ReservationOrchestrator._is_cancel_change_question(message)
+                    )
                 ):
                     route_info = {**route_info, "route": "reservation", "normalized_message": message, "reason": "cancel-change-override"}
                 if route_info and route_info.get("route") == "reservation" and ReservationOrchestrator._is_new_request(message):

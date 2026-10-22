@@ -570,11 +570,18 @@ class ReservationOrchestrator(ReservationFlowMixin):
 
         wants_cancel = not req.uiSelection and self._is_cancel_request(raw_message)
         wants_change = not req.uiSelection and not wants_cancel and self._is_change_request(raw_message)
+        asks_how = not req.uiSelection and self._is_cancel_change_question(raw_message)
         should_handle = (
-            intent == "hospital_reservation" or self._reservation_related_ui(ui_field) or wants_cancel or wants_change
+            intent == "hospital_reservation"
+            or self._reservation_related_ui(ui_field)
+            or wants_cancel
+            or wants_change
+            or asks_how
         )
         if not should_handle:
             return None
+        if asks_how:
+            return self._flow_message(meta, self.HOW_TO_REPLY)
 
         # 확인·취소·변경 버튼은 서버가 저장한 직전 상태(토큰)와 맞을 때만 동작한다. 예약 생성·취소 호출은 여기서만 일어난다.
         if ui_field in CONFIRM_FIELDS:
@@ -822,7 +829,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
             department=draft.department,
             reservation_date=draft.reservation_date,
             reservation_time=draft.reservation_time,
-            patient_name=draft.patient_name,
+            patient_name_len=len(draft.patient_name or ""),
             phone_last4=_phone_last4(draft.phone),
         )
 
