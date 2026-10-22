@@ -28,6 +28,7 @@ from app.routers.model_router import router as model_router
 from app.routers.reservation_credential_router import router as reservation_credential_router
 import app.models.game  # noqa: F401
 import app.models.reservation_credential  # noqa: F401
+import app.models.reservation_token_claim  # noqa: F401
 from app.services.fall_detection_service import get_fall_detector
 from app.services.fire_smoke_detection_service import get_fire_smoke_detector
 from app.services.knife_detection_service import get_knife_detector
