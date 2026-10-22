@@ -407,3 +407,50 @@ def test_service_api_errors_mapped():
     ):
         with pytest.raises(OcrUpstreamError):
             _service_with(_FakeMessages(error=error)).read(b"x")
+
+
+# ---- 정규화 메모리 방어(2026-10-22 기능 점검) --------------------------------
+
+
+def test_large_jpeg_draft_keeps_orientation_and_size():
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    out = normalize_image(_jpeg(size=(4032, 3024), exif=exif.tobytes()))
+    assert (out.width, out.height) == (1176, MAX_LONG_EDGE)  # 줄여 읽어도 회전·최종 크기는 같다
+
+
+def test_non_jpeg_pixel_limit_lower_than_jpeg():
+    from app.services.medication_ocr_image import MAX_PIXELS_NON_JPEG
+
+    size = (4100, 4000)
+    assert size[0] * size[1] > MAX_PIXELS_NON_JPEG
+    with pytest.raises(InvalidImageError):
+        normalize_image(_jpeg(size=size, fmt="PNG"))
+    out = normalize_image(_jpeg(size=size))  # 같은 크기 JPEG 는 받는다
+    assert max(out.width, out.height) == MAX_LONG_EDGE
+
+
+def test_normalize_runs_at_most_two_at_once(monkeypatch):
+    import threading
+    import time
+
+    from app.services import medication_ocr_image
+
+    running, peak, lock = 0, 0, threading.Lock()
+
+    def slow(data):
+        nonlocal running, peak
+        with lock:
+            running += 1
+            peak = max(peak, running)
+        time.sleep(0.05)
+        with lock:
+            running -= 1
+
+    monkeypatch.setattr(medication_ocr_image, "_normalize", slow)
+    threads = [threading.Thread(target=normalize_image, args=(b"x",)) for _ in range(6)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    assert peak == medication_ocr_image.MAX_CONCURRENT_NORMALIZE
