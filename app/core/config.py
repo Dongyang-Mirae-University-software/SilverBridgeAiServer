@@ -118,8 +118,6 @@ class Settings(BaseModel):
     # 모델은 2026-10-22 측정으로 sonnet 확정 - haiku 는 없는 약을 지어내 금지(기동 시 sonnet 으로 대체).
     medication_ocr_enabled: bool = _as_bool("MEDICATION_OCR_ENABLED", True)
     medication_ocr_model: str = os.getenv("MEDICATION_OCR_MODEL", "claude-sonnet-5-5")
-    chat_upstream_url: str = os.getenv("CHAT_UPSTREAM_URL", "http://127.0.0.1:6012")
-    chat_upstream_timeout_sec: int = _as_int("CHAT_UPSTREAM_TIMEOUT_SEC", 1200)
     reservation_api_base_url: str = os.getenv(
         "RESERVATION_API_BASE_URL",
         "http://127.0.0.1:6015/api/v1",

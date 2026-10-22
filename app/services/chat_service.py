@@ -14,7 +14,6 @@ from app.schemas.chat_schema import ChatRequest
 from app.services.reservation_api_client import get_reservation_api_client
 from app.services.reservation_credential_service import get_reservation_credential_service
 from app.services.chat_router_service import get_chat_router_service
-from app.services.chat_upstream_service import get_chat_upstream_service
 from app.services.medical_llm_service import MedicalLlmService, get_medical_llm_service
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS
 from app.services.reservation_intake import _find_department
@@ -250,19 +249,10 @@ class ChatService:
                         intent=llm_intent,
                         processed_symptom=route_info.get("symptom_summary") if route_info["route"] == "symptom" else None,
                     )
-                except Exception:
-                    upstream = get_chat_upstream_service()
-                    if upstream.enabled:
-                        result = upstream.generate(
-                            message,
-                            session_id,
-                            payload.userId,
-                            user_context,
-                            history,
-                            ui_selection=ui_selection,
-                        )
-                    else:
-                        raise
+                except Exception as exc:
+                    # 옛 챗 서버로 넘기던 폴백은 없앴다(2026-10-22) - 고정 문구로 끝낸다. 로그는 예외 클래스명만(상담 내용 금지).
+                    _LOG.warning("[CHAT-LLM-FAILED] %s", type(exc).__name__)
+                    result = self._fallback_reply(message, history, emergency=bool(route_info.get("emergency")))
         except Exception as exc:
             # 예외 문구·스택에는 SQL 파라미터·요청 값이 섞일 수 있어 클래스명과 발생 위치만 남긴다.
             _LOG.error("chat process_message fallback: %s at %s", type(exc).__name__, _origin(exc))
@@ -455,8 +445,11 @@ class ChatService:
             "emergencyWarning": [],
         }
 
-    def _fallback_reply(self, message: str, history: list[dict[str, str]]) -> dict:
+    def _fallback_reply(self, message: str, history: list[dict[str, str]], emergency: bool = False) -> dict:
         intent = self.classify_intent(message)
+        if emergency:
+            # 라우터가 응급으로 본 문장은 키워드에 안 걸려도 119 안내가 빠지면 안 된다.
+            intent = "emergency_guidance"
         risk_level, action, reservation_required = self.infer_risk(message, intent)
         prior_user = [item["content"] for item in history if item.get("role") == "user"][-2:]
         context_hint = ""
