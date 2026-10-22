@@ -201,7 +201,8 @@ def _find_date(text: str, base: date | None = None) -> str | None:
     raw = _normalized_text(text)
     # "오늘·내일"은 한국 날짜 기준이다. 서버(컨테이너)는 UTC라 date.today()를 쓰면 KST 00~09시에 하루 밀린다.
     base = base or datetime.now(_SEOUL_TZ).date()
-    m = re.search(r"\b(20\d{2})[./-](\d{1,2})[./-](\d{1,2})\b", raw)
+    # 끝은 \b 가 아니라 (?!\d): 한글도 단어 문자라 "2026-10-30에"에서 \b 가 경계를 못 찾는다.
+    m = re.search(r"(?<!\d)(20\d{2})[./-](\d{1,2})[./-](\d{1,2})(?!\d)", raw)
     if m:
         try:
             parsed = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
