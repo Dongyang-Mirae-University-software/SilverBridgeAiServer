@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import logging
+import time
 from uuid import uuid4
 from typing import Any
 
@@ -20,6 +21,10 @@ from app.services.reservation_intake import _find_department
 from app.services.reservation_orchestrator import ReservationOrchestrator, get_reservation_orchestrator
 
 _LOG = logging.getLogger(__name__)
+
+
+def _elapsed_ms(since: float) -> int:
+    return int((time.perf_counter() - since) * 1000)
 
 
 def _origin(exc: BaseException) -> str:
@@ -77,6 +82,9 @@ class ChatService:
     RESERVATION_KEYWORDS = ("예약", "병원 찾아", "근처 병원", "진료 가능한", "응급실", "잡아", "접수", "병원 좀", "병원 추천", "진료 받")
 
     def process_message(self, db: Session, payload: ChatRequest) -> dict:
+        started = time.perf_counter()
+        # 구간 시간(ms). 거치지 않은 구간은 None. 챗 기록 upstreamMeta.timing 과 [CHAT-TIMING] 로그에만 남는다(응답 필드 아님).
+        timing: dict[str, int | None] = {"routerMs": None, "llmMs": None, "reservationMs": None}
         message = (payload.message or "").strip()
         ui_selection = None
         if payload.uiSelection:
@@ -117,6 +125,7 @@ class ChatService:
             if department_answer:
                 result = department_answer
             elif message:
+                router_started = time.perf_counter()
                 try:
                     route_info = get_chat_router_service().route(
                         message, history, user_context,
@@ -127,6 +136,7 @@ class ChatService:
                     )
                 except Exception as exc:  # noqa: BLE001
                     _LOG.warning("chat router fallback to keywords: %s", type(exc).__name__)
+                timing["routerMs"] = _elapsed_ms(router_started)
                 # "머리가 아파서 병원 예약하고 싶어요"처럼 증상과 예약이 섞이면 라우터가 증상 상담으로 보내기도 한다 - 예약 요청이 분명하면 예약으로 고정.
                 if (
                     route_info
@@ -185,6 +195,7 @@ class ChatService:
                 ui_selection and ui_selection["field"] in reservation_ui_fields
             )
             reservation_api_key = None
+            reservation_started = time.perf_counter()
             # 예약 계정 비밀값이 없으면 예약 기능만 끈다(상담·이상감지 등 나머지는 그대로).
             reservation_disabled = reservation_flow_hint and not self._settings.has_reservation_account_secret
             if reservation_flow_hint:
@@ -219,6 +230,7 @@ class ChatService:
                         "storedFlow": self._last_flow_state(db, payload.userId, session_id),
                     },
                 )
+                timing["reservationMs"] = _elapsed_ms(reservation_started)
                 if reservation_result is not None:
                     result = reservation_result
                 else:
@@ -248,6 +260,7 @@ class ChatService:
                     }
             else:
                 local_llm = get_medical_llm_service()
+                llm_started = time.perf_counter()
                 try:
                     if route_info["route"] == "symptom":
                         llm_intent = "emergency_guidance" if route_info.get("emergency") else "medical_advice"
@@ -260,7 +273,9 @@ class ChatService:
                         intent=llm_intent,
                         processed_symptom=route_info.get("symptom_summary") if route_info["route"] == "symptom" else None,
                     )
+                    timing["llmMs"] = _elapsed_ms(llm_started)
                 except Exception as exc:
+                    timing["llmMs"] = _elapsed_ms(llm_started)
                     # 옛 챗 서버로 넘기던 폴백은 없앴다(2026-10-22) - 고정 문구로 끝낸다. 로그는 예외 클래스명만(상담 내용 금지).
                     _LOG.warning("[CHAT-LLM-FAILED] %s", type(exc).__name__)
                     result = self._fallback_reply(message, history, emergency=bool(route_info.get("emergency")))
@@ -269,12 +284,19 @@ class ChatService:
             _LOG.error("chat process_message fallback: %s at %s", type(exc).__name__, _origin(exc))
             result = self._fallback_reply(message or log_message, history)
             route_info = {}
+        post_started = time.perf_counter()
         if route_info:
             result.setdefault("meta", {})
             if isinstance(result["meta"], dict):
                 result["meta"]["router"] = {k: route_info.get(k) for k in ("route", "engine", "reason", "normalized_message", "symptom_summary", "emergency", "emergency_signals")}
                 # 라우터 기억은 이 상담의 피보호자에게 묶는다 - 다른 피보호자 상담에서 앞 사람의 병원·날짜를 이어 쓰지 않게.
                 result["meta"]["router"]["wardId"] = ward_id
+
+        timing["postMs"] = _elapsed_ms(post_started)
+        timing["totalMs"] = _elapsed_ms(started)  # 저장 직전까지. 저장 시간은 행을 쓴 뒤에야 알아 로그에만 남긴다.
+        result.setdefault("meta", {})
+        if isinstance(result["meta"], dict):
+            result["meta"]["timing"] = dict(timing)
 
         context_payload = {
             "sessionId": session_id,
@@ -305,9 +327,22 @@ class ChatService:
             recommended_action=result["recommendedAction"],
             reservation_required=bool(result["reservationRequired"]),
         )
+        save_started = time.perf_counter()
         db.add(log)
         db.commit()
         db.refresh(log)
+        # 경로·엔진·구간 ms 만 남긴다(상담 내용·사용자 문장 금지).
+        _LOG.info(
+            "[CHAT-TIMING] route=%s engine=%s router_ms=%s llm_ms=%s reservation_ms=%s post_ms=%s save_ms=%s total_ms=%s",
+            route_info.get("route") if route_info else None,
+            result.get("engine", "fallback"),
+            timing["routerMs"],
+            timing["llmMs"],
+            timing["reservationMs"],
+            timing["postMs"],
+            _elapsed_ms(save_started),
+            _elapsed_ms(started),
+        )
 
         return {
             "sessionId": session_id,
