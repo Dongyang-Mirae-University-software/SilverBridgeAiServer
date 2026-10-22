@@ -115,6 +115,13 @@ X-API-Key: <API_KEY>
 
 - `POST /api/v1/reservation-credentials`
 
+### Medication OCR(약 봉투 인식)
+
+- `POST /api/v1/medication/ocr` (X-API-Key) — `multipart/form-data`의 `image`(jpeg·png·webp, 최대 8MB) → 복약 정보 초안
+- 성공(200)은 **표준 래퍼 없이** `{readable, reason, drugs[{name, perDose, timesPerDay, days, slots, timing, confidence}]}`를 그대로 내린다(백엔드 계약). 약 봉투가 아니면 `readable=false`, `drugs=[]`(오류 아님)
+- 오류: 400 `OCR_INVALID_IMAGE` · 413 `OCR_IMAGE_TOO_LARGE` · 401 키 · 503 `OCR_DISABLED`/`OCR_NOT_CONFIGURED` · 502 `OCR_UPSTREAM_FAILED`(Claude 실패·거절·30초 초과)
+- 사진은 EXIF 방향 반영 → 긴 변 1568px 이하 → EXIF 없는 JPEG로 바꿔 Claude(`MEDICATION_OCR_MODEL`, 기본 sonnet, haiku 금지)에 보낸다. 메모리에서만 다루고 저장·로그하지 않는다. 킬 스위치 `MEDICATION_OCR_ENABLED`
+
 ### Live Stream(iPad Ingest + Viewer)
 
 - `POST /api/v1/stream-sessions`
