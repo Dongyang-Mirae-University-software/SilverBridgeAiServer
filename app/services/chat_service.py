@@ -32,6 +32,17 @@ def _origin(exc: BaseException) -> str:
     return f"{tb.tb_frame.f_code.co_filename.rsplit('/', 1)[-1]}:{tb.tb_lineno}"
 
 
+# 오케스트레이터에 넘긴 입력값이 응답 meta 로 되돌아온다. 챗 기록(context_json)에는 남기지 않는다:
+# 예약 API 키(자격 증명), 직전 턴 상태 사본(storedFlow - 같은 기록이 이미 직전 행에 있음), 사용자 원문(message 컬럼에 있음).
+_UNSTORED_META_KEYS = ("reservationApiKey", "storedFlow", "rawMessage")
+
+
+def _persistable_meta(meta: Any) -> dict:
+    if not isinstance(meta, dict):
+        return {}
+    return {k: v for k, v in meta.items() if k not in _UNSTORED_META_KEYS}
+
+
 def _json_safe(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         return _json_safe(value.model_dump())
@@ -78,6 +89,7 @@ class ChatService:
 
         session_id = (payload.sessionId or "").strip() or f"chat-{uuid4().hex[:12]}"
         user_context = self._build_user_context(payload)
+        ward_id = (payload.context.wardId or "").strip() if payload.context and payload.context.wardId else ""
         history = [{"role": item.role, "content": item.content} for item in payload.history]
         log_message = message
         if not log_message and ui_selection:
@@ -111,7 +123,7 @@ class ChatService:
                         # 새 예약 요청이면 직전 턴의 병원·시간을 끌어오지 않는다(지난 요청이 새 요청에 붙는 것 방지).
                         prev_reservation=None
                         if ReservationOrchestrator._is_new_request(message)
-                        else self._last_reservation_state(db, payload.userId, session_id),
+                        else self._last_reservation_state(db, payload.userId, session_id, ward_id),
                     )
                 except Exception as exc:  # noqa: BLE001
                     _LOG.warning("chat router fallback to keywords: %s", type(exc).__name__)
@@ -142,7 +154,7 @@ class ChatService:
                 route_info = {"route": "general", "engine": "rule", "normalized_message": message, "symptom_summary": "", "emergency": False}
             elif not route_info and not message and ui_selection and ui_selection["field"] in reservation_ui_fields:
                 # UI 블록 선택 턴: 직전 규격화 문장에 선택값을 붙여 상태를 이어간다.
-                prev = self._last_reservation_state(db, payload.userId, session_id) or "병원 예약:"
+                prev = self._last_reservation_state(db, payload.userId, session_id, ward_id) or "병원 예약:"
                 value = ui_selection["value"]
                 carry = ui_selection["field"] in {"location", "location_confirm", "department", "hospital", "hospital_confirm", "date", "time"} and value != "__other__"
                 route_info = {
@@ -177,7 +189,6 @@ class ChatService:
             reservation_disabled = reservation_flow_hint and not self._settings.has_reservation_account_secret
             if reservation_flow_hint:
                 # 보호자가 피보호자 대신이면 피보호자 계정으로 예약한다(피보호자 웹·보호자 웹과 같은 목록).
-                ward_id = (payload.context.wardId or "").strip() if payload.context else ""
                 reservation_api_key = reservation_credential_service.ensure_credential(
                     db,
                     user_id=ward_id or payload.userId,
@@ -262,6 +273,8 @@ class ChatService:
             result.setdefault("meta", {})
             if isinstance(result["meta"], dict):
                 result["meta"]["router"] = {k: route_info.get(k) for k in ("route", "engine", "reason", "normalized_message", "symptom_summary", "emergency", "emergency_signals")}
+                # 라우터 기억은 이 상담의 피보호자에게 묶는다 - 다른 피보호자 상담에서 앞 사람의 병원·날짜를 이어 쓰지 않게.
+                result["meta"]["router"]["wardId"] = ward_id
 
         context_payload = {
             "sessionId": session_id,
@@ -279,7 +292,7 @@ class ChatService:
             "visitHospitalIf": result.get("visitHospitalIf") or [],
             "emergencyWarning": result.get("emergencyWarning") or [],
             "decisionTrace": result.get("decisionTrace") or [],
-            "upstreamMeta": result.get("meta") or {},
+            "upstreamMeta": _persistable_meta(result.get("meta")),
         }
 
         log = ChatLog(
@@ -334,8 +347,9 @@ class ChatService:
         return {k: meta[k] for k in ("pendingAction", "flowState") if isinstance(meta.get(k), dict)}
 
     @staticmethod
-    def _last_reservation_state(db: Session, user_id: str, session_id: str) -> str | None:
-        """같은 세션의 직전 턴이 예약 흐름이었으면 그때의 규격화 문장을 돌려준다 (라우터의 상태 기억)."""
+    def _last_reservation_state(db: Session, user_id: str, session_id: str, ward_id: str = "") -> str | None:
+        """같은 세션의 직전 턴이 예약 흐름이었으면 그때의 규격화 문장을 돌려준다 (라우터의 상태 기억).
+        직전 턴이 다른 피보호자의 상담이었으면 비운다. wardId 를 남기기 전의 기록은 본인 상담("")으로 본다."""
         log = db.query(ChatLog).filter(ChatLog.user_id == user_id).order_by(ChatLog.id.desc()).first()
         if not log:
             return None
@@ -346,6 +360,8 @@ class ChatService:
         if ctx.get("sessionId") != session_id:
             return None
         router = (ctx.get("upstreamMeta") or {}).get("router") or {}
+        if (router.get("wardId") or "") != ward_id:
+            return None
         return router.get("normalized_message") if router.get("route") == "reservation" else None
 
     @staticmethod

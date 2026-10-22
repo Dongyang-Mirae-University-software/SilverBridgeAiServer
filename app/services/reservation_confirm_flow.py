@@ -161,13 +161,13 @@ class ReservationFlowMixin:
     @classmethod
     def _pin_ward_patient(cls, req: ChatRequest, draft: ReservationDraft) -> None:
         """보호자 대리 예약의 환자는 BE가 넘긴 피보호자다. 채팅 문장(LLM 추출)·입력값이 이름·전화를 덮지 못한다.
-        chat_service 가 wardName·wardPhone 을 name·phone 에 옮겨 넘기므로 둘 다 본다.
-        피보호자 전화가 없으면(BE가 비움) 입력받은 연락처를 그대로 쓴다 - 막으면 대리 예약 자체가 불가능하다."""
+        이름은 wardName(없으면 chat_service 가 옮겨 둔 name), 전화는 wardPhone 만 본다 - BE는 피보호자 전화가 있으면 wardPhone 을,
+        없으면 phone 까지 지워 보낸다. 피보호자 전화가 없으면 입력받은 연락처를 그대로 쓴다(막으면 대리 예약 자체가 불가능하다)."""
         ctx = req.context
         if not cls._ward_id(req) or ctx is None:
             return
         name = (ctx.wardName or ctx.name or "").strip()
-        phone = (ctx.wardPhone or ctx.phone or "").strip()
+        phone = (ctx.wardPhone or "").strip()
         if name:
             draft.patient_name = name
         if phone:
@@ -321,7 +321,7 @@ class ReservationFlowMixin:
             return self._after_created(meta, shaped, key, replaces, req)
 
         msg, code = _error_text(data, "예약 처리에 실패했습니다.")
-        _trace(meta, "reservation_submit_failed", http_status=st, code=code, message=msg[:200])
+        _trace(meta, "reservation_submit_failed", http_status=st, code=code)  # 예약 서비스 문구는 입력값을 되돌려 줄 수 있어 남기지 않는다
         if code == "DUPLICATE_RESERVATION":
             reselect = self._reselect_time(meta, draft, key, replaces, self._ward_id(req))
             if reselect is not None:
@@ -532,6 +532,7 @@ class ReservationFlowMixin:
             if (
                 not token
                 or flow.get("editToken") != token
+                or "wardId" not in flow  # 배포 전에 저장된 옛 상태
                 or (flow.get("wardId") or "") != ward_id
                 or item not in {i for i, _ in _EDIT_ITEMS}
             ):

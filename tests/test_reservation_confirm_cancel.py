@@ -111,7 +111,8 @@ def test_failed_booking_is_reported_not_hidden() -> None:
 
 # ---- R-4 보호자 대리 -------------------------------------------------------------
 
-WARD = {"wardId": "ward-1", "wardName": "김영희", "name": "김영희", "phone": "010-9999-0000"}
+# BE(ChatRelayService)가 보내는 형태: 피보호자 전화가 있으면 wardPhone·phone 둘 다 그 값
+WARD = {"wardId": "ward-1", "wardName": "김영희", "wardPhone": "010-9999-0000", "name": "김영희", "phone": "010-9999-0000"}
 
 
 def test_guardian_proxy_card_says_whose_reservation_it_is() -> None:

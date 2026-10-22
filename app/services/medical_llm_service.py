@@ -254,8 +254,8 @@ class MedicalLlmService:
             # 출력이 max_new_tokens에 걸려 잘린 경우: 완성된 필드만이라도 살린다.
             parsed = extract_json_fields_lenient(raw, _STRING_KEYS, _LIST_KEYS)
             _LOG.warning(
-                "medgemma json parse fallback (lenient=%s, chars=%d): %s",
-                bool(parsed), len(raw), raw[:300].replace("\n", " "),
+                "medgemma json parse fallback (lenient=%s, chars=%d)",  # 모델 출력(상담 내용)은 남기지 않는다
+                bool(parsed), len(raw),
             )
         normalized = self._normalize_payload(parsed, raw, message, intent, emergency_hint)
 

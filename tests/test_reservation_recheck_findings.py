@@ -9,7 +9,7 @@ from tests.reservation_flow_helpers import FUTURE, FakeReservation, make_orchest
 from tests.test_reservation_confirm_cancel import FULL, WARD, _confirm_card, _turn, _value
 from tests.test_reservation_confirm_chat_service import _send, env  # noqa: F401
 
-WARD2 = {"wardId": "ward-2", "wardName": "박철수", "name": "박철수", "phone": "010-8888-1111"}
+WARD2 = {"wardId": "ward-2", "wardName": "박철수", "wardPhone": "010-8888-1111", "name": "박철수", "phone": "010-8888-1111"}
 
 
 def _lag_one_day(monkeypatch) -> _dt.date:

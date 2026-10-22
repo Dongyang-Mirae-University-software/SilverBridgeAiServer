@@ -431,7 +431,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
             )
             raw = self._loader.generate_structured_text(SYSTEM_PROMPT, prompt, schema=EXTRACTION_SCHEMA)
         except Exception as exc:  # noqa: BLE001
-            _trace(meta, "reservation_extraction_failed", error=str(exc))
+            _trace(meta, "reservation_extraction_failed", error=type(exc).__name__)  # 예외 문구에는 입력·모델 출력이 섞일 수 있다
             return None
 
         parsed = extract_json_object(raw)
@@ -774,7 +774,9 @@ class ReservationOrchestrator(ReservationFlowMixin):
         in_flow = (
             isinstance(flow, dict)
             and isinstance(flow.get("draft"), dict)
-            and (flow.get("wardId") or "") == self._ward_id(req)  # 다른 피보호자로 바뀌었으면 이어 쓰지 않고 새로 만든다
+            # 다른 피보호자로 바뀌었으면 이어 쓰지 않고 새로 만든다. wardId 키가 없는 옛 상태(배포 전)도 이어 쓰지 않는다.
+            and "wardId" in flow
+            and (flow.get("wardId") or "") == self._ward_id(req)
             and bool(req.uiSelection or not self._is_new_request(raw_message))
         )
         replaces: dict[str, Any] | None = None
