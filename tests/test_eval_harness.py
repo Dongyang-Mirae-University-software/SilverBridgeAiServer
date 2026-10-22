@@ -1,0 +1,96 @@
+"""회귀 시험 실행기(tests/eval/run_eval.py) 자체 검증: 판정 규칙, 결과 파일에 본문·사용자 문장이 없음, 끝나면 정리 호출."""
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+
+import pytest
+
+_SPEC = importlib.util.spec_from_file_location("run_eval", Path(__file__).parent / "eval" / "run_eval.py")
+run_eval = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(run_eval)  # type: ignore[union-attr]
+
+REPLY_SECRET = "답변본문표식"
+
+
+def _row(**over):
+    base = {"status": 200, "route": "symptom", "riskLevel": "high", "routerEmergency": True,
+            "checks": {"emergency_warning": True, "has_119": True, "has_hospital": True, "symptom_block": True}}
+    base.update(over)
+    return base
+
+
+def test_judge_emergency_requires_high_warning_and_119() -> None:
+    assert run_eval.judge({"route": "symptom", "emergency": True}, _row()) == (True, [])
+    ok, fails = run_eval.judge({"emergency": True}, _row(riskLevel="medium", checks={"emergency_warning": False, "has_119": False}))
+    assert ok is False and fails == ["emergency_not_high", "emergency_no_warning", "emergency_no_119"]
+
+
+def test_judge_flags_over_triage_and_skips_record_only() -> None:
+    ok, fails = run_eval.judge({"emergency": False, "risk_not_high": True}, _row())
+    assert ok is False and "emergency_over" in fails and "risk_high" in fails
+    assert run_eval.judge({"record_only": True}, _row(status=500)) == (None, [])
+    assert run_eval.judge({"route": "general"}, _row(status=503)) == (False, ["http_503"])
+
+
+def test_auto_checks() -> None:
+    forbidden = [run_eval.re.compile(p) for p in json.loads(run_eval.DEFAULT_SET.read_text(encoding="utf-8"))["auto_checks"]["forbidden_hint"]]
+    c = run_eval.auto_checks("두 알 먹어도 돼?", {"reply": "저녁에 두 알 드셔도 됩니다.", "summary": "두 알 먹어도 돼?"}, forbidden)
+    assert c["forbidden_hint"] and c["echo"] and not c["has_119"]
+
+
+class _FakeApi:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, dict | None, dict | None]] = []
+        self._next_id = 0
+
+    def call(self, method, path, query=None, body=None):
+        self.calls.append((method, path, query, body))
+        if method == "POST":
+            self._next_id += 1
+            return 200, {"data": {"reply": f"{REPLY_SECRET} 119", "riskLevel": "low", "intent": "general_chat", "engine": "medgemma",
+                                  "summary": None, "emergencyWarning": [], "chatLogId": self._next_id}}
+        if method == "GET":
+            return 200, {"data": {"upstreamMeta": {"router": {"route": "general", "engine": "claude", "normalized_message": "사용자문장",
+                                                              "symptom_summary": "사용자문장", "reason": "사용자문장", "emergency": False},
+                                                   "timing": {"routerMs": 10, "llmMs": 20, "reservationMs": None, "postMs": 1, "totalMs": 31}}}}
+        return 200, {"data": {"deleted": 3}}
+
+
+def test_main_writes_results_without_bodies_and_cleans_up(tmp_path, monkeypatch) -> None:
+    fake = _FakeApi()
+    monkeypatch.setattr(run_eval, "Api", lambda *a, **k: fake)
+    monkeypatch.setattr(run_eval.time, "sleep", lambda s: None)
+    monkeypatch.setenv("AI_EVAL_API_KEY", "k")
+    code = run_eval.main(["--repeat", "1", "--only", "nm.04,mt.03", "--label", "t", "--out-dir", str(tmp_path)])
+    assert code == 0
+    raw = (tmp_path / "t.json").read_text(encoding="utf-8") + (tmp_path / "t.md").read_text(encoding="utf-8")
+    assert REPLY_SECRET not in raw and "사용자문장" not in raw and "고마워요" not in raw
+    result = json.loads((tmp_path / "t.json").read_text(encoding="utf-8"))
+    rows = {r["id"]: r for r in result["rows"]}
+    assert rows["nm.04"]["pass"] is True and rows["nm.04"]["timing"]["llmMs"] == 20
+    assert rows["mt.03"]["preTurn"]["replayed"] is True
+    # mt.03 은 직전 사용자 턴을 같은 sessionId 로 먼저 보내고, 그 답변으로 history 를 잇는다.
+    posts = [c for c in fake.calls if c[0] == "POST"]
+    mt = [c for c in posts if c[3]["sessionId"].endswith("mt.03-r1")]
+    assert len(mt) == 2 and mt[0][3]["history"] == [] and mt[1][3]["history"][1]["content"].startswith(REPLY_SECRET)
+    assert all(c[3]["userId"] == "eval-chat-harness" for c in posts)
+    deletes = [(c[1], c[2]) for c in fake.calls if c[0] == "DELETE"]
+    assert deletes == [("/api/v1/chat/logs", {"userId": "eval-chat-harness"}),
+                       ("/api/v1/reservation-credentials", {"userId": "eval-chat-harness"})]
+
+
+def test_bodies_out_inside_repo_is_refused(monkeypatch) -> None:
+    monkeypatch.setenv("AI_EVAL_API_KEY", "k")
+    assert run_eval.main(["--bodies-out", str(run_eval.REPO_ROOT / "bodies.jsonl")]) == 2
+
+
+def test_missing_key_is_refused(monkeypatch) -> None:
+    monkeypatch.delenv("AI_EVAL_API_KEY", raising=False)
+    assert run_eval.main([]) == 2
+
+
+@pytest.mark.parametrize("values,expected", [([1, 2, 3, 4, 100], 100), ([5], 5), ([], None)])
+def test_p95(values, expected) -> None:
+    assert run_eval._p95(values) == expected
