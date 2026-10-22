@@ -7,14 +7,19 @@
 """
 from __future__ import annotations
 
-import threading
-import time
+import logging
 import uuid
+from datetime import timedelta
 from typing import Any
 
 from app.schemas.chat_schema import ChatRequest, UiOption, UiPayload
 from datetime import datetime
 
+from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+
+from app.database.session import SessionLocal
+from app.models.reservation_token_claim import ReservationTokenClaim
 from app.services.reservation_common import _SEOUL_TZ, _date_label, _digits, _phone_last4, _trace
 from app.services.reservation_intake import ReservationDraft, build_reservation_draft
 
@@ -38,31 +43,39 @@ _STALE_REPLY = "확인 시간이 지났어요. 예약하실 병원과 진료과,
 
 
 class _TokenClaims:
-    """확인 토큰을 한 번만 쓰게 하는 프로세스 내 선점 저장소.
+    """확인 토큰을 한 번만 쓰게 하는 선점 저장소(DB).
 
     토큰 검증은 직전 chat_log 를 읽고 소비(새 로그 기록)는 응답 뒤에 일어나므로, 같은 버튼을 거의 동시에 두 번 누르면
-    둘 다 검증을 통과한다. 예약·취소를 부르기 전에 (사용자, 토큰)을 먼저 선점해 첫 요청만 호출하게 한다.
-    서버가 단일 인스턴스(스트림 상태 기본값도 메모리)라는 전제이며, 여러 대로 늘리면 DB 선점으로 바꿔야 한다.
-    실패한 뒤에도 선점은 풀지 않는다 - 실패 응답 뒤 카드는 어차피 만료돼 처음부터 다시 안내한다."""
+    둘 다 검증을 통과한다. 예약·취소를 부르기 전에 (사용자, 토큰)을 먼저 INSERT 해 첫 요청만 호출하게 한다.
+    기본키 충돌이 곧 "이미 선점됨"이라 서버를 여러 대로 늘려도 유효하다.
+    채팅 세션과 따로 연 짧은 세션으로 바로 커밋한다(채팅 트랜잭션이 롤백돼도 선점은 남아야 한다).
+    실패한 뒤에도 선점은 풀지 않는다 - 실패 응답 뒤 카드는 어차피 만료돼 처음부터 다시 안내한다.
+    DB 오류는 삼키지 않는다: 선점하지 못한 채 예약하는 것보다 요청이 실패하는 쪽이 안전하다."""
 
     TTL_SECONDS = 600
 
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._claimed: dict[tuple[str, str], float] = {}
-
     def claim(self, user_id: str, token: str) -> bool:
-        now = time.monotonic()
-        with self._lock:
-            expired = [k for k, at in self._claimed.items() if now - at > self.TTL_SECONDS]
-            for key in expired:
-                del self._claimed[key]
-            if (user_id, token) in self._claimed:
+        with SessionLocal() as db:
+            try:
+                db.add(ReservationTokenClaim(user_id=user_id, token=token, created_at=datetime.utcnow()))
+                db.commit()
+            except IntegrityError:
+                db.rollback()
                 return False
-            self._claimed[(user_id, token)] = now
-            return True
+        self._purge_expired()
+        return True
+
+    def _purge_expired(self) -> None:
+        """오래된 행 정리. 실패해도 선점 결과에는 영향이 없다."""
+        try:
+            with SessionLocal() as db:
+                db.execute(delete(ReservationTokenClaim).where(ReservationTokenClaim.created_at < datetime.utcnow() - timedelta(seconds=self.TTL_SECONDS)))
+                db.commit()
+        except SQLAlchemyError as exc:
+            _LOG.warning("[예약토큰선점정리실패] %s", type(exc).__name__)
 
 
+_LOG = logging.getLogger(__name__)
 _CLAIMS = _TokenClaims()
 _BUSY_REPLY = "이미 처리 중이에요. 잠시 뒤 예약 목록에서 확인해 주세요."
 
