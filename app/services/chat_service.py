@@ -22,6 +22,16 @@ from app.services.reservation_orchestrator import ReservationOrchestrator, get_r
 _LOG = logging.getLogger(__name__)
 
 
+def _origin(exc: BaseException) -> str:
+    """예외가 난 마지막 프레임의 파일:줄. 예외 문구(값이 섞일 수 있음) 없이 원인 위치만 남긴다."""
+    tb = exc.__traceback__
+    while tb is not None and tb.tb_next is not None:
+        tb = tb.tb_next
+    if tb is None:
+        return "?"
+    return f"{tb.tb_frame.f_code.co_filename.rsplit('/', 1)[-1]}:{tb.tb_lineno}"
+
+
 def _json_safe(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         return _json_safe(value.model_dump())
@@ -104,7 +114,7 @@ class ChatService:
                         else self._last_reservation_state(db, payload.userId, session_id),
                     )
                 except Exception as exc:  # noqa: BLE001
-                    _LOG.warning("chat router fallback to keywords: %s", exc)
+                    _LOG.warning("chat router fallback to keywords: %s", type(exc).__name__)
                 # "머리가 아파서 병원 예약하고 싶어요"처럼 증상과 예약이 섞이면 라우터가 증상 상담으로 보내기도 한다 - 예약 요청이 분명하면 예약으로 고정.
                 if (
                     route_info
@@ -152,7 +162,13 @@ class ChatService:
                     "engine": "keyword",
                 }
             route_info = self._force_emergency(route_info, message)
-            _LOG.info("[라우터] route=%s engine=%s normalized=%s", route_info["route"], route_info.get("engine"), route_info.get("normalized_message") if route_info["route"] == "reservation" else route_info.get("symptom_summary"))
+            # 상담 내용(증상 요약·예약 문장)은 로그에 남기지 않는다 - 길이만.
+            _LOG.info(
+                "[라우터] route=%s engine=%s text_len=%s",
+                route_info["route"],
+                route_info.get("engine"),
+                len(str(route_info.get("normalized_message") if route_info["route"] == "reservation" else route_info.get("symptom_summary") or "")),
+            )
             reservation_flow_hint = route_info["route"] == "reservation" or bool(
                 ui_selection and ui_selection["field"] in reservation_ui_fields
             )
@@ -238,7 +254,8 @@ class ChatService:
                     _LOG.warning("[CHAT-LLM-FAILED] %s", type(exc).__name__)
                     result = self._fallback_reply(message, history, emergency=bool(route_info.get("emergency")))
         except Exception as exc:
-            _LOG.exception("chat process_message fallback: %s", exc)
+            # 예외 문구·스택에는 SQL 파라미터·요청 값이 섞일 수 있어 클래스명과 발생 위치만 남긴다.
+            _LOG.error("chat process_message fallback: %s at %s", type(exc).__name__, _origin(exc))
             result = self._fallback_reply(message or log_message, history)
             route_info = {}
         if route_info:

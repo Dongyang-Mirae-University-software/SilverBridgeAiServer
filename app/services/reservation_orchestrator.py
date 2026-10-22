@@ -774,6 +774,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
         in_flow = (
             isinstance(flow, dict)
             and isinstance(flow.get("draft"), dict)
+            and (flow.get("wardId") or "") == self._ward_id(req)  # 다른 피보호자로 바뀌었으면 이어 쓰지 않고 새로 만든다
             and bool(req.uiSelection or not self._is_new_request(raw_message))
         )
         replaces: dict[str, Any] | None = None
@@ -834,7 +835,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
         )
 
         out = self._advance(req, meta, draft, reservation_api_key, replaces)
-        return self._remember_flow(out, meta, draft, replaces) if in_flow else out
+        return self._remember_flow(out, meta, draft, replaces, self._ward_id(req)) if in_flow else out
 
     def _advance(
         self,
@@ -845,6 +846,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
         replaces: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """초안에서 비어 있는 것을 순서대로 채우고(병원 → 날짜 → 시간 → 환자 정보), 다 채워지면 예약한다."""
+        self._pin_ward_patient(req, draft)
         if draft.hospital_name and draft.hospital_id is None:
             draft.hospital_id, resolved_name = self._reservation.resolve_hospital(
                 draft.hospital_name,
