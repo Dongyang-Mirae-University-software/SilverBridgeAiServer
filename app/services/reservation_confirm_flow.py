@@ -7,11 +7,15 @@
 """
 from __future__ import annotations
 
+import threading
+import time
 import uuid
 from typing import Any
 
 from app.schemas.chat_schema import ChatRequest, UiOption, UiPayload
-from app.services.reservation_common import _date_label, _digits, _phone_last4, _trace
+from datetime import datetime
+
+from app.services.reservation_common import _SEOUL_TZ, _date_label, _digits, _phone_last4, _trace
 from app.services.reservation_intake import ReservationDraft, build_reservation_draft
 
 CONFIRM_FIELDS = frozenset(
@@ -31,6 +35,36 @@ _DRAFT_KEYS = (
     "patient_name", "phone", "birth_date", "symptom_summary", "memo",
 )
 _STALE_REPLY = "확인 시간이 지났어요. 예약하실 병원과 진료과, 날짜를 다시 알려 주세요."
+
+
+class _TokenClaims:
+    """확인 토큰을 한 번만 쓰게 하는 프로세스 내 선점 저장소.
+
+    토큰 검증은 직전 chat_log 를 읽고 소비(새 로그 기록)는 응답 뒤에 일어나므로, 같은 버튼을 거의 동시에 두 번 누르면
+    둘 다 검증을 통과한다. 예약·취소를 부르기 전에 (사용자, 토큰)을 먼저 선점해 첫 요청만 호출하게 한다.
+    서버가 단일 인스턴스(스트림 상태 기본값도 메모리)라는 전제이며, 여러 대로 늘리면 DB 선점으로 바꿔야 한다.
+    실패한 뒤에도 선점은 풀지 않는다 - 실패 응답 뒤 카드는 어차피 만료돼 처음부터 다시 안내한다."""
+
+    TTL_SECONDS = 600
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._claimed: dict[tuple[str, str], float] = {}
+
+    def claim(self, user_id: str, token: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            expired = [k for k, at in self._claimed.items() if now - at > self.TTL_SECONDS]
+            for key in expired:
+                del self._claimed[key]
+            if (user_id, token) in self._claimed:
+                return False
+            self._claimed[(user_id, token)] = now
+            return True
+
+
+_CLAIMS = _TokenClaims()
+_BUSY_REPLY = "이미 처리 중이에요. 잠시 뒤 예약 목록에서 확인해 주세요."
 
 
 def draft_to_dict(draft: ReservationDraft) -> dict[str, Any]:
@@ -66,16 +100,42 @@ class ReservationFlowMixin:
 
     CANCEL_CUES = ("취소",)
     CHANGE_CUES = ("변경", "바꿔", "바꾸", "바꿀", "옮겨", "미뤄")
+    # 요청이 아니라 거절·부정이다: "취소 안 할게요", "취소하지 않을래요"
+    NEGATION_CUES = ("안 할", "안할", "안 해", "안해", "하지 않", "하지않", "하지 마", "하지마", "않을", "않아", "싫")
+    # 방법을 묻는 말: 목록을 띄우기보다 말하는 법을 안내한다
+    QUESTION_CUES = ("방법", "어떻게", "알려", "궁금", "하는 법", "할 수 있")
+    HOW_TO_REPLY = "예약 취소나 변경은 여기서 바로 도와드려요. \"예약 취소할래\" 또는 \"예약 바꿔줘\"라고 말씀해 주세요."
+
+    @classmethod
+    def _intent_text(cls, message: str) -> str:
+        """"취소 말고 변경할래"처럼 '말고' 앞은 거절된 요청이라 뒤쪽만 본다."""
+        return message.split("말고", 1)[1] if "말고" in message else message
+
+    @classmethod
+    def _has_cue(cls, message: str, cues: tuple[str, ...]) -> bool:
+        if not message or "예약" not in message:
+            return False
+        text = cls._intent_text(message)
+        return any(cue in text for cue in cues) and not any(neg in text for neg in cls.NEGATION_CUES)
+
+    @classmethod
+    def _is_question(cls, message: str) -> bool:
+        return any(cue in message for cue in cls.QUESTION_CUES)
 
     @classmethod
     def _is_cancel_request(cls, message: str) -> bool:
         # "취소된 예약 내역 보여줘"처럼 조회 문장은 취소 요청이 아니다.
         lookup = getattr(cls, "LOOKUP_KEYWORDS", ())
-        return bool(message) and "예약" in message and any(cue in message for cue in cls.CANCEL_CUES) and not any(k in message for k in lookup)
+        return cls._has_cue(message, cls.CANCEL_CUES) and not cls._is_question(message) and not any(k in message for k in lookup)
 
     @classmethod
     def _is_change_request(cls, message: str) -> bool:
-        return bool(message) and "예약" in message and any(cue in message for cue in cls.CHANGE_CUES)
+        return cls._has_cue(message, cls.CHANGE_CUES) and not cls._is_question(message)
+
+    @classmethod
+    def _is_cancel_change_question(cls, message: str) -> bool:
+        """"예약 취소 방법 알려줘" - 취소·변경하는 법을 묻는 말."""
+        return (cls._has_cue(message, cls.CANCEL_CUES) or cls._has_cue(message, cls.CHANGE_CUES)) and cls._is_question(message)
 
     # ---- 공통 ----------------------------------------------------------------
 
@@ -183,8 +243,16 @@ class ReservationFlowMixin:
         _trace(
             meta, "reservation_submit", hospital_id=draft.hospital_id, hospital_name=draft.hospital_name,
             department=draft.department, reservation_date=draft.reservation_date, reservation_time=draft.reservation_time,
-            patient_name=draft.patient_name, phone_last4=_phone_last4(draft.phone),
+            patient_name_len=len(draft.patient_name or ""), phone_last4=_phone_last4(draft.phone),
         )
+        # 같은 날짜·시간에 이미 예약이 있으면 만들지 않고 시간을 다시 고르게 한다(원자적이진 않지만 중복 창을 줄인다).
+        # 조회가 실패하면 통과시키고 예약 서비스의 중복 거절에 맡긴다.
+        booked = self._booked_times(key)  # type: ignore[attr-defined]
+        if draft.reservation_time and draft.reservation_time in booked.get(draft.reservation_date or "", set()):
+            _trace(meta, "reservation_precheck_duplicate")
+            reselect = self._reselect_time(meta, draft, key, replaces)
+            if reselect is not None:
+                return reselect
         args = draft.to_make_appointment_args()
         if draft.hospital_id is not None:
             args["hospital_id"] = draft.hospital_id
@@ -209,17 +277,27 @@ class ReservationFlowMixin:
 
         msg, code = _error_text(data, "예약 처리에 실패했습니다.")
         _trace(meta, "reservation_submit_failed", http_status=st, code=code, message=msg[:200])
-        if code == "DUPLICATE_RESERVATION" and draft.hospital_id is not None and draft.reservation_date:
-            # 같은 시간대 중복은 막다른 길이 아니라 시간을 다시 고르게 한다.
-            draft.reservation_time = None
-            slot_date, slots = self._find_slots(draft.hospital_id, draft.reservation_date, key, meta)  # type: ignore[attr-defined]
-            if slot_date is not None and slots:
-                out = self._time_select_reply(  # type: ignore[attr-defined]
-                    meta, draft, draft.reservation_date, slot_date, slots,
-                    prefix="같은 시간대에 이미 예약이 있어요. 다른 시간을 골라 주세요.",
-                )
-                return self._remember_flow(out, meta, draft, replaces)
+        if code == "DUPLICATE_RESERVATION":
+            reselect = self._reselect_time(meta, draft, key, replaces)
+            if reselect is not None:
+                return reselect
         return self._flow_error(meta, "make_appointment", msg, code, data)
+
+    def _reselect_time(
+        self, meta: dict[str, Any], draft: ReservationDraft, key: str | None, replaces: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """같은 시간대 중복은 막다른 길이 아니라 시간을 다시 고르게 한다. 다시 고를 시간이 없으면 None."""
+        if draft.hospital_id is None or not draft.reservation_date:
+            return None
+        draft.reservation_time = None
+        slot_date, slots = self._find_slots(draft.hospital_id, draft.reservation_date, key, meta)  # type: ignore[attr-defined]
+        if slot_date is None or not slots:
+            return None
+        out = self._time_select_reply(  # type: ignore[attr-defined]
+            meta, draft, draft.reservation_date, slot_date, slots,
+            prefix="같은 시간대에 이미 예약이 있어요. 다른 시간을 골라 주세요.",
+        )
+        return self._remember_flow(out, meta, draft, replaces)
 
     def _after_created(
         self, meta: dict[str, Any], shaped: dict[str, Any], key: str | None, replaces: dict[str, Any] | None, req: ChatRequest
@@ -253,17 +331,32 @@ class ReservationFlowMixin:
 
     # ---- 취소·변경 목록 ----------------------------------------------------------
 
-    def _cancellable_rows(self, key: str | None) -> list[dict[str, Any]] | None:
+    MAX_PICK = 10
+
+    def _cancellable_rows(self, key: str | None) -> tuple[list[dict[str, Any]], int] | None:
+        """취소할 수 있는 예약 - 오늘 이후만, 날짜·시간순으로 MAX_PICK건. (보여줄 목록, 조건에 맞는 전체 수). 조회 실패는 None."""
         res = self._reservation.list_my_appointments(api_key_override=key)  # type: ignore[attr-defined]
         data = res.get("data")
         if not (200 <= int(res.get("httpStatus") or 0) < 300) or not isinstance(data, list):
             return None
-        return [row for row in data if isinstance(row, dict) and _status(row) in _CANCELLABLE_STATUSES and row.get("reservationId") is not None]
+        today = datetime.now(_SEOUL_TZ).date().isoformat()
+
+        def day(row: dict[str, Any]) -> str:
+            return str(row.get("reservationDate") or row.get("date") or "")[:10]
+
+        rows = [
+            row for row in data
+            if isinstance(row, dict) and _status(row) in _CANCELLABLE_STATUSES and row.get("reservationId") is not None
+            and (not day(row) or day(row) >= today)  # 날짜를 읽을 수 없으면 숨기지 않는다
+        ]
+        rows.sort(key=lambda r: (day(r), str(r.get("reservationTime") or r.get("time") or "")))
+        return rows[: self.MAX_PICK], len(rows)
 
     def _start_pick(self, meta: dict[str, Any], key: str | None, *, change: bool) -> dict[str, Any]:
-        rows = self._cancellable_rows(key)
-        if rows is None:
+        found = self._cancellable_rows(key)
+        if found is None:
             return self._flow_error(meta, "list_my_appointments", "예약 목록을 불러오지 못했습니다.", "LOOKUP_FAILED")
+        rows, total = found
         if not rows:
             reply = "바꿀 수 있는 예약이 없어요. 새로 예약할까요?" if change else "취소할 수 있는 예약이 없어요."
             return self._flow_message(meta, reply)
@@ -271,7 +364,9 @@ class ReservationFlowMixin:
         options.append(UiOption(value=_STOP, label="그만두기"))
         field = "reservation_change_pick" if change else "reservation_cancel_pick"
         label = "어떤 예약을 바꿀까요?" if change else "어떤 예약을 취소할까요?"
-        _trace(meta, "reservation_pick_shown", change=change, count=len(rows))
+        if total > len(rows):
+            label += f" (가까운 {len(rows)}건만 보여드려요)"
+        _trace(meta, "reservation_pick_shown", change=change, count=len(rows), total=total)
         return self._flow_message(meta, label, UiPayload(kind="select", field=field, label=label, options=options))
 
     @staticmethod
@@ -329,6 +424,9 @@ class ReservationFlowMixin:
                 return self._stale(meta, "cancel")
             if action == "no":
                 return self._flow_message(meta, "알겠습니다. 예약은 그대로 둘게요.")
+            if not _CLAIMS.claim(req.userId, token):
+                _trace(meta, "reservation_token_busy", kind="cancel")
+                return self._flow_message(meta, _BUSY_REPLY)
             res = self._reservation.cancel_reservation(int(pending["reservationId"]), api_key_override=key)  # type: ignore[attr-defined]
             st, data = int(res.get("httpStatus") or 0), res.get("data")
             if 200 <= st < 300:
@@ -390,6 +488,9 @@ class ReservationFlowMixin:
                 )
             if draft.required_gap() is not None:
                 return self._stale(meta, "create")
+            if not _CLAIMS.claim(req.userId, token):
+                _trace(meta, "reservation_token_busy", kind="create")
+                return self._flow_message(meta, _BUSY_REPLY)
             return self._create_from_draft(req, meta, draft, key, replaces)
 
         if field == "reservation_edit":
