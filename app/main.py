@@ -23,6 +23,7 @@ from app.routers.game_router import router as game_router
 from app.routers.health_router import router as health_router
 from app.routers.live_stream_router import router as live_stream_router
 from app.routers.live_ws_router import router as live_ws_router
+from app.routers.medication_ocr_router import router as medication_ocr_router
 from app.routers.model_router import router as model_router
 from app.routers.reservation_credential_router import router as reservation_credential_router
 import app.models.game  # noqa: F401
@@ -32,6 +33,7 @@ from app.services.fire_smoke_detection_service import get_fire_smoke_detector
 from app.services.knife_detection_service import get_knife_detector
 from app.services.live_ws_manager import live_ws_manager
 from app.services.medical_llm_service import get_medgemma_loader
+from app.services.medication_ocr_service import get_medication_ocr_service
 from app.utils.file_utils import ensure_directory
 from app.utils.logger import setup_logging
 
@@ -92,6 +94,7 @@ async def lifespan(_: FastAPI):
     get_fire_smoke_detector().try_load()
     get_knife_detector().try_load()
     get_fall_detector().try_load()
+    get_medication_ocr_service()  # 모델 설정 확인(haiku 면 기동 시 경고 후 sonnet 대체)
     yield
     if torch is not None and torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -135,3 +138,4 @@ app.include_router(game_router)  # 키 요구는 game_router 가 경로별로 �
 app.include_router(live_stream_router, dependencies=[Depends(require_api_key)])
 app.include_router(live_ws_router)
 app.include_router(reservation_credential_router, dependencies=[Depends(require_api_key)])
+app.include_router(medication_ocr_router, dependencies=[Depends(require_api_key)])

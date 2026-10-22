@@ -114,6 +114,10 @@ class Settings(BaseModel):
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY") or ""
     claude_model_name: str = os.getenv("CLAUDE_MODEL_NAME", "claude-opus-5-5")
     claude_timeout_sec: int = _as_int("CLAUDE_TIMEOUT_SEC", 60)
+    # 약 봉투 OCR(POST /api/v1/medication/ocr). 키는 위 ANTHROPIC_API_KEY 를 같이 쓴다.
+    # 모델은 2026-10-22 측정으로 sonnet 확정 - haiku 는 없는 약을 지어내 금지(기동 시 sonnet 으로 대체).
+    medication_ocr_enabled: bool = _as_bool("MEDICATION_OCR_ENABLED", True)
+    medication_ocr_model: str = os.getenv("MEDICATION_OCR_MODEL", "claude-sonnet-5-5")
     chat_upstream_url: str = os.getenv("CHAT_UPSTREAM_URL", "http://127.0.0.1:6012")
     chat_upstream_timeout_sec: int = _as_int("CHAT_UPSTREAM_TIMEOUT_SEC", 1200)
     reservation_api_base_url: str = os.getenv(
