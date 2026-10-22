@@ -6,7 +6,7 @@ services:
     container_name: silverbridge-ai-postgres
     restart: unless-stopped
     ports:
-      - "${POSTGRES_PORT:-6019}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-6019}:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-silverbridge_ai}
       POSTGRES_USER: ${POSTGRES_USER:-silverbridge_ai}
