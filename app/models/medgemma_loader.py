@@ -1,10 +1,65 @@
 from __future__ import annotations
 
+import json
+import logging
 import threading
 from dataclasses import dataclass
 from typing import Any
 
 from app.core.config import Settings
+
+
+_LOG = logging.getLogger(__name__)
+
+QUANT_NONE = "none"
+QUANT_NF4 = "nf4"
+
+
+def resolve_quant(value: str | None) -> str:
+    """MEDGEMMA_QUANT 값. 모르는 값은 none(지금과 같은 bf16)으로 본다."""
+    return QUANT_NF4 if (value or "").strip().lower() == QUANT_NF4 else QUANT_NONE
+
+
+def quantization_kwargs(quant: str, torch: Any) -> dict[str, Any]:
+    """from_pretrained 에 더할 양자화 인자. none이면 bitsandbytes 를 import 하지 않는다."""
+    if quant != QUANT_NF4:
+        return {}
+    import bitsandbytes  # noqa: F401  # type: ignore[reportMissingImports]  # 미설치면 여기서 실패 -> none으로 내려간다
+    from transformers import BitsAndBytesConfig  # type: ignore[reportMissingImports]
+
+    return {
+        "quantization_config": BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+    }
+
+
+def json_object_complete(text: str) -> bool:
+    """prefill + 생성 문장이 완성된 JSON 객체 하나로 읽히면 True. 닫는 괄호가 아니면 파싱하지 않는다."""
+    stripped = (text or "").strip()
+    if not stripped.endswith("}"):
+        return False
+    try:
+        value, _ = json.JSONDecoder().raw_decode(stripped)
+    except ValueError:
+        return False
+    return isinstance(value, dict)
+
+
+def json_stop_criteria(tokenizer: Any, input_len: int, prefill: str) -> Any:
+    """JSON 객체가 닫히면 생성을 멈춘다. 닫힌 뒤 덧붙이는 설명·두 번째 객체에 토큰을 쓰지 않게 한다."""
+    import torch  # type: ignore[reportMissingImports]
+    from transformers import StoppingCriteria, StoppingCriteriaList  # type: ignore[reportMissingImports]
+
+    class _JsonObjectDone(StoppingCriteria):
+        def __call__(self, input_ids: Any, scores: Any, **kwargs: Any) -> Any:  # noqa: ARG002
+            text = prefill + tokenizer.decode(input_ids[0][input_len:], skip_special_tokens=True)
+            return torch.full((input_ids.shape[0],), json_object_complete(text), dtype=torch.bool, device=input_ids.device)
+
+    return StoppingCriteriaList([_JsonObjectDone()])
 
 
 @dataclass
@@ -24,6 +79,7 @@ class MedGemmaLoader:
         self._processor: Any = None
         self._torch = None
         self._uses_processor = False
+        self._quant = QUANT_NONE  # 실제로 적재된 양자화(nf4 실패 시 none)
         self._state = ModelState(
             loaded=False,
             model_name=settings.resolved_chat_model_id(),
@@ -55,6 +111,29 @@ class MedGemmaLoader:
     @property
     def state(self) -> ModelState:
         return self._state
+
+    @property
+    def quant(self) -> str:
+        return self._quant
+
+    def _load_processor_model(
+        self, auto_model: Any, model_id: str, token: str | None, kwargs: dict[str, Any], gpu_ok: bool
+    ) -> Any:
+        """MedGemma 적재. MEDGEMMA_QUANT=nf4 이면 4비트로 먼저 시도하고, 실패하면 WARN 한 줄 후 none으로 다시 올린다."""
+        torch = self._torch
+        quant = resolve_quant(self._settings.medgemma_quant)
+        if quant == QUANT_NF4 and gpu_ok:
+            try:
+                nf4_kwargs = {k: v for k, v in kwargs.items() if k != "load_in_8bit"}
+                model = auto_model.from_pretrained(model_id, token=token, **nf4_kwargs, **quantization_kwargs(quant, torch))
+                self._quant = QUANT_NF4
+                return model
+            except Exception as exc:  # noqa: BLE001
+                _LOG.warning("[MEDGEMMA-QUANT-FALLBACK] MEDGEMMA_QUANT=nf4 -> none (%s)", type(exc).__name__)
+                if torch is not None and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+        self._quant = QUANT_NONE
+        return auto_model.from_pretrained(model_id, token=token, **kwargs)
 
     def load(self) -> None:
         with self._lock:
@@ -111,16 +190,18 @@ class MedGemmaLoader:
                         kwargs["load_in_8bit"] = True
                     if self._uses_processor:
                         self._processor = AutoProcessor.from_pretrained(model_id, token=token)
-                        self._model = AutoModelForImageTextToText.from_pretrained(model_id, token=token, **kwargs)
+                        self._model = self._load_processor_model(AutoModelForImageTextToText, model_id, token, kwargs, gpu_ok)
                         self._tokenizer = getattr(self._processor, "tokenizer", None)
                     else:
                         self._tokenizer = AutoTokenizer.from_pretrained(model_id, token=token)
                         self._model = AutoModelForCausalLM.from_pretrained(model_id, token=token, **kwargs)
-                    if gpu_ok and hasattr(self._model, "to"):
+                    # bitsandbytes 4비트 모델은 .to() 를 거부한다 - device_map 으로 이미 GPU 0에 있다.
+                    if gpu_ok and hasattr(self._model, "to") and self._quant != QUANT_NF4:
                         self._model = self._model.to("cuda:0")
                     self._state.loaded = True
                     self._state.load_error = None
                     self._state.model_name = model_id
+                    _LOG.info("[MEDGEMMA-LOAD] model=%s quant=%s", model_id, self._quant if self._uses_processor else QUANT_NONE)
                     return
                 except Exception as exc:  # noqa: BLE001
                     errors.append(f"{model_id}: {exc}")
@@ -198,6 +279,9 @@ class MedGemmaLoader:
             banned = self._banned_token_ids()
             if banned:
                 generate_kwargs["bad_words_ids"] = banned
+            if prefill == "{" and self._tokenizer is not None:
+                # max_new_tokens 는 상한으로 남기고, 완성된 JSON 객체가 나오면 바로 멈춘다.
+                generate_kwargs["stopping_criteria"] = json_stop_criteria(self._tokenizer, input_len, prefill)
             with torch.inference_mode():
                 outputs = model.generate(**inputs, **generate_kwargs)
             generated = outputs[0][input_len:]
