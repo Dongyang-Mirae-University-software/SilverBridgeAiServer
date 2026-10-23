@@ -143,6 +143,8 @@ class Settings(BaseModel):
     repetition_penalty: float = _as_float("REPETITION_PENALTY", 1.1)
     do_sample: bool = _as_bool("DO_SAMPLE", True)
     load_in_8bit: bool = _as_bool("LOAD_IN_8BIT", False)
+    # MedGemma 가중치 양자화. none(기본, bf16 그대로) | nf4(bitsandbytes 4비트). 모르는 값은 none으로 본다.
+    medgemma_quant: str = os.getenv("MEDGEMMA_QUANT", "none").strip().lower()
     chat_history_keep_turns: int = _as_int("CHAT_HISTORY_KEEP_TURNS", 8)
 
     def resolved_chat_model_id(self) -> str:

@@ -11,6 +11,7 @@ opencv-python-headless==5.0.0.93
 ultralytics==8.4.95
 transformers==5.13.1
 accelerate==1.14.0
+bitsandbytes==0.50.2  # MEDGEMMA_QUANT=nf4 일 때만 import 한다(torch 2.6.0+cu124 위에서 설치·4비트 연산 확인)
 python-multipart==0.0.32
 pillow==12.3.0  # 약 봉투 OCR 이미지 정규화(직접 사용). ultralytics·torchvision 이 끌어오던 버전과 같게 고정
 imageio-ffmpeg==0.6.0  # 클립 인코딩용 정적 ffmpeg 7.0.2(libvpx 포함). 시스템 ffmpeg 불필요
