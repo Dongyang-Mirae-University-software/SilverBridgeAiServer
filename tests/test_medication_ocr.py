@@ -15,7 +15,7 @@ from app.core.response import error_response
 from app.core.security import require_api_key
 from app.routers import medication_ocr_router as router_module
 from app.schemas.medication_ocr_schema import MedicationOcrResponse, OcrDrug
-from app.services.drug_name_list import DrugNameList, get_drug_name_list, normalize
+from app.services.drug_name_list import DrugNameList, get_drug_name_list
 from app.services.medication_ocr_image import MAX_LONG_EDGE, InvalidImageError, normalize_image
 from app.services.medication_ocr_service import (
     DEFAULT_MODEL,
@@ -62,7 +62,7 @@ def _make_app(service: FakeService, drug_names: DrugNameList | None = None, **se
     settings = get_settings().model_copy(update={"api_key": API_KEY, **settings_overrides})
     app.dependency_overrides[get_settings] = lambda: settings
     app.dependency_overrides[get_medication_ocr_service] = lambda: service
-    names = drug_names if drug_names is not None else DrugNameList({normalize(DRUG_NAME): DRUG_NAME})
+    names = drug_names if drug_names is not None else DrugNameList.from_lines([DRUG_NAME])
     app.dependency_overrides[get_drug_name_list] = lambda: names
     return app
 

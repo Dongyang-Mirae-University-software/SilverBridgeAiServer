@@ -160,7 +160,8 @@ async def read_medication_envelope(
         _log(f"upstream_{exc}", started, size=len(raw), px=f"{image.width}x{image.height}")
         raise _error(status.HTTP_502_BAD_GATEWAY, "약 봉투를 읽지 못했습니다. 잠시 후 다시 시도해 주세요.", "OCR_UPSTREAM_FAILED") from None
 
-    result = drug_names.annotate(result)
+    # 목록에 없는 이름은 1건당 수십~수백 ms(difflib) - 이벤트 루프를 막지 않게 스레드에서 돌린다.
+    result = await run_in_threadpool(drug_names.annotate, result)
     _log(
         "ok" if result.readable else "unreadable",
         started,

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.routers import medication_ocr_router as router_module
 from app.schemas.medication_ocr_schema import MedicationOcrResponse, OcrDrug
-from app.services.drug_name_list import DEFAULT_PATH, DrugNameList, normalize
+from app.services.drug_name_list import DEFAULT_PATH, DrugNameList, dose_numbers, normalize, to_jamo
 
 from tests.test_medication_ocr import FakeService, _make_app, _post
 
@@ -42,6 +42,46 @@ def test_misread_suggests_correct_name(names, read_name, expected_prefix):
     assert len(set(suggestions)) == len(suggestions)
 
 
+# 2026-10-23 점검 M-2: 글자 단위 비교로는 놓치던 한 획 차이 오독 - 자모 비교로 제안에 들어가야 한다.
+@pytest.mark.parametrize(
+    ("read_name", "expected_prefix"),
+    [
+        ("클로리트정250밀리그램", "클로리드정"),
+        ("모사티정", "모사틴정"),
+        ("모사틸정", "모사틴정"),
+        ("배포엘정10밀리그램", "베포엠정"),
+        ("펠클리아엑스정", "펜클리어맥스정"),
+    ],
+)
+def test_one_stroke_misread_found_by_jamo(names, read_name, expected_prefix):
+    in_list, suggestions = names.check(read_name)
+    assert in_list is False
+    assert any(s.startswith(expected_prefix) for s in suggestions)
+
+
+# 점검 L-1: 용량만 다른 품목이 한 키로 묶이므로 읽은 용량과 같은 품목을 보여 줘야 한다.
+def test_suggestion_prefers_same_dose(names):
+    _, suggestions = names.check("파박정20mg")
+    assert "파탁정20mg" in suggestions
+    assert "파탁정10밀리그램" not in suggestions
+
+
+def test_suggestion_falls_back_to_first_variant_when_dose_differs():
+    names = DrugNameList.from_lines(["파탁정10밀리그램(파모티딘)", "파탁정20mg(파모티딘)"])
+    assert names.check("파박정40mg")[1] == ["파탁정10밀리그램"]
+    assert names.check("파박정")[1] == ["파탁정10밀리그램"]
+    assert names.check("파박정20밀리그람")[1] == ["파탁정20mg"]  # 단위가 달라도 숫자가 같으면 같은 용량
+
+
+def test_dose_numbers_and_jamo():
+    assert dose_numbers("파탁정20mg") == ("20",)
+    assert dose_numbers("나소프라정500/20m") == ("500/20",)
+    assert dose_numbers("신일이부프로펜정400밀리그람(수출명:X 200mg)") == ("400",)
+    assert dose_numbers("코푸시럽") == ()
+    assert to_jamo("틴") == "\u1110\u1175\u11ab"
+    assert to_jamo("a1정") == "a1" + to_jamo("정")
+
+
 def test_unknown_name_false(names):
     in_list, suggestions = names.check("코쏘열정")
     assert in_list is False
@@ -72,19 +112,19 @@ def test_normalize_rules():
 
 
 def test_short_prefix_is_not_a_match():
-    names = DrugNameList({normalize("정로환"): "정로환", normalize("타이레놀정"): "타이레놀정"})
+    names = DrugNameList.from_lines(["정로환", "타이레놀정"])
     assert names.check("정")[0] is False  # 한 글자는 앞부분 일치로 보지 않는다
     assert names.check("타이레")[0] is True
     assert names.check("정로환") == (True, [])  # 정확 일치는 길이 무관
 
 
 def test_dose_only_name_is_false_not_null():
-    names = DrugNameList({normalize("타이레놀정"): "타이레놀정"})
+    names = DrugNameList.from_lines(["타이레놀정"])
     assert names.check("20mg") == (False, [])
 
 
 def test_annotate_keeps_original_name():
-    names = DrugNameList({normalize("펜클리어맥스정"): "펜클리어맥스정"})
+    names = DrugNameList.from_lines(["펜클리어맥스정"])
     result = MedicationOcrResponse(
         readable=True, drugs=[OcrDrug(name="펜쿨리어맥스정", confidence="low"), OcrDrug(name="펜클리어맥스정", confidence="high")]
     )
@@ -99,7 +139,7 @@ def _result(*drug_names: str) -> MedicationOcrResponse:
 
 
 def test_endpoint_returns_fields_and_logs_counts_only(caplog):
-    names = DrugNameList({normalize("펜클리어맥스정"): "펜클리어맥스정"})
+    names = DrugNameList.from_lines(["펜클리어맥스정"])
     service = FakeService(result=_result("펜쿨리어맥스정", "펜클리어맥스정"))
     with caplog.at_level(logging.INFO, logger=router_module.__name__):
         with TestClient(_make_app(service, drug_names=names)) as client:
