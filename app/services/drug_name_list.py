@@ -26,6 +26,10 @@ _DOSE = re.compile(
     re.IGNORECASE,
 )
 _SEPARATORS = re.compile(r"[\s\-_/·,.]")
+_DOSE_NUMBER = re.compile(r"\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)*")
+
+_HANGUL_BASE = 0xAC00
+_HANGUL_COUNT = 11172
 
 
 def strip_brackets(text: str) -> str:
@@ -42,12 +46,36 @@ def normalize(name: str) -> str:
     return _SEPARATORS.sub("", text).lower()
 
 
-class DrugNameList:
-    """정규화 키 → 표시용 이름. 기동 때 한 번 읽고 이후 읽기 전용이다."""
+def dose_numbers(name: str) -> tuple[str, ...]:
+    """용량 표기의 숫자만("파탁정20mg" → ("20",), "나소프라정500/20m" → ("500/20",)). 단위는 보지 않는다."""
+    text = strip_brackets(name.replace("\r", "").replace("\n", ""))
+    return tuple(_DOSE_NUMBER.match(m.group()).group() for m in _DOSE.finditer(text))
 
-    def __init__(self, names: dict[str, str]) -> None:
+
+def to_jamo(text: str) -> str:
+    """완성형 한글을 초성·중성·종성으로 푼다. 봉투 오독은 한 획 차이("트↔드", "티↔틴")가 많아
+    글자 단위보다 자모 단위 비교가 정답을 더 잘 찾는다(2026-10-23 실측 22건 중 15 → 19)."""
+    out: list[str] = []
+    for ch in text:
+        code = ord(ch) - _HANGUL_BASE
+        if 0 <= code < _HANGUL_COUNT:
+            out.append(chr(0x1100 + code // 588))
+            out.append(chr(0x1161 + (code % 588) // 28))
+            if code % 28:
+                out.append(chr(0x11A7 + code % 28))
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+class DrugNameList:
+    """정규화 키 → 표시용 이름들(용량만 다른 품목은 한 키로 묶인다). 기동 때 한 번 읽고 이후 읽기 전용이다."""
+
+    def __init__(self, names: dict[str, list[str]]) -> None:
         self._names = names
         self._keys = sorted(names)
+        self._jamo_to_key = {to_jamo(key): key for key in self._keys}
+        self._jamo_keys = list(self._jamo_to_key)
 
     @classmethod
     def load(cls, path: Path = DEFAULT_PATH) -> DrugNameList:
@@ -56,13 +84,22 @@ class DrugNameList:
         except OSError as exc:
             _LOG.warning("[MED-OCR] 약 이름 허가 목록을 읽지 못해 대조를 생략한다 (%s)", type(exc).__name__)
             return cls({})
-        names: dict[str, str] = {}
+        loaded = cls.from_lines(lines)
+        if not loaded.available:
+            _LOG.warning("[MED-OCR] 약 이름 허가 목록이 비어 있어 대조를 생략한다")
+        return loaded
+
+    @classmethod
+    def from_lines(cls, lines) -> DrugNameList:
+        names: dict[str, list[str]] = {}
         for line in lines:
             key = normalize(line)
-            if key:
-                names.setdefault(key, strip_brackets(line).strip())
-        if not names:
-            _LOG.warning("[MED-OCR] 약 이름 허가 목록이 비어 있어 대조를 생략한다")
+            if not key:
+                continue
+            display = strip_brackets(line).strip()
+            variants = names.setdefault(key, [])
+            if display not in variants:
+                variants.append(display)
         return cls(names)
 
     @property
@@ -81,12 +118,23 @@ class DrugNameList:
             return False, []
         if key in self._names or self._has_prefix(key):
             return True, []
+        doses = dose_numbers(name)
         suggestions: list[str] = []
-        for match in difflib.get_close_matches(key, self._keys, n=SUGGESTION_LIMIT, cutoff=SUGGESTION_CUTOFF):
-            display = self._names[match]
+        matches = difflib.get_close_matches(to_jamo(key), self._jamo_keys, n=SUGGESTION_LIMIT, cutoff=SUGGESTION_CUTOFF)
+        for match in matches:
+            display = self._display(self._jamo_to_key[match], doses)
             if display not in suggestions:
                 suggestions.append(display)
         return False, suggestions
+
+    def _display(self, key: str, doses: tuple[str, ...]) -> str:
+        """읽은 이름과 용량 숫자가 같은 품목을 먼저 보여 준다("파박정20mg" → "파탁정20mg", 10밀리그램 아님)."""
+        variants = self._names[key]
+        if doses:
+            for variant in variants:
+                if dose_numbers(variant) == doses:
+                    return variant
+        return variants[0]
 
     def _has_prefix(self, key: str) -> bool:
         if len(key) < PREFIX_MIN_LEN:
