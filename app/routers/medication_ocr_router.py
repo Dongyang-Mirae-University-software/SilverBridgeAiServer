@@ -11,6 +11,7 @@ from python_multipart.multipart import MultipartParser, parse_options_header
 from app.core.config import Settings, get_settings
 from app.core.response import error_response
 from app.schemas.medication_ocr_schema import MedicationOcrResponse
+from app.services.drug_name_list import DrugNameList, get_drug_name_list
 from app.services.medication_ocr_image import InvalidImageError, normalize_image
 from app.services.medication_ocr_service import (
     MedicationOcrService,
@@ -121,10 +122,12 @@ async def read_medication_envelope(
     request: Request,
     settings: Settings = Depends(get_settings),
     service: MedicationOcrService = Depends(get_medication_ocr_service),
+    drug_names: DrugNameList = Depends(get_drug_name_list),
 ) -> MedicationOcrResponse:
     """약 봉투 사진 → 복약 정보 초안. 사진은 메모리에서만 다루고 저장·로그하지 않는다.
 
-    로그에는 크기·처리 시간·약 개수·결과 코드만 남긴다(이미지·약 이름·Claude 응답·오류 문구 금지).
+    약 이름은 식약처 허가 품목명 목록과 대조해 inList·suggestions 를 붙인다(원문은 그대로).
+    로그에는 크기·처리 시간·약 개수·목록에 없는 약 개수·결과 코드만 남긴다(이미지·약 이름·Claude 응답·오류 문구 금지).
     """
     started = time.monotonic()
     if not settings.medication_ocr_enabled:
@@ -157,22 +160,32 @@ async def read_medication_envelope(
         _log(f"upstream_{exc}", started, size=len(raw), px=f"{image.width}x{image.height}")
         raise _error(status.HTTP_502_BAD_GATEWAY, "약 봉투를 읽지 못했습니다. 잠시 후 다시 시도해 주세요.", "OCR_UPSTREAM_FAILED") from None
 
+    result = drug_names.annotate(result)
     _log(
         "ok" if result.readable else "unreadable",
         started,
         size=len(raw),
         px=f"{image.width}x{image.height}",
         drugs=len(result.drugs),
+        not_in_list=sum(1 for drug in result.drugs if drug.inList is False),
     )
     return result
 
 
-def _log(result: str, started: float, size: int | None = None, px: str | None = None, drugs: int | None = None) -> None:
+def _log(
+    result: str,
+    started: float,
+    size: int | None = None,
+    px: str | None = None,
+    drugs: int | None = None,
+    not_in_list: int | None = None,
+) -> None:
     _LOG.info(
-        "[MED-OCR] result=%s bytes=%s px=%s ms=%d drugs=%s",
+        "[MED-OCR] result=%s bytes=%s px=%s ms=%d drugs=%s not_in_list=%s",
         result,
         size if size is not None else "-",
         px or "-",
         int((time.monotonic() - started) * 1000),
         drugs if drugs is not None else "-",
+        not_in_list if not_in_list is not None else "-",
     )

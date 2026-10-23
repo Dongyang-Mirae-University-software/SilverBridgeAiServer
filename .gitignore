@@ -5,6 +5,7 @@ __pycache__/
 .env.*
 !.env.example
 data/
+!app/data/
 models/**/*.pt
 uploads/
 logs/
