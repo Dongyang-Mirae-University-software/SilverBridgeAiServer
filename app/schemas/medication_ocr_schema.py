@@ -18,6 +18,10 @@ class OcrDrug(BaseModel):
     slots: list[Slot] = Field(default_factory=list)
     timing: str | None = None
     confidence: Literal["high", "low"]
+    # 아래 두 칸은 Claude 가 아니라 서버가 식약처 허가 품목명 목록과 대조해 채운다(CLAUDE_OUTPUT_SCHEMA 에 없음).
+    # 목록을 못 읽으면 inList=None. suggestions 는 inList=False 일 때만 최대 3개.
+    inList: bool | None = None
+    suggestions: list[str] = Field(default_factory=list)
 
 
 class MedicationOcrResponse(BaseModel):

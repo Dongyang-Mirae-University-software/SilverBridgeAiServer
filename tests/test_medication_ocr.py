@@ -15,6 +15,7 @@ from app.core.response import error_response
 from app.core.security import require_api_key
 from app.routers import medication_ocr_router as router_module
 from app.schemas.medication_ocr_schema import MedicationOcrResponse, OcrDrug
+from app.services.drug_name_list import DrugNameList, get_drug_name_list, normalize
 from app.services.medication_ocr_image import MAX_LONG_EDGE, InvalidImageError, normalize_image
 from app.services.medication_ocr_service import (
     DEFAULT_MODEL,
@@ -47,7 +48,7 @@ class FakeService:
         return self.result
 
 
-def _make_app(service: FakeService, **settings_overrides) -> FastAPI:
+def _make_app(service: FakeService, drug_names: DrugNameList | None = None, **settings_overrides) -> FastAPI:
     # app.main 은 모델 로딩까지 끌고 와서, 라우터와 예외 핸들러(main.py 와 같은 규칙)만 붙인다.
     app = FastAPI()
 
@@ -61,6 +62,8 @@ def _make_app(service: FakeService, **settings_overrides) -> FastAPI:
     settings = get_settings().model_copy(update={"api_key": API_KEY, **settings_overrides})
     app.dependency_overrides[get_settings] = lambda: settings
     app.dependency_overrides[get_medication_ocr_service] = lambda: service
+    names = drug_names if drug_names is not None else DrugNameList({normalize(DRUG_NAME): DRUG_NAME})
+    app.dependency_overrides[get_drug_name_list] = lambda: names
     return app
 
 
@@ -106,6 +109,8 @@ def test_ok_returns_contract_without_wrapper():
         "slots": ["MORNING"],
         "timing": "식후 30분",
         "confidence": "high",
+        "inList": True,
+        "suggestions": [],
     }
     assert "ingredient" not in body["drugs"][0]
     # Claude 로는 정규화한 JPEG 가 간다

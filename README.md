@@ -121,6 +121,12 @@ X-API-Key: <API_KEY>
 - 성공(200)은 **표준 래퍼 없이** `{readable, reason, drugs[{name, perDose, timesPerDay, days, slots, timing, confidence}]}`를 그대로 내린다(백엔드 계약). 약 봉투가 아니면 `readable=false`, `drugs=[]`(오류 아님)
 - 오류: 400 `OCR_INVALID_IMAGE` · 413 `OCR_IMAGE_TOO_LARGE` · 401 키 · 503 `OCR_DISABLED`/`OCR_NOT_CONFIGURED` · 502 `OCR_UPSTREAM_FAILED`(Claude 실패·거절·30초 초과)
 - 사진은 EXIF 방향 반영 → 긴 변 1568px 이하 → EXIF 없는 JPEG로 바꿔 Claude(`MEDICATION_OCR_MODEL`, 기본 sonnet, haiku 금지)에 보낸다. 메모리에서만 다루고 저장·로그하지 않는다. 킬 스위치 `MEDICATION_OCR_ENABLED`
+- `drugs[]`의 `inList`·`suggestions`는 서버가 **식약처 의약품 제품 허가정보 품목명**(`app/data/drug_names.txt`)과 대조해 채운다. 괄호 내용·용량 표기·구분 기호를 지우고 비교해 정확히 같거나 앞부분이 같으면(3자 이상) `inList=true`, 아니면 `false`와 비슷한 이름 최대 3개(괄호 내용 뺀 이름). 목록 파일을 못 읽으면 `inList=null`·`suggestions=[]`(OCR 응답은 정상). 이름 원문은 바꾸지 않는다(보호자가 고른다)
+
+#### 약 이름 허가 목록 갱신
+- 출처: 공공데이터포털 "식약처_의약품 제품 허가정보"(이용허락범위 제한 없음). 품목명만 한 줄에 하나씩 정렬·중복 제거해 둔다
+- `DATA_GO_KR_KEY=<디코딩 키> python3 -I scripts/fetch_drug_names.py "<목록 오퍼레이션 요청 주소>"` → `app/data/drug_names.txt`를 덮어쓴다. 바뀐 파일로 PR을 올리고 배포하면 기동 때 다시 읽는다
+- 키는 환경변수로만 넣는다 - 저장소·문서·로그에 남기지 말 것
 
 ### Live Stream(iPad Ingest + Viewer)
 

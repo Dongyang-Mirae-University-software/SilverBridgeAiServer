@@ -34,6 +34,7 @@ from app.services.fire_smoke_detection_service import get_fire_smoke_detector
 from app.services.knife_detection_service import get_knife_detector
 from app.services.live_ws_manager import live_ws_manager
 from app.services.medical_llm_service import get_medgemma_loader
+from app.services.drug_name_list import get_drug_name_list
 from app.services.medication_ocr_service import get_medication_ocr_service
 from app.utils.file_utils import ensure_directory
 from app.utils.logger import setup_logging
@@ -96,6 +97,7 @@ async def lifespan(_: FastAPI):
     get_knife_detector().try_load()
     get_fall_detector().try_load()
     get_medication_ocr_service()  # 모델 설정 확인(haiku 면 기동 시 경고 후 sonnet 대체)
+    get_drug_name_list()  # 약 이름 허가 목록을 한 번 메모리에 올린다(없으면 WARN 후 대조 생략)
     yield
     if torch is not None and torch.cuda.is_available():
         torch.cuda.empty_cache()
