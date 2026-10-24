@@ -24,7 +24,17 @@ _SELF_HARM_REPLY = (
     "혼자 견디기 어려우면 자살예방 상담전화 109(24시간)로 이야기해 보세요. "
     "곁에 있는 가족이나 가까운 분에게도 꼭 알려 주세요."
 )
+# 가족(제3자)의 위기를 전하는 보호자에게는 곁에 있어 달라는 안내로 바꾼다. 보호자 본인의 위기일 수도 있어 역할값이 아니라 문장의 주어로 가른다.
+_SELF_HARM_REPLY_FAMILY = (
+    "많이 놀라셨겠어요. 지금 위험해 보이시면 바로 119에 전화해 주세요. "
+    "자살예방 상담전화 109는 가족도 24시간 상담할 수 있어요. "
+    "혼자 계시지 않게 곁에 있어 주세요."
+)
 _SELF_HARM_WARNING = "지금 위험하다고 느끼시면 바로 119에 전화하세요. 자살예방 상담전화 109는 24시간 받습니다."
+_THIRD_PERSON_SUBJECT = re.compile(r"(엄마|어머니|어머님|아빠|아버지|아버님|할머니|할아버지|부모님|남편|아내|와이프)\s*(가|이|께서|는|은)")
+# 라우터 요약에 남는 자해 표현. "자해 의도 없음"처럼 부정형이면 보지 않는다(응급이 아닌 문장에도 부정형으로 나온다).
+_SUMMARY_SELF_HARM = re.compile(r"자살|자해")
+_SUMMARY_NEGATED = re.compile(r"(자살|자해)[^.,/]{0,12}(없|아님|아니|부인|낮)")
 # 약 복용 문의 + 증상인데 답에 병원 권유가 없을 때 덧붙인다. 판정 기준은 평가 실행기 must_hospital 과 같은 단어다
 # ("의사·약사에게 물어보세요"만으로는 진료 권유가 아니다).
 _CLINIC_SENTENCE = "증상이 계속되거나 걱정되시면 병원 진료를 받아 보세요."
@@ -54,15 +64,17 @@ class MedicalLlmService:
         # 뇌졸중 의심
         "말이어눌", "말이안나", "발음이이상", "한쪽팔", "한쪽다리", "한쪽이마비", "한쪽얼굴", "얼굴이한쪽", "입이돌아", "팔다리에힘이", "갑자기앞이안보", "벼락", "갑자기심한두통", "망치로맞은",
         # 중독·자해
-        "약을많이먹", "약을한꺼번에", "과다복용", "농약", "죽고싶", "자살", "극단적인", "극단적선택",
+        "약을많이먹", "약을한꺼번에", "과다복용", "농약", "죽고싶", "자살", "극단적인생각", "극단적인선택", "극단적선택",
         # 기타
         "응급", "심한화상", "화상이심", "온몸에두드러기",
     )
     # 자해·자살 신호(공백을 뺀 문장에 부분 일치). 일상 표현에 걸리지 않게 좁게 둔다 -
-    # "그만 살 빼야지"·"밥 다 먹어버릴까"·"무릎 아파 죽겠어"는 걸리면 안 된다. "죽어버리"는 과장 표현에 걸릴 수 있다(수용).
+    # "그만 살 빼야지"·"밥 다 먹어버릴까"·"무릎 아파 죽겠어"·"극단적인 다이어트"·"약을 다 먹었어요"(약이 떨어짐)는 걸리면 안 된다.
+    # "죽어버리"·"사는게싫"은 과장 표현에 걸릴 수 있다(수용 - 위기 응답 쪽 오탐).
     SELF_HARM_KEYWORDS = (
-        "죽고싶", "자살", "극단적인", "극단적선택", "살기싫", "살고싶지않", "그만살고", "그만살래", "사라지고싶",
-        "죽어버리", "목숨을끊", "약을다먹어버릴", "약다먹어버릴",
+        "죽고싶", "자살", "자해", "극단적인생각", "극단적인선택", "극단적선택", "살기싫", "살기가싫", "사는게싫",
+        "살고싶지않", "살고싶지가않", "그만살고", "그만살래", "사라지고싶", "죽어버리", "목숨을끊", "목숨끊", "뛰어내리고싶",
+        "약을다먹어버릴", "약다먹어버릴", "약을다먹을까", "수면제를다먹어버릴", "수면제를다먹을까", "수면제를한꺼번에", "농약마시",
     )
     EMERGENCY_WARNING = _EMERGENCY_REPLY
     RESERVATION_KEYWORDS = ("예약", "병원 찾", "근처 병원", "진료 가능", "응급실", "잡아", "접수", "병원 좀", "병원 추천", "진료 받")
@@ -90,13 +102,31 @@ class MedicalLlmService:
         return [keyword for keyword in cls.SELF_HARM_KEYWORDS if keyword in compact]
 
     @staticmethod
-    def self_harm_response() -> dict[str, Any]:
-        """자해·자살 신호 고정 응답. 증상 칸 없이 공감·119·109·주변 알림만. 응답 키는 다른 경로와 같다."""
+    def about_family(message: str) -> bool:
+        """문장의 주어가 가족(제3자)인가 - "엄마가 죽고 싶다고 하세요"."""
+        return bool(_THIRD_PERSON_SUBJECT.search(message or ""))
+
+    @staticmethod
+    def self_harm_in_summary(summary: str) -> bool:
+        """라우터 요약에 자살·자해가 부정형이 아닌 형태로 있는가. 응급(emergency=True)일 때만 쓴다."""
+        text = summary or ""
+        return bool(_SUMMARY_SELF_HARM.search(text)) and not _SUMMARY_NEGATED.search(text)
+
+    @classmethod
+    def self_harm_in_history(cls, history: list[dict[str, str]]) -> bool:
+        """직전 사용자 턴 2개 안에 자해 신호가 있었는가(키워드). 이번 턴이 응급일 때만 쓴다."""
+        users = [item.get("content", "") for item in history or [] if item.get("role") == "user"][-2:]
+        return any(cls.self_harm_signals(text) for text in users)
+
+    @staticmethod
+    def self_harm_response(family: bool = False, trigger: str = "keyword") -> dict[str, Any]:
+        """자해·자살 신호 고정 응답. 증상 칸 없이 공감·119·109·주변 알림만. 응답 키는 다른 경로와 같다.
+        예약 안내가 붙을 상황이 아니므로 reservationRequired 는 false 다(일반 응급 경로 값은 그대로)."""
         return {
-            "reply": _SELF_HARM_REPLY,
+            "reply": _SELF_HARM_REPLY_FAMILY if family else _SELF_HARM_REPLY,
             "riskLevel": "high",
             "recommendedAction": "hospital_visit",
-            "reservationRequired": True,
+            "reservationRequired": False,
             "intent": "emergency_guidance",
             "engine": "rule",
             "modelName": None,
@@ -105,7 +135,7 @@ class MedicalLlmService:
             "homeCare": [],
             "visitHospitalIf": [],
             "emergencyWarning": [_SELF_HARM_WARNING],
-            "meta": {"selfHarm": True},
+            "meta": {"selfHarm": True, "selfHarmTrigger": trigger, "selfHarmFamily": family},
         }
 
     @staticmethod
