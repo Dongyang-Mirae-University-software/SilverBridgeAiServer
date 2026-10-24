@@ -25,7 +25,16 @@ _SELF_HARM_REPLY = (
     "곁에 있는 가족이나 가까운 분에게도 꼭 알려 주세요."
 )
 _SELF_HARM_WARNING = "지금 위험하다고 느끼시면 바로 119에 전화하세요. 자살예방 상담전화 109는 24시간 받습니다."
-
+# 약 복용 문의 + 증상인데 답에 병원 권유가 없을 때 덧붙인다. 판정 기준은 평가 실행기 must_hospital 과 같은 단어다
+# ("의사·약사에게 물어보세요"만으로는 진료 권유가 아니다).
+_CLINIC_SENTENCE = "증상이 계속되거나 걱정되시면 병원 진료를 받아 보세요."
+_HOSPITAL_WORDS = re.compile(r"병원|진료|응급실|119")
+_MEDICATION_WORD = re.compile(r"약|항생제|진통제|수면제|소화제|해열제|아스피린")
+_MEDICATION_ASK = re.compile(r"먹어도|드셔도|복용해도|끊어도|중단해도|먹으면|드시면|먹을까")
+_SYMPTOM_WORDS = (
+    "열이", "열나", "발열", "아파", "아프", "통증", "기침", "어지", "두통", "구토", "설사", "저리", "저려", "가려",
+    "붓", "부었", "숨이", "가슴", "메스꺼", "콧물",
+)
 
 
 class MedicalLlmService:
@@ -97,6 +106,17 @@ class MedicalLlmService:
             "emergencyWarning": [_SELF_HARM_WARNING],
             "meta": {"selfHarm": True},
         }
+
+    @staticmethod
+    def needs_clinic_sentence(message: str, reply: str) -> bool:
+        """약 복용 문의에 증상이 함께 있는데 답에 병원·진료 권유가 없으면 True."""
+        text = message or ""
+        compact = re.sub(r"\s+", "", text)
+        if not (_MEDICATION_WORD.search(compact) and _MEDICATION_ASK.search(compact)):
+            return False
+        if not any(word in compact for word in _SYMPTOM_WORDS):
+            return False
+        return not _HOSPITAL_WORDS.search(reply or "")
 
     @classmethod
     def classify_intent(cls, message: str) -> str:
@@ -301,9 +321,14 @@ class MedicalLlmService:
         # 응급이면 상단에 경고 박스 한 줄만. 그 외 목록(원인·자가관리·방문기준)은 더 이상 내지 않는다 - 말풍선 한 개로 끝낸다.
         emergency_warning = [_EMERGENCY_REPLY] if emergency_hint or intent == "emergency_guidance" else []
         risk_level, recommended_action, reservation_required = self.infer_risk(message, intent, emergency_warning)
+        reply = self.format_answer(normalized, emergency=bool(emergency_warning))
+        if not emergency_warning and self.needs_clinic_sentence(message, reply):
+            # 모델이 "의사·약사에게 물어보세요"로만 끝내도 진료 권유가 빠지지 않게 한 줄 덧붙인다(모델 출력에 기대지 않는다).
+            reply = f"{reply}\n{_CLINIC_SENTENCE}"
+            _LOG.info("[CHAT-SAFETY] clinic_sentence=added")
 
         return {
-            "reply": self.format_answer(normalized, emergency=bool(emergency_warning)),
+            "reply": reply,
             "riskLevel": risk_level,
             "recommendedAction": recommended_action,
             "reservationRequired": reservation_required,
