@@ -32,8 +32,10 @@ reason: 판단 근거 한 문장(20자 안팎). 길게 쓰지 않는다.
 
 emergency: 호흡곤란·의식 저하·실신·심한 가슴 통증·대량 출혈·토혈·경련·갑작스러운 말 어눌함이나 한쪽 마비·극심한 두통·약물 과다복용·자해 언급처럼 즉시 119가 필요한 신호가 있으면 true. true면 route는 반드시 symptom이다(예약 문장이어도).
 
+self_harm: 사용자 본인이나 가족의 자살·자해 생각·의도·계획(죽고 싶다, 사라지고 싶다, 다 끝내고 싶다, 약을 모아 먹겠다 등)이 문장이나 직전 대화 흐름에 드러나면 true. 과장 표현("아파 죽겠어", "배고파 죽겠다")·부정("그런 생각은 없어요")·일·숙제를 끝내고 싶다는 뜻은 false. true면 emergency도 true다.
+
 출력 형식(키 고정, JSON 외 텍스트 금지):
-{"route":"reservation|symptom|general","normalized_message":"","symptom_summary":"","emergency":false,"reason":""}
+{"route":"reservation|symptom|general","normalized_message":"","symptom_summary":"","emergency":false,"self_harm":false,"reason":""}
 """
 
 
@@ -45,9 +47,10 @@ ROUTE_SCHEMA = {
         "normalized_message": {"type": "string"},
         "symptom_summary": {"type": "string"},
         "emergency": {"type": "boolean"},
+        "self_harm": {"type": "boolean"},
         "reason": {"type": "string"},
     },
-    "required": ["route", "normalized_message", "symptom_summary", "emergency", "reason"],
+    "required": ["route", "normalized_message", "symptom_summary", "emergency", "self_harm", "reason"],
     "additionalProperties": False,
 }
 
@@ -86,7 +89,10 @@ class ChatRouterService:
             "route": route,
             "normalized_message": normalized or message,
             "symptom_summary": str(parsed.get("symptom_summary") or "").strip() or message,
-            "emergency": bool(parsed.get("emergency")),
+            # 자해 신호는 요약 문구에 기대지 않고 별도 칸으로 받는다(가벼운 모델은 응급으로 보고도 요약에 자해를 빠뜨렸다).
+            # true면 응급으로도 본다 - 모델이 두 칸을 어긋나게 줘도 위기 응답 쪽으로.
+            "emergency": bool(parsed.get("emergency")) or parsed.get("self_harm") is True,
+            "self_harm": parsed.get("self_harm") is True,
             "reason": str(parsed.get("reason") or "").strip(),
             "engine": "claude",
             "modelName": self._loader.state.model_name,
