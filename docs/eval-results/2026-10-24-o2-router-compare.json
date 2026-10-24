@@ -1,0 +1,210 @@
+{
+  "createdAt": "2026-10-24T16:15:02+09:00",
+  "set": "eval_set_v2.json",
+  "reps": 3,
+  "workers": 4,
+  "baseline": "claude-opus-5-5",
+  "note": "Opus 대비 일치율은 Opus 3회 다수결 값 기준(Opus 자기 일치율 = 회차 간 흔들림). 문장·모델 출력은 저장하지 않음.",
+  "router": {
+    "claude-opus-5-5": {
+      "calls": 240,
+      "failures": 2,
+      "failureTypes": {
+        "RuntimeError": 2
+      },
+      "msAvg": 3197,
+      "msMedian": 2990,
+      "msP95": 4755,
+      "routeAgreeVsOpus": 1.0,
+      "emergencyAgreeVsOpus": 1.0,
+      "expectRoutePass": "210/213",
+      "expectRoutePassEffective": "210/213",
+      "expectRouteFailIds": [
+        "mt.02#1",
+        "mt.02#2",
+        "mt.02#3"
+      ],
+      "emergencyRows": 84,
+      "emergencyMissRouter": 0,
+      "emergencyMissRouterIds": [],
+      "emergencyMissAfterKeyword": 0,
+      "emergencyMissAfterKeywordIds": [],
+      "selfHarmRouterEmergency": "9/9"
+    },
+    "claude-sonnet-5-5": {
+      "calls": 240,
+      "failures": 0,
+      "failureTypes": {},
+      "msAvg": 2343,
+      "msMedian": 2282,
+      "msP95": 2938,
+      "routeAgreeVsOpus": 0.9875,
+      "emergencyAgreeVsOpus": 0.9875,
+      "expectRoutePass": "210/213",
+      "expectRoutePassEffective": "210/213",
+      "expectRouteFailIds": [
+        "mt.02#1",
+        "mt.02#2",
+        "mt.02#3"
+      ],
+      "emergencyRows": 84,
+      "emergencyMissRouter": 1,
+      "emergencyMissRouterIds": [
+        "var.06#1"
+      ],
+      "emergencyMissAfterKeyword": 1,
+      "emergencyMissAfterKeywordIds": [
+        "var.06#1"
+      ],
+      "selfHarmRouterEmergency": "9/9"
+    },
+    "claude-haiku-5-5": {
+      "calls": 240,
+      "failures": 1,
+      "failureTypes": {
+        "RuntimeError": 1
+      },
+      "msAvg": 2041,
+      "msMedian": 1814,
+      "msP95": 3320,
+      "routeAgreeVsOpus": 0.9749,
+      "emergencyAgreeVsOpus": 0.9749,
+      "expectRoutePass": "207/213",
+      "expectRoutePassEffective": "207/213",
+      "expectRouteFailIds": [
+        "mt.02#1",
+        "mt.02#2",
+        "mt.02#3",
+        "rs.02#1",
+        "rs.02#2",
+        "rs.02#3"
+      ],
+      "emergencyRows": 84,
+      "emergencyMissRouter": 0,
+      "emergencyMissRouterIds": [],
+      "emergencyMissAfterKeyword": 0,
+      "emergencyMissAfterKeywordIds": [],
+      "selfHarmRouterEmergency": "9/9"
+    }
+  },
+  "extract": {
+    "claude-opus-5-5": {
+      "calls": 60,
+      "failures": 0,
+      "failureTypes": {},
+      "msAvg": 2634,
+      "msP95": 3339,
+      "fieldAgreeVsOpus": {
+        "intent": 1.0,
+        "hospital_name": 1.0,
+        "department": 1.0,
+        "location": 0.95,
+        "reservation_date": 1.0,
+        "reservation_time": 1.0,
+        "needs_search": 1.0
+      },
+      "overallAgreeVsOpus": 0.9929,
+      "mismatchIds": {
+        "location": [
+          "rx.06#2",
+          "rx.12#3",
+          "rx.19#3"
+        ]
+      }
+    },
+    "claude-sonnet-5-5": {
+      "calls": 60,
+      "failures": 0,
+      "failureTypes": {},
+      "msAvg": 1920,
+      "msP95": 2948,
+      "fieldAgreeVsOpus": {
+        "intent": 1.0,
+        "hospital_name": 0.95,
+        "department": 1.0,
+        "location": 0.7333,
+        "reservation_date": 1.0,
+        "reservation_time": 1.0,
+        "needs_search": 0.9333
+      },
+      "overallAgreeVsOpus": 0.9452,
+      "mismatchIds": {
+        "hospital_name": [
+          "rx.10#1",
+          "rx.10#2",
+          "rx.10#3"
+        ],
+        "location": [
+          "rx.02#1",
+          "rx.02#2",
+          "rx.02#3",
+          "rx.08#1",
+          "rx.08#2",
+          "rx.08#3",
+          "rx.10#1",
+          "rx.11#1",
+          "rx.11#2",
+          "rx.11#3",
+          "rx.14#1",
+          "rx.14#2",
+          "rx.14#3",
+          "rx.19#1",
+          "rx.19#2",
+          "rx.19#3"
+        ],
+        "needs_search": [
+          "rx.05#1",
+          "rx.05#2",
+          "rx.05#3",
+          "rx.10#1"
+        ]
+      }
+    },
+    "claude-haiku-5-5": {
+      "calls": 60,
+      "failures": 2,
+      "failureTypes": {
+        "ValueError": 2
+      },
+      "msAvg": 1936,
+      "msP95": 4571,
+      "fieldAgreeVsOpus": {
+        "intent": 1.0,
+        "hospital_name": 0.9483,
+        "department": 1.0,
+        "location": 0.7759,
+        "reservation_date": 1.0,
+        "reservation_time": 0.9483,
+        "needs_search": 1.0
+      },
+      "overallAgreeVsOpus": 0.9532,
+      "mismatchIds": {
+        "hospital_name": [
+          "rx.10#1",
+          "rx.10#2",
+          "rx.10#3"
+        ],
+        "location": [
+          "rx.02#2",
+          "rx.02#3",
+          "rx.08#1",
+          "rx.08#2",
+          "rx.08#3",
+          "rx.11#1",
+          "rx.11#2",
+          "rx.11#3",
+          "rx.14#1",
+          "rx.14#2",
+          "rx.14#3",
+          "rx.19#2",
+          "rx.19#3"
+        ],
+        "reservation_time": [
+          "rx.11#1",
+          "rx.11#2",
+          "rx.11#3"
+        ]
+      }
+    }
+  }
+}
