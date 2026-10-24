@@ -122,10 +122,14 @@ class ChatService:
             # 1차 감별: GPT 라우터. 실패하면 키워드 분류로 내려간다.
             route_info: dict = {}
             # 자해·자살 신호는 진료과 답변·예약·MedGemma보다 먼저 고정 응답으로 보낸다(키워드 판정, 라우터 결과와 무관).
-            self_harm = bool(message) and bool(MedicalLlmService.self_harm_signals(message))
-            department_answer = self._department_question_reply(message, history) if message and not self_harm else None
+            self_harm_keyword = bool(message) and bool(MedicalLlmService.self_harm_signals(message))
+            department_answer = self._department_question_reply(message, history) if message and not self_harm_keyword else None
             if department_answer:
                 result = department_answer
+            elif self_harm_keyword:
+                # 위기 문장은 라우터(외부 API)로 보내지 않는다 - 라우터 결과와 상관없이 고정 응답이 나간다.
+                route_info = {"route": "symptom", "engine": "rule", "normalized_message": message, "symptom_summary": "",
+                              "emergency": True, "reason": "self-harm-keyword"}
             elif message:
                 router_started = time.perf_counter()
                 try:
@@ -186,6 +190,8 @@ class ChatService:
                     "engine": "keyword",
                 }
             route_info = self._force_emergency(route_info, message)
+            self_harm_trigger = self._self_harm_trigger(self_harm_keyword, route_info, history)
+            self_harm = self_harm_trigger is not None
             # 상담 내용(증상 요약·예약 문장)은 로그에 남기지 않는다 - 길이만.
             _LOG.info(
                 "[라우터] route=%s engine=%s text_len=%s",
@@ -212,9 +218,10 @@ class ChatService:
             if department_answer:
                 pass  # 이미 result가 있다
             elif self_harm:
+                family = MedicalLlmService.about_family(message)
                 # 상담 내용은 남기지 않는다 - 경로 플래그만.
-                _LOG.info("[CHAT-SAFETY] self_harm=true path=main")
-                result = MedicalLlmService.self_harm_response()
+                _LOG.info("[CHAT-SAFETY] self_harm=true path=main trigger=%s family=%s", self_harm_trigger, family)
+                result = MedicalLlmService.self_harm_response(family=family, trigger=self_harm_trigger)
             elif reservation_flow_hint:
                 reservation_orchestrator = get_reservation_orchestrator()
                 # 규격화된 문장("병원 예약: 서울 강남구 / 이비인후과 / ...")을 원래 예약 로직에 넘긴다.
@@ -459,6 +466,20 @@ class ChatService:
             "symptom_summary": route_info.get("symptom_summary") or message,
         }
 
+    @staticmethod
+    def _self_harm_trigger(keyword: bool, route_info: dict, history: list[dict[str, str]]) -> str | None:
+        """위기 고정 응답을 낼 근거. keyword = 이번 문장 키워드 / router = 라우터가 응급으로 보고 요약에 자해·자살(부정형 제외) /
+        history = 이번 턴이 응급이고 직전 사용자 턴 2개에 자해 신호. 응급이 아니면 앞 턴 때문에 위기 응답에 가두지 않는다."""
+        if keyword:
+            return "keyword"
+        if not route_info or not route_info.get("emergency"):
+            return None
+        if MedicalLlmService.self_harm_in_summary(str(route_info.get("symptom_summary") or "")):
+            return "router"
+        if MedicalLlmService.self_harm_in_history(history):
+            return "history"
+        return None
+
     @classmethod
     def classify_intent(cls, message: str) -> str:
         text = (message or "").strip().lower()
@@ -504,9 +525,13 @@ class ChatService:
         }
 
     def _fallback_reply(self, message: str, history: list[dict[str, str]], emergency: bool = False) -> dict:
-        if MedicalLlmService.self_harm_signals(message):
-            _LOG.info("[CHAT-SAFETY] self_harm=true path=fallback")
-            return MedicalLlmService.self_harm_response()
+        trigger = "keyword" if MedicalLlmService.self_harm_signals(message) else (
+            "history" if emergency and MedicalLlmService.self_harm_in_history(history) else None
+        )
+        if trigger:
+            family = MedicalLlmService.about_family(message)
+            _LOG.info("[CHAT-SAFETY] self_harm=true path=fallback trigger=%s family=%s", trigger, family)
+            return MedicalLlmService.self_harm_response(family=family, trigger=trigger)
         intent = self.classify_intent(message)
         if emergency:
             # 라우터가 응급으로 본 문장은 키워드에 안 걸려도 119 안내가 빠지면 안 된다.
@@ -593,6 +618,8 @@ class ChatService:
                     "riskLevel": log.risk_level,
                     "recommendedAction": log.recommended_action,
                     "reservationRequired": log.reservation_required,
+                    # 기록을 다시 열 때 빨간 경고 박스를 복원하려고 내보낸다(BE 기록 허용 목록 emergencyWarning 과 짝).
+                    "emergencyWarning": context.get("emergencyWarning") or [],
                     "decisionTrace": context.get("decisionTrace") or [],
                     "upstreamMeta": context.get("upstreamMeta") or {},
                     "createdAt": log.created_at.isoformat(),
@@ -630,6 +657,7 @@ class ChatService:
             "riskLevel": log.risk_level,
             "recommendedAction": log.recommended_action,
             "reservationRequired": log.reservation_required,
+            "emergencyWarning": context.get("emergencyWarning") or [],
             "decisionTrace": context.get("decisionTrace") or [],
             "upstreamMeta": context.get("upstreamMeta") or {},
             "createdAt": log.created_at.isoformat(),
