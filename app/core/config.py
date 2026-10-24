@@ -45,6 +45,15 @@ def _as_float_in_range(name: str, default: float, low: float, high: float) -> fl
     return value if low <= value <= high else default
 
 
+def _first_env(names: tuple[str, ...], default: str) -> str:
+    """앞에서부터 비어 있지 않은 첫 환경변수 값, 모두 비면 default."""
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return default
+
+
 def _as_int_in_range(name: str, default: int, low: int, high: int) -> int:
     """범위 밖(또는 정수가 아닌) 값은 기본값으로 대체한다."""
     value = _as_int(name, default)
@@ -113,6 +122,9 @@ class Settings(BaseModel):
     # 라우터·예약 추출용 Claude. 키는 .env의 ANTHROPIC_API_KEY.
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY") or ""
     claude_model_name: str = os.getenv("CLAUDE_MODEL_NAME", "claude-opus-5-5")
+    # 용도별 모델(2026-10-24 O-2). 비면 CLAUDE_MODEL_NAME, 그것도 비면 claude-opus-5-5 - 두 줄을 지우면 원래대로.
+    chat_router_model: str = _first_env(("CHAT_ROUTER_MODEL", "CLAUDE_MODEL_NAME"), "claude-opus-5-5")
+    reservation_extract_model: str = _first_env(("RESERVATION_EXTRACT_MODEL", "CLAUDE_MODEL_NAME"), "claude-opus-5-5")
     claude_timeout_sec: int = _as_int("CLAUDE_TIMEOUT_SEC", 60)
     # 약 봉투 OCR(POST /api/v1/medication/ocr). 키는 위 ANTHROPIC_API_KEY 를 같이 쓴다.
     # 모델은 2026-10-22 측정으로 sonnet 확정 - haiku 는 없는 약을 지어내 금지(기동 시 sonnet 으로 대체).
