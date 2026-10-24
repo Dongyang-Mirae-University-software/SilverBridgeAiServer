@@ -4,9 +4,10 @@
 AI 서버 HTTP를 거치지 않고 라우터 함수(ChatRouterService.route)와 예약 추출 호출에 시험 문장을 직접 넣는다.
 예약 API는 부르지 않는다(추출 JSON만 비교) - 예약이 생기지 않는다.
 
-- 라우터: 시험지 v2(eval_set_v2.json) 80문항 × 모델 × 회차.
+- 라우터: 시험지(--set, 기본 eval_set_v3.json 90문항) × 모델 × 회차.
   route·emergency 의 Opus 대비 일치율(Opus 다수결 값 기준), expect.route 합격률(라우터 원값 / 키워드 응급 강제 적용값),
-  응급 문항(expect.emergency=true, 자해 포함) emergency 누락, 호출 시간(평균·p95), 스키마·파싱 실패 수.
+  응급 문항(expect.emergency=true, 자해 포함) emergency 누락(라우터 원값 / 키워드 또는 라우터 최종 판정),
+  자해 문항(sh.*)의 위기 응답 근거(ChatService._self_harm_trigger: keyword·router·history·없음), 호출 시간(평균·p95), 스키마·파싱 실패 수.
 - 예약 추출: 아래 가상 예약 문장 20개 × 모델 × 회차, 칸별 Opus 다수결 값 대비 일치율.
 
 결과 파일에는 문항 id·수치·예외 클래스명만 남긴다(사용자 문장·모델 출력 금지).
@@ -36,6 +37,7 @@ sys.path.insert(0, str(ROOT))
 from app.core.config import get_settings  # noqa: E402
 from app.core.reservation_prompts import EXTRACTION_SCHEMA, SYSTEM_PROMPT as EXTRACT_PROMPT, build_user_prompt  # noqa: E402
 from app.services.chat_router_service import ChatRouterService  # noqa: E402
+from app.services.chat_service import ChatService  # noqa: E402
 from app.services.claude_structured_client import ClaudeStructuredClient  # noqa: E402
 from app.services.medical_llm_service import MedicalLlmService  # noqa: E402
 from app.utils.json_extract import extract_json_object  # noqa: E402
@@ -43,7 +45,8 @@ from app.utils.json_extract import extract_json_object  # noqa: E402
 KST = ZoneInfo("Asia/Seoul")
 BASELINE = "claude-opus-5-5"
 DEFAULT_MODELS = (BASELINE, "claude-sonnet-5-5", "claude-haiku-5-5")
-SET_PATH = Path(__file__).resolve().parent / "eval_set_v2.json"
+EVAL_DIR = Path(__file__).resolve().parent
+DEFAULT_SET = "eval_set_v3.json"
 # 날짜 해석이 실행일마다 달라지지 않게 고정한다.
 FIXED_TODAY = "2026-10-24 (토요일)"
 EXTRACT_FIELDS = ("intent", "hospital_name", "department", "location", "reservation_date", "reservation_time", "needs_search")
@@ -102,6 +105,11 @@ def run_router(model: str, items: list[dict], reps: int, workers: int) -> list[d
         try:
             out = svc.route(item["q"], history, {})
             rec.update(ok=True, route=out["route"], emergency=bool(out["emergency"]))
+            if item["id"].startswith("sh."):
+                # 운영과 같은 순서: 키워드 응급 강제 → 자해 근거 판정. 요약 문구는 저장하지 않는다.
+                forced = ChatService._force_emergency(out, item["q"])
+                keyword = bool(MedicalLlmService.self_harm_signals(item["q"]))
+                rec["self_harm_trigger"] = ChatService._self_harm_trigger(keyword, forced, history)
         except Exception as exc:  # noqa: BLE001
             rec.update(ok=False, error=type(exc).__name__)
         rec["ms"] = round((time.perf_counter() - started) * 1000)
@@ -179,6 +187,12 @@ def summarize_router(rows: list[dict], items: list[dict], base_major: dict) -> d
         "emergencyMissAfterKeyword": len(miss_eff),
         "emergencyMissAfterKeywordIds": miss_eff,
         "selfHarmRouterEmergency": f'{sum(1 for r in emerg_rows if r["id"] in self_harm and r["ok"] and r["emergency"])}/{sum(1 for r in emerg_rows if r["id"] in self_harm)}',
+        # 위기 고정 응답 근거(None = 위기 응답이 나가지 않음). 문항별 회차 순서.
+        "selfHarmTrigger": {
+            sid: [r.get("self_harm_trigger") if r["ok"] else "error" for r in sorted((x for x in rows if x["id"] == sid), key=lambda x: x["rep"])]
+            for sid in sorted(self_harm & emerg_items)
+        },
+        "selfHarmNoCrisis": sorted({f'{r["id"]}#{r["rep"]}' for r in emerg_rows if r["id"] in self_harm and not (r["ok"] and r.get("self_harm_trigger"))}),
     }
 
 
@@ -212,6 +226,7 @@ def main() -> int:
     ap.add_argument("--reps", type=int, default=3)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--skip-extract", action="store_true")
+    ap.add_argument("--set", default=DEFAULT_SET, help="tests/eval 아래 시험지 파일 이름")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     if not get_settings().anthropic_api_key.strip():
@@ -220,7 +235,8 @@ def main() -> int:
     models = [m.strip() for m in args.models.split(",") if m.strip()]
     if models[0] != BASELINE:
         models = [BASELINE] + [m for m in models if m != BASELINE]
-    items = json.loads(SET_PATH.read_text(encoding="utf-8"))["items"]
+    set_path = EVAL_DIR / args.set
+    items = json.loads(set_path.read_text(encoding="utf-8"))["items"]
 
     router_rows: dict[str, list[dict]] = {}
     extract_rows: dict[str, list[dict]] = {}
@@ -244,7 +260,7 @@ def main() -> int:
     }
     result = {
         "createdAt": datetime.now(KST).isoformat(timespec="seconds"),
-        "set": SET_PATH.name,
+        "set": set_path.name,
         "reps": args.reps,
         "workers": args.workers,
         "baseline": BASELINE,
@@ -257,7 +273,7 @@ def main() -> int:
     out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     for m in models:
         r = result["router"][m]
-        print(m, "router", {k: r[k] for k in ("msAvg", "msP95", "failures", "routeAgreeVsOpus", "emergencyAgreeVsOpus", "expectRoutePass", "emergencyMissRouter", "emergencyMissAfterKeyword", "selfHarmRouterEmergency")})
+        print(m, "router", {k: r[k] for k in ("msAvg", "msP95", "failures", "routeAgreeVsOpus", "emergencyAgreeVsOpus", "expectRoutePass", "emergencyMissRouter", "emergencyMissAfterKeyword", "selfHarmRouterEmergency", "selfHarmNoCrisis")})
         if m in result["extract"]:
             e = result["extract"][m]
             print(m, "extract", {k: e[k] for k in ("msAvg", "msP95", "failures", "overallAgreeVsOpus")})
