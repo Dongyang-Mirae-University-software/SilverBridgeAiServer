@@ -5,7 +5,7 @@ AI 서버 HTTP를 거치지 않고 라우터 함수(ChatRouterService.route)와 
 예약 API는 부르지 않는다(추출 JSON만 비교) - 예약이 생기지 않는다.
 
 - 라우터: 시험지(--set, 기본 eval_set_v3.json 90문항) × 모델 × 회차.
-  route·emergency 의 Opus 대비 일치율(Opus 다수결 값 기준), expect.route 합격률(라우터 원값 / 키워드 응급 강제 적용값),
+  route·emergency 의 Opus 대비 일치율(Opus 다수결 값 기준), expect.route 합격률(라우터 원값 / 운영과 같은 예약 고정·키워드 응급 강제 적용값),
   응급 문항(expect.emergency=true, 자해 포함) emergency 누락(라우터 원값 / 키워드 또는 라우터 최종 판정),
   자해 문항(sh.*)의 위기 응답 근거(ChatService._self_harm_trigger: keyword·router·history·없음), 호출 시간(평균·p95), 스키마·파싱 실패 수.
 - 예약 추출: 아래 가상 예약 문장 20개 × 모델 × 회차, 칸별 Opus 다수결 값 대비 일치율.
@@ -38,7 +38,7 @@ from app.core.config import get_settings  # noqa: E402
 from app.core.reservation_prompts import EXTRACTION_SCHEMA, SYSTEM_PROMPT as EXTRACT_PROMPT, build_user_prompt  # noqa: E402
 from app.services.chat_router_service import ChatRouterService  # noqa: E402
 from app.services.chat_service import ChatService  # noqa: E402
-from app.services.claude_structured_client import ClaudeStructuredClient  # noqa: E402
+from app.services.claude_structured_client import ClaudeStructuredClient, failure_cause  # noqa: E402
 from app.services.medical_llm_service import MedicalLlmService  # noqa: E402
 from app.utils.json_extract import extract_json_object  # noqa: E402
 
@@ -104,21 +104,18 @@ def run_router(model: str, items: list[dict], reps: int, workers: int) -> list[d
         rec: dict = {"id": item["id"], "rep": rep}
         try:
             out = svc.route(item["q"], history, {})
-            rec.update(ok=True, route=out["route"], emergency=bool(out["emergency"]))
-            if item["id"].startswith("sh."):
-                # 운영과 같은 순서: 키워드 응급 강제 → 자해 근거 판정. 요약 문구는 저장하지 않는다.
-                forced = ChatService._force_emergency(out, item["q"])
-                keyword = bool(MedicalLlmService.self_harm_signals(item["q"]))
-                rec["self_harm_trigger"] = ChatService._self_harm_trigger(keyword, forced, history)
+            rec.update(ok=True, route=out["route"], emergency=bool(out["emergency"]), self_harm=bool(out.get("self_harm")))
+            # 운영(chat_service)과 같은 순서: 라우터 뒤 예약 고정 → 키워드 응급 강제 → 자해 근거 판정. 요약 문구는 저장하지 않는다.
+            # (위기 뒤 예약 재개는 서버 챗 기록이 필요해 여기서는 재지 않는다.)
+            final = ChatService._force_emergency(ChatService._apply_router_overrides(out, item["q"]), item["q"])
+            keyword = bool(MedicalLlmService.self_harm_signals(item["q"]))
+            rec["self_harm_trigger"] = ChatService._self_harm_trigger(keyword, final, history)
+            rec["eff_emergency"] = bool(final["emergency"])
+            rec["eff_route"] = final["route"]
         except Exception as exc:  # noqa: BLE001
-            rec.update(ok=False, error=type(exc).__name__)
+            rec.update(ok=False, error=failure_cause(exc))
         rec["ms"] = round((time.perf_counter() - started) * 1000)
-        # chat_service._force_emergency 와 같은 키워드 응급 강제(라우터가 놓쳐도 받쳐 주는지 보려고).
-        kw = bool(MedicalLlmService.emergency_signals(item["q"]) or MedicalLlmService.self_harm_signals(item["q"]))
-        rec["kw_emergency"] = kw
-        if rec["ok"]:
-            rec["eff_emergency"] = rec["emergency"] or kw
-            rec["eff_route"] = "symptom" if rec["eff_emergency"] else rec["route"]
+        rec["kw_emergency"] = bool(MedicalLlmService.emergency_signals(item["q"]) or MedicalLlmService.self_harm_signals(item["q"]))
         return rec
 
     jobs = [(item, rep) for rep in range(1, reps + 1) for item in items]
@@ -193,6 +190,19 @@ def summarize_router(rows: list[dict], items: list[dict], base_major: dict) -> d
             for sid in sorted(self_harm & emerg_items)
         },
         "selfHarmNoCrisis": sorted({f'{r["id"]}#{r["rep"]}' for r in emerg_rows if r["id"] in self_harm and not (r["ok"] and r.get("self_harm_trigger"))}),
+        # 라우터 self_harm 칸 원값(자해 문항, 회차 순서)
+        "selfHarmFlag": {
+            sid: [r.get("self_harm") if r["ok"] else "error" for r in sorted((x for x in rows if x["id"] == sid), key=lambda x: x["rep"])]
+            for sid in sorted(self_harm & emerg_items)
+        },
+        # 응급이 아니어야 하는 문항(expect.emergency=false)에 위기 고정 응답이 나가는 경우 = 오탐
+        "falseCrisis": sorted({f'{r["id"]}#{r["rep"]}' for r in rows if r["ok"] and r.get("self_harm_trigger") and by_id[r["id"]]["expect"].get("emergency") is False}),
+        "falseSelfHarmFlag": sorted({f'{r["id"]}#{r["rep"]}' for r in rows if r["ok"] and r.get("self_harm") and by_id[r["id"]]["expect"].get("emergency") is False}),
+        # 문항별 원값(문장·요약 없음) - 회차별 흔들림을 나중에 다시 보려고 남긴다.
+        "rows": [
+            {k: r.get(k) for k in ("id", "rep", "ok", "error", "route", "emergency", "self_harm", "eff_route", "eff_emergency", "self_harm_trigger")}
+            for r in sorted(rows, key=lambda x: (x["id"], x["rep"]))
+        ],
     }
 
 
@@ -273,7 +283,7 @@ def main() -> int:
     out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     for m in models:
         r = result["router"][m]
-        print(m, "router", {k: r[k] for k in ("msAvg", "msP95", "failures", "routeAgreeVsOpus", "emergencyAgreeVsOpus", "expectRoutePass", "emergencyMissRouter", "emergencyMissAfterKeyword", "selfHarmRouterEmergency", "selfHarmNoCrisis")})
+        print(m, "router", {k: r[k] for k in ("msAvg", "msP95", "failures", "routeAgreeVsOpus", "emergencyAgreeVsOpus", "expectRoutePass", "emergencyMissRouter", "emergencyMissAfterKeyword", "selfHarmRouterEmergency", "selfHarmNoCrisis", "falseCrisis")})
         if m in result["extract"]:
             e = result["extract"][m]
             print(m, "extract", {k: e[k] for k in ("msAvg", "msP95", "failures", "overallAgreeVsOpus")})
