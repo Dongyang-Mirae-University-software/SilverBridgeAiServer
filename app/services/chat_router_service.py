@@ -94,4 +94,4 @@ class ChatRouterService:
 @lru_cache
 def get_chat_router_service() -> ChatRouterService:
     settings = get_settings()
-    return ChatRouterService(ClaudeStructuredClient(settings), settings.chat_history_keep_turns)
+    return ChatRouterService(ClaudeStructuredClient(settings, settings.chat_router_model), settings.chat_history_keep_turns)
