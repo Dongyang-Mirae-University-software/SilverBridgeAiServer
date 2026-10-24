@@ -18,6 +18,14 @@ _LOG = logging.getLogger(__name__)
 _STRING_KEYS = ["empathy", "symptoms", "features", "advice", "reply"]
 _LIST_KEYS: list[str] = []
 _EMERGENCY_REPLY = "지금은 응급 상황일 수 있어요. 지금 바로 119에 전화하세요. 혼자 계시면 문을 열어 두고, 가족이나 이웃에게도 알려 주세요."
+# 자해·자살 신호에는 증상 정리 틀 대신 이 고정 응답을 낸다(근거: 보건복지부 자살예방 상담전화 109, 24시간).
+_SELF_HARM_REPLY = (
+    "많이 힘드시군요. 지금 위험하다고 느끼시면 바로 119에 전화해 주세요. "
+    "혼자 견디기 어려우면 자살예방 상담전화 109(24시간)로 이야기해 보세요. "
+    "곁에 있는 가족이나 가까운 분에게도 꼭 알려 주세요."
+)
+_SELF_HARM_WARNING = "지금 위험하다고 느끼시면 바로 119에 전화하세요. 자살예방 상담전화 109는 24시간 받습니다."
+
 
 
 class MedicalLlmService:
@@ -41,6 +49,12 @@ class MedicalLlmService:
         # 기타
         "응급", "심한화상", "화상이심", "온몸에두드러기",
     )
+    # 자해·자살 신호(공백을 뺀 문장에 부분 일치). 일상 표현에 걸리지 않게 좁게 둔다 -
+    # "그만 살 빼야지"·"밥 다 먹어버릴까"·"무릎 아파 죽겠어"는 걸리면 안 된다. "죽어버리"는 과장 표현에 걸릴 수 있다(수용).
+    SELF_HARM_KEYWORDS = (
+        "죽고싶", "자살", "극단적인", "극단적선택", "살기싫", "살고싶지않", "그만살고", "그만살래", "사라지고싶",
+        "죽어버리", "목숨을끊", "약을다먹어버릴", "약다먹어버릴",
+    )
     RESERVATION_KEYWORDS = ("예약", "병원 찾", "근처 병원", "진료 가능", "응급실", "잡아", "접수", "병원 좀", "병원 추천", "진료 받")
     MEDICAL_KEYWORDS = (
         "아파", "아프", "통증", "열", "기침", "두통", "어지럽", "어지러", "어지럼", "구토", "충혈", "메스꺼", "설사", "변비",
@@ -58,6 +72,31 @@ class MedicalLlmService:
         """문장에 든 응급 신호 키워드. 비어 있지 않으면 응급이다. 판단 근거로 meta·로그에 남긴다."""
         compact = re.sub(r"\s+", "", (message or "").lower())
         return [keyword for keyword in cls.EMERGENCY_KEYWORDS if keyword in compact]
+
+    @classmethod
+    def self_harm_signals(cls, message: str) -> list[str]:
+        """자해·자살 신호 키워드. 비어 있지 않으면 증상 상담 대신 고정 응답을 낸다."""
+        compact = re.sub(r"\s+", "", (message or "").lower())
+        return [keyword for keyword in cls.SELF_HARM_KEYWORDS if keyword in compact]
+
+    @staticmethod
+    def self_harm_response() -> dict[str, Any]:
+        """자해·자살 신호 고정 응답. 증상 칸 없이 공감·119·109·주변 알림만. 응답 키는 다른 경로와 같다."""
+        return {
+            "reply": _SELF_HARM_REPLY,
+            "riskLevel": "high",
+            "recommendedAction": "hospital_visit",
+            "reservationRequired": True,
+            "intent": "emergency_guidance",
+            "engine": "rule",
+            "modelName": None,
+            "summary": None,
+            "possibleCauses": [],
+            "homeCare": [],
+            "visitHospitalIf": [],
+            "emergencyWarning": [_SELF_HARM_WARNING],
+            "meta": {"selfHarm": True},
+        }
 
     @classmethod
     def classify_intent(cls, message: str) -> str:

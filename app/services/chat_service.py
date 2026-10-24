@@ -121,7 +121,9 @@ class ChatService:
             } | CONFIRM_FIELDS
             # 1차 감별: GPT 라우터. 실패하면 키워드 분류로 내려간다.
             route_info: dict = {}
-            department_answer = self._department_question_reply(message, history) if message else None
+            # 자해·자살 신호는 진료과 답변·예약·MedGemma보다 먼저 고정 응답으로 보낸다(키워드 판정, 라우터 결과와 무관).
+            self_harm = bool(message) and bool(MedicalLlmService.self_harm_signals(message))
+            department_answer = self._department_question_reply(message, history) if message and not self_harm else None
             if department_answer:
                 result = department_answer
             elif message:
@@ -191,8 +193,8 @@ class ChatService:
                 route_info.get("engine"),
                 len(str(route_info.get("normalized_message") if route_info["route"] == "reservation" else route_info.get("symptom_summary") or "")),
             )
-            reservation_flow_hint = route_info["route"] == "reservation" or bool(
-                ui_selection and ui_selection["field"] in reservation_ui_fields
+            reservation_flow_hint = not self_harm and (
+                route_info["route"] == "reservation" or bool(ui_selection and ui_selection["field"] in reservation_ui_fields)
             )
             reservation_api_key = None
             reservation_started = time.perf_counter()
@@ -209,6 +211,10 @@ class ChatService:
                 )
             if department_answer:
                 pass  # 이미 result가 있다
+            elif self_harm:
+                # 상담 내용은 남기지 않는다 - 경로 플래그만.
+                _LOG.info("[CHAT-SAFETY] self_harm=true path=main")
+                result = MedicalLlmService.self_harm_response()
             elif reservation_flow_hint:
                 reservation_orchestrator = get_reservation_orchestrator()
                 # 규격화된 문장("병원 예약: 서울 강남구 / 이비인후과 / ...")을 원래 예약 로직에 넘긴다.
@@ -442,7 +448,8 @@ class ChatService:
         """응급 신호가 있으면 라우트와 상관없이 증상 상담(119 안내)으로 보낸다.
         라우터가 emergency=True를 주고도 route를 reservation·general로 두거나, 라우터가 놓친 키워드가 있어도 응급이 묻히지 않게."""
         signals = MedicalLlmService.emergency_signals(message)
-        if not route_info or not (signals or route_info.get("emergency")):
+        self_harm = MedicalLlmService.self_harm_signals(message)
+        if not route_info or not (signals or self_harm or route_info.get("emergency")):
             return route_info
         return {
             **route_info,
@@ -497,6 +504,9 @@ class ChatService:
         }
 
     def _fallback_reply(self, message: str, history: list[dict[str, str]], emergency: bool = False) -> dict:
+        if MedicalLlmService.self_harm_signals(message):
+            _LOG.info("[CHAT-SAFETY] self_harm=true path=fallback")
+            return MedicalLlmService.self_harm_response()
         intent = self.classify_intent(message)
         if emergency:
             # 라우터가 응급으로 본 문장은 키워드에 안 걸려도 119 안내가 빠지면 안 된다.
