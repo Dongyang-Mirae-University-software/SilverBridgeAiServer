@@ -550,7 +550,8 @@ class ChatService:
             "possibleCauses": [],
             "homeCare": [],
             "visitHospitalIf": [],
-            "emergencyWarning": [],
+            # MedGemma 응급 경로와 같은 경고 박스 - 모델이 실패해도 응급 안내가 빨간 박스에서 빠지지 않게(#33).
+            "emergencyWarning": [MedicalLlmService.EMERGENCY_WARNING] if intent == "emergency_guidance" else [],
         }
 
     @staticmethod
