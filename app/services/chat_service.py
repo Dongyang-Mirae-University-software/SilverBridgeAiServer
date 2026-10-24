@@ -148,29 +148,7 @@ class ChatService:
                     # 원인은 고정 코드만(max_tokens·parse·api_<상태>…) - 입력·모델 출력은 남기지 않는다.
                     _LOG.warning("[CHAT-ROUTER-FAILED] cause=%s fallback=keywords", failure_cause(exc))
                 timing["routerMs"] = _elapsed_ms(router_started)
-                # "머리가 아파서 병원 예약하고 싶어요"처럼 증상과 예약이 섞이면 라우터가 증상 상담으로 보내기도 한다 - 예약 요청이 분명하면 예약으로 고정.
-                if (
-                    route_info
-                    and route_info.get("route") != "reservation"
-                    and not route_info.get("emergency")
-                    and ReservationOrchestrator._is_new_request(message)
-                ):
-                    route_info = {**route_info, "route": "reservation", "normalized_message": message, "reason": "new-request-override"}
-                # "예약 취소할래"·"예약 바꿔줘"도 라우터가 다른 경로로 보내면 예약 흐름으로 고정한다(응급 신호가 있으면 그대로 상담).
-                if (
-                    route_info
-                    and route_info.get("route") != "reservation"
-                    and not route_info.get("emergency")
-                    and (
-                        ReservationOrchestrator._is_cancel_request(message)
-                        or ReservationOrchestrator._is_change_request(message)
-                        or ReservationOrchestrator._is_cancel_change_question(message)
-                    )
-                ):
-                    route_info = {**route_info, "route": "reservation", "normalized_message": message, "reason": "cancel-change-override"}
-                if route_info and route_info.get("route") == "reservation" and ReservationOrchestrator._is_new_request(message):
-                    # 새 요청은 라우터 규격화 문장(이전 병원·시간이 딸려옴) 대신 원문을 넘긴다. 다음 턴의 상태 기억도 원문 기준.
-                    route_info = {**route_info, "normalized_message": message}
+                route_info = self._apply_router_overrides(route_info, message)
             if department_answer:
                 route_info = {"route": "general", "engine": "rule", "normalized_message": message, "symptom_summary": "", "emergency": False}
             elif not route_info and not message and ui_selection and ui_selection["field"] in reservation_ui_fields:
@@ -506,11 +484,41 @@ class ChatService:
         }
 
     @staticmethod
+    def _apply_router_overrides(route_info: dict, message: str) -> dict:
+        """라우터 결과 뒤에 붙이는 예약 고정 규칙. 평가 스크립트(tests/eval/compare_router.py)도 같은 함수로 최종 경로를 잰다."""
+        # "머리가 아파서 병원 예약하고 싶어요"처럼 증상과 예약이 섞이면 라우터가 증상 상담으로 보내기도 한다 - 예약 요청이 분명하면 예약으로 고정.
+        if (
+            route_info
+            and route_info.get("route") != "reservation"
+            and not route_info.get("emergency")
+            and ReservationOrchestrator._is_new_request(message)
+        ):
+            route_info = {**route_info, "route": "reservation", "normalized_message": message, "reason": "new-request-override"}
+        # "예약 취소할래"·"예약 바꿔줘"도 라우터가 다른 경로로 보내면 예약 흐름으로 고정한다(응급 신호가 있으면 그대로 상담).
+        if (
+            route_info
+            and route_info.get("route") != "reservation"
+            and not route_info.get("emergency")
+            and (
+                ReservationOrchestrator._is_cancel_request(message)
+                or ReservationOrchestrator._is_change_request(message)
+                or ReservationOrchestrator._is_cancel_change_question(message)
+            )
+        ):
+            route_info = {**route_info, "route": "reservation", "normalized_message": message, "reason": "cancel-change-override"}
+        if route_info and route_info.get("route") == "reservation" and ReservationOrchestrator._is_new_request(message):
+            # 새 요청은 라우터 규격화 문장(이전 병원·시간이 딸려옴) 대신 원문을 넘긴다. 다음 턴의 상태 기억도 원문 기준.
+            route_info = {**route_info, "normalized_message": message}
+        return route_info
+
+    @staticmethod
     def _self_harm_trigger(keyword: bool, route_info: dict, history: list[dict[str, str]]) -> str | None:
-        """위기 고정 응답을 낼 근거. keyword = 이번 문장 키워드 / router = 라우터가 응급으로 보고 요약에 자해·자살(부정형 제외) /
+        """위기 고정 응답을 낼 근거. keyword = 이번 문장 키워드 / router = 라우터 self_harm 칸이 true이거나, 응급이고 요약에 자해·자살(부정형 제외) /
         history = 이번 턴이 응급이고 직전 사용자 턴 2개에 자해 신호. 응급이 아니면 앞 턴 때문에 위기 응답에 가두지 않는다."""
         if keyword:
             return "keyword"
+        if route_info and route_info.get("self_harm") is True:
+            return "router"
         if not route_info or not route_info.get("emergency"):
             return None
         if MedicalLlmService.self_harm_in_summary(str(route_info.get("symptom_summary") or "")):
