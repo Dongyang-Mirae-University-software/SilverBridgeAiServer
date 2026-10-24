@@ -13,6 +13,7 @@ from typing import Any
 from functools import lru_cache
 
 from app.core.config import Settings
+from app.services.reservation_common import log_len
 
 _LOG = logging.getLogger(__name__)
 _SEOUL_TZ = ZoneInfo("Asia/Seoul")
@@ -245,11 +246,11 @@ class ReservationApiClient:
         reg = (region or location or "").strip()
         dept = (department or "").strip()
         _LOG.info(
-            "[예약검색] region=%s department=%s name=%s slot_date=%s",
-            reg or "(empty)",
+            "[예약검색] region=%s department=%s name=%s slot_date=%s",  # 지역·병원명·날짜는 길이만(I-1)
+            log_len(reg),
             dept or "(empty)",
-            (name or "").strip() or "(empty)",
-            slot_date or "(empty)",
+            log_len((name or "").strip()),
+            log_len(slot_date),
         )
         params: dict[str, str] = {}
         if name:
@@ -322,7 +323,7 @@ class ReservationApiClient:
                 str(row.get("hospital", "")),
             )
         )
-        _LOG.info("[예약검색결과] region=%s department=%s rows=%s", reg or "(empty)", dept or "(empty)", len(rows))
+        _LOG.info("[예약검색결과] region=%s department=%s rows=%s", log_len(reg), dept or "(empty)", len(rows))
         return {"success": True, "rows": rows}
 
     def resolve_hospital_id(self, name_query: str, *, api_key_override: str | None = None) -> int | None:
@@ -412,11 +413,11 @@ class ReservationApiClient:
         if memo:
             body["memo"] = memo
         _LOG.info(
-            "[예약등록] hospital_id=%s department=%s date=%s time=%s phone_last4=%s",
+            "[예약등록] hospital_id=%s department=%s date=%s time=%s phone_last4=%s",  # 날짜·시간은 길이만(I-1)
             hospital_id,
             department or "(empty)",
-            reservation_date,
-            reservation_time,
+            log_len(reservation_date),
+            log_len(reservation_time),
             phone[-4:] if phone else "",
         )
         if self._resolve_api_key(api_key_override):
