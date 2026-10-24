@@ -10,6 +10,12 @@ from app.core.config import Settings
 _LOG = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "claude-opus-5-5"
+# 서버 측 거절 대체(server-side fallback)가 없는 모델. 보내지 말라는 것이 공식 안내다(haiku 5.5).
+_NO_SERVER_FALLBACK_MARKERS = ("haiku",)
+
+
+def supports_server_fallback(model_name: str) -> bool:
+    return not any(marker in model_name.lower() for marker in _NO_SERVER_FALLBACK_MARKERS)
 
 
 @dataclass
@@ -79,7 +85,8 @@ class ClaudeStructuredClient:
             # 분류·추출은 짧고 빠르게. 생각 깊이는 effort로만 조절한다(opus 5.5는 thinking을 끌 수 없다). 후보 3종 모두 지원.
             "output_config": {"effort": "low", **({"format": {"type": "json_schema", "schema": schema}} if schema else {})},
         }
-        # 안전 분류기가 거절하면 서버가 대체 모델로 같은 요청을 다시 돌린다.
-        kwargs["betas"] = ["server-side-fallback-2026-07-01"]
-        kwargs["fallbacks"] = "default"
+        if supports_server_fallback(model):
+            # 안전 분류기가 거절하면 서버가 대체 모델로 같은 요청을 다시 돌린다.
+            kwargs["betas"] = ["server-side-fallback-2026-07-01"]
+            kwargs["fallbacks"] = "default"
         return kwargs

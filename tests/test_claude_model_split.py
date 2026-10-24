@@ -2,6 +2,7 @@
 
 - 설정 우선순위: 용도별(CHAT_ROUTER_MODEL·RESERVATION_EXTRACT_MODEL) > CLAUDE_MODEL_NAME > claude-opus-5-5
 - 인자 없이 만든 클라이언트 = 예약 추출 모델, 라우터 = 라우터 모델
+- server-side fallback이 없는 모델(haiku)에는 betas·fallbacks를 보내지 않는다
 - 오류 로그·예외 문구에 API 오류 본문을 싣지 않는다
 """
 from __future__ import annotations
@@ -16,7 +17,7 @@ import pytest
 from app.core import config
 from app.core.config import get_settings
 from app.services import chat_router_service
-from app.services.claude_structured_client import ClaudeStructuredClient
+from app.services.claude_structured_client import ClaudeStructuredClient, supports_server_fallback
 
 
 def _settings(**overrides):
@@ -78,6 +79,26 @@ def _client_with(model: str, recorder: _Recorder) -> ClaudeStructuredClient:
     client = ClaudeStructuredClient(_settings(), model)
     client._client = SimpleNamespace(beta=SimpleNamespace(messages=recorder))
     return client
+
+
+@pytest.mark.parametrize("model", ["claude-opus-5-5", "claude-sonnet-5-5"])
+def test_fallback_kept_for_supported_models(model) -> None:
+    rec = _Recorder()
+    _client_with(model, rec).generate_structured_text("sys", "user", schema={"type": "object"})
+    assert rec.kwargs["model"] == model
+    assert rec.kwargs["fallbacks"] == "default"
+    assert rec.kwargs["betas"] == ["server-side-fallback-2026-07-01"]
+    assert rec.kwargs["output_config"] == {"effort": "low", "format": {"type": "json_schema", "schema": {"type": "object"}}}
+
+
+def test_haiku_drops_fallback_but_keeps_effort_and_schema() -> None:
+    rec = _Recorder()
+    _client_with("claude-haiku-5-5", rec).generate_structured_text("sys", "user", schema={"type": "object"})
+    assert "fallbacks" not in rec.kwargs
+    assert "betas" not in rec.kwargs
+    assert rec.kwargs["output_config"]["effort"] == "low"
+    assert rec.kwargs["output_config"]["format"]["type"] == "json_schema"
+    assert not supports_server_fallback("claude-haiku-5-5")
 
 
 def test_status_error_does_not_leak_body(caplog) -> None:
