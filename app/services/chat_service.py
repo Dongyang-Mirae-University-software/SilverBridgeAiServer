@@ -15,6 +15,7 @@ from app.schemas.chat_schema import ChatRequest
 from app.services.reservation_api_client import get_reservation_api_client
 from app.services.reservation_credential_service import get_reservation_credential_service
 from app.services.chat_router_service import get_chat_router_service
+from app.services.claude_structured_client import failure_cause
 from app.services.medical_llm_service import MedicalLlmService, get_medical_llm_service
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS
 from app.services.reservation_intake import _find_department
@@ -141,7 +142,8 @@ class ChatService:
                         else self._last_reservation_state(db, payload.userId, session_id, ward_id),
                     )
                 except Exception as exc:  # noqa: BLE001
-                    _LOG.warning("chat router fallback to keywords: %s", type(exc).__name__)
+                    # 원인은 고정 코드만(max_tokens·parse·api_<상태>…) - 입력·모델 출력은 남기지 않는다.
+                    _LOG.warning("[CHAT-ROUTER-FAILED] cause=%s fallback=keywords", failure_cause(exc))
                 timing["routerMs"] = _elapsed_ms(router_started)
                 # "머리가 아파서 병원 예약하고 싶어요"처럼 증상과 예약이 섞이면 라우터가 증상 상담으로 보내기도 한다 - 예약 요청이 분명하면 예약으로 고정.
                 if (

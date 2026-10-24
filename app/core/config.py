@@ -126,6 +126,9 @@ class Settings(BaseModel):
     chat_router_model: str = _first_env(("CHAT_ROUTER_MODEL", "CLAUDE_MODEL_NAME"), "claude-opus-5-5")
     reservation_extract_model: str = _first_env(("RESERVATION_EXTRACT_MODEL", "CLAUDE_MODEL_NAME"), "claude-opus-5-5")
     claude_timeout_sec: int = _as_int("CLAUDE_TIMEOUT_SEC", 60)
+    # 라우터·예약 추출 Claude 호출의 출력 상한(생각 토큰 포함, 2026-10-25). MedGemma MAX_NEW_TOKENS(512)와 따로 둔다 -
+    # opus 5.5는 생각을 끌 수 없어 위기 문장에서 생각 블록이 512를 다 써 답이 잘렸다. 범위 밖 값은 기본값으로 대체한다.
+    claude_max_tokens: int = _as_int_in_range("CLAUDE_MAX_TOKENS", 2048, 256, 8192)
     # 약 봉투 OCR(POST /api/v1/medication/ocr). 키는 위 ANTHROPIC_API_KEY 를 같이 쓴다.
     # 모델은 2026-10-22 측정으로 sonnet 확정 - haiku 는 없는 약을 지어내 금지(기동 시 sonnet 으로 대체).
     medication_ocr_enabled: bool = _as_bool("MEDICATION_OCR_ENABLED", True)

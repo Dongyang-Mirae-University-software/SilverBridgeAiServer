@@ -14,6 +14,20 @@ DEFAULT_MODEL = "claude-opus-5-5"
 _NO_SERVER_FALLBACK_MARKERS = ("haiku",)
 
 
+class StructuredCallError(RuntimeError):
+    """라우터·예약 추출 호출 실패. cause는 고정 코드(max_tokens·parse·unknown_route·api_<상태>·rate_limited·refusal·connection·
+    not_ready·empty)라 로그에 그대로 남겨도 된다 - 입력·모델 출력·API 오류 본문은 담지 않는다."""
+
+    def __init__(self, cause: str) -> None:
+        super().__init__(cause)
+        self.cause = cause
+
+
+def failure_cause(exc: BaseException) -> str:
+    """로그용 실패 원인 코드. 우리 쪽 예외가 아니면 클래스명만."""
+    return exc.cause if isinstance(exc, StructuredCallError) else type(exc).__name__
+
+
 def supports_server_fallback(model_name: str) -> bool:
     return not any(marker in model_name.lower() for marker in _NO_SERVER_FALLBACK_MARKERS)
 
@@ -55,31 +69,35 @@ class ClaudeStructuredClient:
         """schema를 주면 output_config.format으로 그 JSON 스키마에 맞는 출력을 강제한다(파싱 실패 방지)."""
         self.ensure_loaded()
         if not self._state.loaded or self._client is None:
-            raise RuntimeError(self._state.load_error or "Claude client is not ready")
+            raise StructuredCallError("not_ready")
 
         try:
             response = self._client.beta.messages.create(**self._request_kwargs(system_prompt, user_prompt, schema))
         except anthropic.RateLimitError as exc:
-            raise RuntimeError("Claude API 요청 한도 초과") from exc
+            raise StructuredCallError("rate_limited") from exc
         except anthropic.APIStatusError as exc:
             # 오류 본문(exc.message)에는 입력이 섞일 수 있어 상태 코드·모델 이름만 남긴다.
             _LOG.warning("Claude structured call failed: status=%s model=%s", exc.status_code, self._state.model_name)
-            raise RuntimeError(f"Claude API 요청 실패: {exc.status_code}") from exc
+            raise StructuredCallError(f"api_{exc.status_code}") from exc
         except anthropic.APIConnectionError as exc:
-            raise RuntimeError(f"Claude API 연결 실패: {type(exc).__name__}") from exc
+            raise StructuredCallError("connection") from exc
 
         if response.stop_reason == "refusal":
-            raise RuntimeError("Claude가 요청을 거절했습니다.")
+            raise StructuredCallError("refusal")
+        if response.stop_reason == "max_tokens":
+            # 잘린 JSON은 어차피 파싱되지 않는다 - 원인을 '파싱 실패'와 구분해 남긴다(생각 토큰도 상한에 포함된다).
+            raise StructuredCallError("max_tokens")
         text = "".join(block.text for block in response.content if block.type == "text").strip()
         if not text:
-            raise RuntimeError("Claude 응답 본문이 비어 있습니다.")
+            raise StructuredCallError("empty")
         return text
 
     def _request_kwargs(self, system_prompt: str, user_prompt: str, schema: dict | None) -> dict:
         model = self._state.model_name
         kwargs: dict = {
             "model": model,
-            "max_tokens": self._settings.max_new_tokens if self._settings.max_new_tokens > 0 else 2048,
+            # MedGemma 의 MAX_NEW_TOKENS 와 따로 둔다(생각 토큰 포함 상한, CLAUDE_MAX_TOKENS).
+            "max_tokens": self._settings.claude_max_tokens,
             "system": system_prompt.strip(),
             "messages": [{"role": "user", "content": user_prompt.strip()}],
             # 분류·추출은 짧고 빠르게. 생각 깊이는 effort로만 조절한다(opus 5.5는 thinking을 끌 수 없다). 후보 3종 모두 지원.

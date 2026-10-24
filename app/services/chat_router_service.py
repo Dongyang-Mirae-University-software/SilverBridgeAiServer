@@ -5,7 +5,7 @@ from functools import lru_cache
 from typing import Any
 
 from app.core.config import get_settings
-from app.services.claude_structured_client import ClaudeStructuredClient
+from app.services.claude_structured_client import ClaudeStructuredClient, StructuredCallError
 from app.utils.conversation import format_recent_history, normalize_history
 from app.utils.json_extract import extract_json_object
 
@@ -27,6 +27,8 @@ normalized_message (route=reservation일 때): 예약 로직에 넘길 한 문�
 - 날짜·시간은 절대 계산하지 말고 사용자가 말한 표현 그대로 쓴다("내일", "다음 주 월요일", "오후 2시"). YYYY-MM-DD로 바꾸지 마라. 오늘 날짜를 모르기 때문이다.
 
 symptom_summary (route=symptom일 때): 의료 LLM에 줄 규격화된 증상 문장. "주증상 / 시작 시점·유발 요인 / 동반 증상 / 사용자가 알고 싶은 것" 순서로 2~3문장, 사용자 표현을 의학적으로 정리하되 새 정보를 지어내지 않는다.
+
+reason: 판단 근거 한 문장(20자 안팎). 길게 쓰지 않는다.
 
 emergency: 호흡곤란·의식 저하·실신·심한 가슴 통증·대량 출혈·토혈·경련·갑작스러운 말 어눌함이나 한쪽 마비·극심한 두통·약물 과다복용·자해 언급처럼 즉시 119가 필요한 신호가 있으면 true. true면 route는 반드시 symptom이다(예약 문장이어도).
 
@@ -73,10 +75,10 @@ class ChatRouterService:
         raw = self._loader.generate_structured_text(SYSTEM_PROMPT, user_prompt, schema=ROUTE_SCHEMA)
         parsed = extract_json_object(raw)
         if not isinstance(parsed, dict):
-            raise RuntimeError("router json parse failed")
+            raise StructuredCallError("parse")
         route = str(parsed.get("route") or "").strip().lower()
         if route not in ROUTES:
-            raise RuntimeError(f"router unknown route: {route}")
+            raise StructuredCallError("unknown_route")
         normalized = str(parsed.get("normalized_message") or "").strip()
         if route == "reservation" and "예약" not in normalized:
             normalized = f"병원 예약: {normalized or message}"
