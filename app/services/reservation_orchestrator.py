@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from app.core.config import Settings, get_settings
 from app.core.reservation_prompts import EXTRACTION_SCHEMA, SYSTEM_PROMPT, build_user_prompt
 from app.schemas.chat_schema import ChatRequest, UiOption, UiPayload
-from app.services.claude_structured_client import ClaudeStructuredClient
+from app.services.claude_structured_client import ClaudeStructuredClient, failure_cause
 from app.services.reservation_api_client import ReservationApiClient
 from app.services.reservation_common import _date_label, _digits, _phone_last4, _trace
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS, ReservationFlowMixin, draft_from_dict
@@ -431,7 +431,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
             )
             raw = self._loader.generate_structured_text(SYSTEM_PROMPT, prompt, schema=EXTRACTION_SCHEMA)
         except Exception as exc:  # noqa: BLE001
-            _trace(meta, "reservation_extraction_failed", error=type(exc).__name__)  # 예외 문구에는 입력·모델 출력이 섞일 수 있다
+            _trace(meta, "reservation_extraction_failed", error=failure_cause(exc))  # 고정 코드만 - 예외 문구에는 입력·모델 출력이 섞일 수 있다
             return None
 
         parsed = extract_json_object(raw)
