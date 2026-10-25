@@ -1,8 +1,22 @@
 from __future__ import annotations
 
+import hmac
+
 from fastapi import Depends, Header, HTTPException, status
 
 from app.core.config import Settings, get_settings
+
+
+def _invalid_key() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={
+            "success": False,
+            "message": "유효하지 않은 API Key 입니다.",
+            "errorCode": "AUTH_INVALID_KEY",
+            "data": None,
+        },
+    )
 
 
 def require_api_key(
@@ -10,15 +24,27 @@ def require_api_key(
     settings: Settings = Depends(get_settings),
 ) -> None:
     if not x_api_key or x_api_key != settings.api_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "success": False,
-                "message": "유효하지 않은 API Key 입니다.",
-                "errorCode": "AUTH_INVALID_KEY",
-                "data": None,
-            },
-        )
+        raise _invalid_key()
+
+
+def require_stream_reader_key(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    settings: Settings = Depends(get_settings),
+) -> None:
+    """최신 프레임·상태 조회 전용. 메인 API_KEY 또는 말벗 전용 읽기 키(COMPANION_STREAM_API_KEY)만 통과한다.
+
+    말벗 키는 이 의존성이 붙은 GET 두 경로 외에는 쓸 수 없다(송출·분석·MJPEG 등은 require_api_key 만 허용).
+    쿼리스트링 키는 받지 않는다(헤더 전용).
+    """
+    if not x_api_key:
+        raise _invalid_key()
+    if hmac.compare_digest(x_api_key.encode(), settings.api_key.encode()) and settings.api_key:
+        return
+    if settings.companion_stream_api_key and hmac.compare_digest(
+        x_api_key.encode(), settings.companion_stream_api_key.encode()
+    ):
+        return
+    raise _invalid_key()
 
 
 def require_game_api_key(
