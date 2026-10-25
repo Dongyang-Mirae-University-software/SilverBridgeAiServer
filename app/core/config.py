@@ -78,6 +78,8 @@ class Settings(BaseModel):
     )
     # 기본값 없음 — 비어 있으면 인증이 필요한 API 는 모두 401 이다(키를 코드에 두지 않는다, QA AI-2).
     api_key: str = os.getenv("API_KEY", "")
+    # 말벗(companion) 전용 읽기 키. 최신 프레임·상태 조회 두 경로에만 쓰인다(헤더 전용). 비어 있으면 비활성.
+    companion_stream_api_key: str = os.getenv("COMPANION_STREAM_API_KEY", "")
 
     model_base_path: str = os.getenv("MODEL_BASE_PATH", str(_PROJECT_ROOT / "models"))
     upload_base_path: str = os.getenv("UPLOAD_BASE_PATH", str(_PROJECT_ROOT / "uploads"))
