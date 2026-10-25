@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.response import error_response, success_response
+from app.core.security import require_api_key, require_stream_reader_key
 from app.database.session import SessionLocal, get_db
 from app.schemas.clip_schema import ClipRequest
 from app.schemas.stream_session_schema import StreamSessionCreate
@@ -21,8 +22,12 @@ from app.services.stream_session_service import StreamSessionService, frame_stor
 
 router = APIRouter(tags=["LiveStreams"])
 
+# 경로별 인증. 라우터 전체에 걸지 않는 이유: 말벗 키는 최신 프레임·상태 두 경로에서만 받아야 하기 때문.
+_KEY = [Depends(require_api_key)]
+_READER_KEY = [Depends(require_stream_reader_key)]
 
-@router.post("/api/v1/stream-sessions", summary="iPad 송출 세션 생성")
+
+@router.post("/api/v1/stream-sessions", summary="iPad 송출 세션 생성", dependencies=_KEY)
 def create_stream_session(payload: StreamSessionCreate, db: Session = Depends(get_db)) -> dict:
     service = StreamSessionService(db, frame_store)
     session = service.create_or_restart(payload.sessionId, payload.cameraIdentifier, payload.deviceType)
@@ -53,7 +58,7 @@ def create_stream_session(payload: StreamSessionCreate, db: Session = Depends(ge
     )
 
 
-@router.post("/api/v1/stream-sessions/{session_id}/frame", summary="iPad 프레임 수신")
+@router.post("/api/v1/stream-sessions/{session_id}/frame", summary="iPad 프레임 수신", dependencies=_KEY)
 async def ingest_stream_frame(
     session_id: str,
     frame: UploadFile = File(...),
@@ -93,7 +98,7 @@ async def ingest_stream_frame(
     )
 
 
-@router.post("/api/v1/stream-sessions/{session_id}/stop", summary="송출 세션 종료")
+@router.post("/api/v1/stream-sessions/{session_id}/stop", summary="송출 세션 종료", dependencies=_KEY)
 def stop_stream_session(session_id: str, db: Session = Depends(get_db)) -> dict:
     service = StreamSessionService(db, frame_store)
     session = service.require_session(session_id)
@@ -115,14 +120,14 @@ def stop_stream_session(session_id: str, db: Session = Depends(get_db)) -> dict:
     )
 
 
-@router.get("/api/v1/live-streams", summary="현재 송출 중인 세션 목록 조회")
+@router.get("/api/v1/live-streams", summary="현재 송출 중인 세션 목록 조회", dependencies=_KEY)
 def list_live_streams(db: Session = Depends(get_db)) -> dict:
     service = StreamSessionService(db, frame_store)
     items = service.list_live()
     return success_response("라이브 세션 목록 조회 완료", items)
 
 
-@router.get("/api/v1/live-streams/{session_id}/latest-frame", summary="특정 세션 최신 프레임 조회")
+@router.get("/api/v1/live-streams/{session_id}/latest-frame", summary="특정 세션 최신 프레임 조회", dependencies=_READER_KEY)
 def latest_frame(session_id: str, db: Session = Depends(get_db)) -> Response:
     service = StreamSessionService(db, frame_store)
     _ = service.require_session(session_id)
@@ -136,7 +141,7 @@ def latest_frame(session_id: str, db: Session = Depends(get_db)) -> Response:
     return Response(content=bbox_overlay.render(session_id, frame_bytes, seq), media_type="image/jpeg")
 
 
-@router.get("/api/v1/live-streams/{session_id}/status", summary="특정 세션 상태 조회")
+@router.get("/api/v1/live-streams/{session_id}/status", summary="특정 세션 상태 조회", dependencies=_READER_KEY)
 def live_status(session_id: str, db: Session = Depends(get_db)) -> dict:
     service = StreamSessionService(db, frame_store)
     session = service.require_session(session_id)
@@ -154,7 +159,7 @@ def live_status(session_id: str, db: Session = Depends(get_db)) -> dict:
     )
 
 
-@router.get("/api/v1/live-streams/{session_id}/latest-analysis", summary="특정 세션 최신 분석 결과 조회")
+@router.get("/api/v1/live-streams/{session_id}/latest-analysis", summary="특정 세션 최신 분석 결과 조회", dependencies=_KEY)
 def latest_analysis(session_id: str, db: Session = Depends(get_db)) -> dict:
     service = StreamSessionService(db, frame_store)
     session = service.require_session(session_id)
@@ -162,7 +167,7 @@ def latest_analysis(session_id: str, db: Session = Depends(get_db)) -> dict:
     return success_response("최신 분석 결과 조회 완료", result)
 
 
-@router.get("/api/v1/live-streams/{session_id}/mjpeg", summary="특정 세션 실시간 보기(MJPEG)")
+@router.get("/api/v1/live-streams/{session_id}/mjpeg", summary="특정 세션 실시간 보기(MJPEG)", dependencies=_KEY)
 async def stream_mjpeg(session_id: str, db: Session = Depends(get_db)) -> StreamingResponse:
     service = StreamSessionService(db, frame_store)
     _ = service.require_session(session_id)
@@ -215,6 +220,7 @@ def _require_stream_session(session_id: str) -> None:
 @router.post(
     "/api/v1/live-streams/{session_id}/clips",
     summary="이상감지 클립 생성(WebM, 기본 감지 앞 3초 + 뒤 2초)",
+    dependencies=_KEY,
     response_class=Response,
     responses={200: {"content": {"video/webm": {}}}},
     openapi_extra={

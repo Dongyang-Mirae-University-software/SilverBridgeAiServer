@@ -138,7 +138,7 @@ app.include_router(camera_router, dependencies=[Depends(require_api_key)])
 app.include_router(analysis_router, dependencies=[Depends(require_api_key)])
 app.include_router(chat_router, dependencies=[Depends(require_api_key)])
 app.include_router(game_router)  # 키 요구는 game_router 가 경로별로 붙인다
-app.include_router(live_stream_router, dependencies=[Depends(require_api_key)])
+app.include_router(live_stream_router)  # 키는 live_stream_router 가 경로별로 붙인다(말벗 읽기 키 허용 경로 분리)
 app.include_router(live_ws_router)
 app.include_router(reservation_credential_router, dependencies=[Depends(require_api_key)])
 app.include_router(medication_ocr_router, dependencies=[Depends(require_api_key)])
