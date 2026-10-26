@@ -206,3 +206,62 @@ def test_non_processor_path_unchanged() -> None:
     assert seen["max_new_tokens"] == settings.max_new_tokens == 512
     assert seen["repetition_penalty"] == settings.repetition_penalty
     assert "no_repeat_ngram_size" not in seen
+
+
+# ---- 생성 구간만 보는 반복 금지 (gen_ngram, DGX 2026-10-26 e3) -------------------------------------------
+
+
+def test_generated_ngram_bans() -> None:
+    from app.models.medgemma_loader import generated_ngram_bans
+
+    # 3-gram: 마지막 2토큰 (1, 2) 뒤에 이전에 3이 왔으므로 3을 막는다
+    assert generated_ngram_bans([1, 2, 3, 4, 1, 2], 3) == {3}
+    assert generated_ngram_bans([1, 2, 3, 1, 2, 5, 1, 2], 3) == {3, 5}
+    assert generated_ngram_bans([1, 2, 3, 4], 3) == set()  # 반복 없음
+    assert generated_ngram_bans([1, 2], 3) == set()  # 길이 부족
+    assert generated_ngram_bans([7, 7, 7], 2) == {7}
+
+
+def test_repetition_gen_ngram_resolves() -> None:
+    from app.models.medgemma_loader import GEN_NGRAM_KEY
+
+    assert resolve_json_repetition("gen_ngram:10") == ({GEN_NGRAM_KEY: 10}, "gen_ngram:10")
+    for bad in ("gen_ngram:1", "gen_ngram:21", "gen_ngram:x", "gen_ngram"):
+        assert resolve_json_repetition(bad) == ({}, "off")
+
+
+def _install_logits_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
+    transformers = types.ModuleType("transformers")
+
+    class _LogitsProcessor:
+        pass
+
+    transformers.LogitsProcessor = _LogitsProcessor
+    transformers.LogitsProcessorList = list
+    monkeypatch.setitem(sys.modules, "transformers", transformers)
+    monkeypatch.setitem(sys.modules, "torch", types.ModuleType("torch"))
+
+
+def test_gen_ngram_uses_processor_on_generated_tokens_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_logits_fakes(monkeypatch)
+    loader, seen = _processor_loader(_settings(medgemma_json_repetition="gen_ngram:3"), 5)
+    loader.generate_structured_text("sys", "user")
+    assert "gen_ngram_size" not in seen  # generate 에 모르는 인자를 넘기지 않는다
+    assert "no_repeat_ngram_size" not in seen and "repetition_penalty" not in seen
+    processor = seen["logits_processor"][0]
+
+    # 프롬프트(앞 3토큰 1,2,3)에 있는 반복은 막지 않는다: 생성 구간 [1, 2] 에서는 금지할 것이 없다
+    scores = np.zeros((1, 10))
+    processor(np.array([[1, 2, 3, 1, 2]]), scores)
+    assert not np.isinf(scores).any()
+
+    # 생성 구간 [4, 5, 6, 4, 5] -> 6 금지
+    scores = np.zeros((1, 10))
+    processor(np.array([[1, 2, 3, 4, 5, 6, 4, 5]]), scores)
+    assert np.isinf(scores[0, 6]) and np.isinf(scores).sum() == 1
+
+
+def test_gen_ngram_off_by_default_has_no_processor() -> None:
+    loader, seen = _processor_loader(_settings(), 5)
+    loader.generate_structured_text("sys", "user")
+    assert "logits_processor" not in seen
