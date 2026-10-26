@@ -62,6 +62,27 @@ def json_stop_criteria(tokenizer: Any, input_len: int, prefill: str) -> Any:
     return StoppingCriteriaList([_JsonObjectDone()])
 
 
+REPETITION_OFF = "off"
+
+
+def resolve_json_repetition(value: str | None) -> tuple[dict[str, Any], str]:
+    """MEDGEMMA_JSON_REPETITION -> (generate 인자, 로그 표기). off·빈 값·모르는 값·범위 밖은 인자 없음(지금과 같음)."""
+    raw = (value or "").strip().lower()
+    kind, _, number = raw.partition(":")
+    try:
+        if kind == "penalty":
+            penalty = float(number)
+            if 1.0 <= penalty <= 1.5:
+                return {"repetition_penalty": penalty}, f"penalty:{penalty:g}"
+        elif kind == "ngram":
+            size = int(number)
+            if 2 <= size <= 20:
+                return {"no_repeat_ngram_size": size}, f"ngram:{size}"
+    except ValueError:
+        pass
+    return {}, REPETITION_OFF
+
+
 @dataclass
 class ModelState:
     loaded: bool
@@ -80,6 +101,11 @@ class MedGemmaLoader:
         self._torch = None
         self._uses_processor = False
         self._quant = QUANT_NONE  # 실제로 적재된 양자화(nf4 실패 시 none)
+        self._json_repetition_kwargs, self._json_repetition_label = resolve_json_repetition(
+            settings.medgemma_json_repetition
+        )
+        if self._json_repetition_label == REPETITION_OFF and settings.medgemma_json_repetition not in ("", REPETITION_OFF):
+            _LOG.warning("[MEDGEMMA-JSON-REPETITION-INVALID] -> off")
         self._state = ModelState(
             loaded=False,
             model_name=settings.resolved_chat_model_id(),
@@ -272,9 +298,11 @@ class MedGemmaLoader:
                         dim=-1,
                     )
             input_len = inputs["input_ids"].shape[-1]
+            limit = self._settings.medgemma_json_max_tokens
             generate_kwargs: dict[str, Any] = {
-                "max_new_tokens": self._settings.max_new_tokens,
+                "max_new_tokens": limit,
                 "do_sample": False,
+                **self._json_repetition_kwargs,
             }
             banned = self._banned_token_ids()
             if banned:
@@ -285,6 +313,12 @@ class MedGemmaLoader:
             with torch.inference_mode():
                 outputs = model.generate(**inputs, **generate_kwargs)
             generated = outputs[0][input_len:]
+            tokens = int(generated.shape[-1])
+            # 측정용: 토큰 수·상한 도달 여부만 남긴다(모델 출력·상담 내용은 남기지 않는다).
+            _LOG.info(
+                "[MEDGEMMA-GEN] tokens=%d limit=%d hit_limit=%s rep=%s quant=%s",
+                tokens, limit, tokens >= limit, self._json_repetition_label, self._quant,
+            )
             text = self._processor.decode(generated, skip_special_tokens=True)
             if not text.strip():
                 raise RuntimeError("empty generation")

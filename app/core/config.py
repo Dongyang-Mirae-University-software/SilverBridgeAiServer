@@ -160,6 +160,10 @@ class Settings(BaseModel):
     load_in_8bit: bool = _as_bool("LOAD_IN_8BIT", False)
     # MedGemma 가중치 양자화. none(기본, bf16 그대로) | nf4(bitsandbytes 4비트). 모르는 값은 none으로 본다.
     medgemma_quant: str = os.getenv("MEDGEMMA_QUANT", "none").strip().lower()
+    # MedGemma 구조화(JSON) 생성 전용 상한(2026-10-26). 비면 MAX_NEW_TOKENS, 64~2048 밖이면 MAX_NEW_TOKENS로 대체한다.
+    medgemma_json_max_tokens: int = _as_int_in_range("MEDGEMMA_JSON_MAX_TOKENS", max_new_tokens, 64, 2048)
+    # 구조화 생성 반복 억제. off(기본, 지금과 같음) | penalty:<1.0~1.5> | ngram:<2~20>. 모르는 값은 off.
+    medgemma_json_repetition: str = os.getenv("MEDGEMMA_JSON_REPETITION", "off").strip().lower()
     chat_history_keep_turns: int = _as_int("CHAT_HISTORY_KEEP_TURNS", 8)
 
     def resolved_chat_model_id(self) -> str:
