@@ -13,20 +13,25 @@ _LOG = logging.getLogger(__name__)
 
 QUANT_NONE = "none"
 QUANT_NF4 = "nf4"
+QUANT_INT8 = "int8"
 
 
 def resolve_quant(value: str | None) -> str:
     """MEDGEMMA_QUANT 값. 모르는 값은 none(지금과 같은 bf16)으로 본다."""
-    return QUANT_NF4 if (value or "").strip().lower() == QUANT_NF4 else QUANT_NONE
+    quant = (value or "").strip().lower()
+    return quant if quant in (QUANT_NF4, QUANT_INT8) else QUANT_NONE
 
 
 def quantization_kwargs(quant: str, torch: Any) -> dict[str, Any]:
     """from_pretrained 에 더할 양자화 인자. none이면 bitsandbytes 를 import 하지 않는다."""
-    if quant != QUANT_NF4:
+    if quant not in (QUANT_NF4, QUANT_INT8):
         return {}
     import bitsandbytes  # noqa: F401  # type: ignore[reportMissingImports]  # 미설치면 여기서 실패 -> none으로 내려간다
     from transformers import BitsAndBytesConfig  # type: ignore[reportMissingImports]
 
+    if quant == QUANT_INT8:
+        # transformers 5.x 는 from_pretrained(load_in_8bit=True) 를 받지 않는다 - 설정 객체로만 켠다.
+        return {"quantization_config": BitsAndBytesConfig(load_in_8bit=True)}
     return {
         "quantization_config": BitsAndBytesConfig(
             load_in_4bit=True,
@@ -138,7 +143,7 @@ class MedGemmaLoader:
         self._processor: Any = None
         self._torch = None
         self._uses_processor = False
-        self._quant = QUANT_NONE  # 실제로 적재된 양자화(nf4 실패 시 none)
+        self._quant = QUANT_NONE  # 실제로 적재된 양자화(nf4·int8 실패 시 none)
         self._json_repetition_kwargs, self._json_repetition_label = resolve_json_repetition(
             settings.medgemma_json_repetition
         )
@@ -183,17 +188,17 @@ class MedGemmaLoader:
     def _load_processor_model(
         self, auto_model: Any, model_id: str, token: str | None, kwargs: dict[str, Any], gpu_ok: bool
     ) -> Any:
-        """MedGemma 적재. MEDGEMMA_QUANT=nf4 이면 4비트로 먼저 시도하고, 실패하면 WARN 한 줄 후 none으로 다시 올린다."""
+        """MedGemma 적재. MEDGEMMA_QUANT=nf4·int8 이면 그 양자화로 먼저 시도하고, 실패하면 WARN 한 줄 후 none으로 다시 올린다."""
         torch = self._torch
         quant = resolve_quant(self._settings.medgemma_quant)
-        if quant == QUANT_NF4 and gpu_ok:
+        if quant != QUANT_NONE and gpu_ok:
             try:
-                nf4_kwargs = {k: v for k, v in kwargs.items() if k != "load_in_8bit"}
-                model = auto_model.from_pretrained(model_id, token=token, **nf4_kwargs, **quantization_kwargs(quant, torch))
-                self._quant = QUANT_NF4
+                quant_kwargs = {k: v for k, v in kwargs.items() if k != "load_in_8bit"}
+                model = auto_model.from_pretrained(model_id, token=token, **quant_kwargs, **quantization_kwargs(quant, torch))
+                self._quant = quant
                 return model
             except Exception as exc:  # noqa: BLE001
-                _LOG.warning("[MEDGEMMA-QUANT-FALLBACK] MEDGEMMA_QUANT=nf4 -> none (%s)", type(exc).__name__)
+                _LOG.warning("[MEDGEMMA-QUANT-FALLBACK] MEDGEMMA_QUANT=%s -> none (%s)", quant, type(exc).__name__)
                 if torch is not None and torch.cuda.is_available():
                     torch.cuda.empty_cache()
         self._quant = QUANT_NONE
@@ -259,8 +264,8 @@ class MedGemmaLoader:
                     else:
                         self._tokenizer = AutoTokenizer.from_pretrained(model_id, token=token)
                         self._model = AutoModelForCausalLM.from_pretrained(model_id, token=token, **kwargs)
-                    # bitsandbytes 4비트 모델은 .to() 를 거부한다 - device_map 으로 이미 GPU 0에 있다.
-                    if gpu_ok and hasattr(self._model, "to") and self._quant != QUANT_NF4:
+                    # bitsandbytes 양자화(4·8비트) 모델은 .to() 를 거부한다 - device_map 으로 이미 GPU 0에 있다.
+                    if gpu_ok and hasattr(self._model, "to") and self._quant == QUANT_NONE:
                         self._model = self._model.to("cuda:0")
                     self._state.loaded = True
                     self._state.load_error = None
