@@ -3,7 +3,7 @@
 AI 서버 없이 돌아간다. 테스트 안에서 가짜 AI 서버를 띄우고, 키도 실행할 때마다 임시로 만든다.
 .env 값은 읽지 않는다(환경 변수로 직접 지정).
 
-실행 (companion-emotion 폴더에서):
+실행 (저장소 루트에서):
     venv\\Scripts\\python.exe -m pytest tests -q
 """
 

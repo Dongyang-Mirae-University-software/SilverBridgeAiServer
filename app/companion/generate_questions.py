@@ -5,7 +5,7 @@ Phase 1 산출물
 - 규칙(존댓말, 질문 형태, 길이, 의료 조언 금지)을 통과한 것만 남긴다.
 - 결과는 questions_candidates.json 에 저장한다. 사람이 검토해서 최종 세트를 고른다.
 
-실행 (companion-emotion 폴더에서):
+실행 (저장소 루트에서):
     venv\\Scripts\\python.exe companion\\generate_questions.py
 """
 

@@ -2,7 +2,7 @@
 
 흐름: 음성 인식 글자(STT 결과) → GGARA02 텍스트 감정 → fusion.fuse(텍스트, 표정=None)
 
-실행 (companion-emotion 폴더에서):
+실행 (저장소 루트에서):
     venv\Scripts\python.exe companion\text_flow_demo.py --n 20
 결과: logs\text_flow_demo.json
 """

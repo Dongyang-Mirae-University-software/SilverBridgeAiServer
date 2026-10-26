@@ -12,7 +12,7 @@
 3. 평온(Neutral)은 확률 0.2 이상, 차이 0.03 이상이면 인정한다 (무표정이 많이 놓치는 문제 보완).
 - 프레임 결과는 최근 WINDOW(10)번 중 절반 이상 같을 때만 화면에 표시한다. 아니면 판단 보류.
 
-실행 (companion-emotion 폴더에서, 카메라 앞에 앉아서):
+실행 (저장소 루트에서, 카메라 앞에 앉아서):
     venv\\Scripts\\python.exe companion\\face_capture_test.py --seconds 30
 창에서 q 를 누르면 일찍 끝난다. --no-preview 로 창을 끌 수 있다. --debug 는 확률 상위 3개를 출력한다.
 """

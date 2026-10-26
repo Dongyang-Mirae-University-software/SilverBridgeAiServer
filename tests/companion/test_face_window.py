@@ -1,6 +1,6 @@
 """얼굴 확인 모듈(companion/face_window.py) 테스트. AI 서버 없이 돌아간다.
 
-실행 (companion-emotion 폴더에서):
+실행 (저장소 루트에서):
     venv\\Scripts\\python.exe -m pytest tests -q
 """
 

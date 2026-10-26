@@ -1,6 +1,6 @@
 """대답 제출 API(api_mock.py)에 얼굴 확인이 연결되었는지 테스트. 실제 텍스트 모델·AI 서버·데이터 폴더를 쓰지 않는다.
 
-실행 (companion-emotion 폴더에서):
+실행 (저장소 루트에서):
     venv\\Scripts\\python.exe -m pytest tests -q
 """
 

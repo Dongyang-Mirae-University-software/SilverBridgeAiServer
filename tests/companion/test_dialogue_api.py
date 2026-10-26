@@ -1,6 +1,6 @@
 """대화 API(api_mock.py)의 시작·텍스트 대답·음성 대답·종료 테스트. 모델과 AI 서버 없이 돌아간다.
 
-실행 (companion-emotion 폴더에서):
+실행 (저장소 루트에서):
     venv\\Scripts\\python.exe -m pytest tests -q
 """
 

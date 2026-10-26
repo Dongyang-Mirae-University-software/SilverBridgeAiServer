@@ -166,7 +166,7 @@
     let json = null;
     try { json = await res.json(); } catch (e) { /* 본문이 JSON 이 아닐 때 */ }
     if (res.status === 401) {
-      throw new Error("API 키가 맞지 않습니다. 위의 'API 키' 칸에 companion-emotion 폴더의 .env 파일 COMPANION_API_KEY 값을 그대로 넣어 주세요.");
+      throw new Error("API 키가 맞지 않습니다. 위의 'API 키' 칸에 AI 서버 저장소의 .env 파일 COMPANION_API_KEY 값을 그대로 넣어 주세요.");
     }
     if (!res.ok || !json || json.success === false) {
       let message = json && json.message;

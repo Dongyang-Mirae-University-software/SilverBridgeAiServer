@@ -8,7 +8,7 @@
 - 나머지 검사(존댓말, 물음표, 길이, 의료 표현 금지, 영어·이모지 금지)는 generate_questions.py 와 같다.
 
 결과: examples.json (이전 버전은 examples_v1.json 으로 보관)
-실행 (companion-emotion 폴더에서):
+실행 (저장소 루트에서):
     venv\Scripts\python.exe companion\generate_examples.py
 """
 
