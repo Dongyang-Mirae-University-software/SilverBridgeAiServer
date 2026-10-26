@@ -63,6 +63,8 @@ def json_stop_criteria(tokenizer: Any, input_len: int, prefill: str) -> Any:
 
 
 REPETITION_OFF = "off"
+# generate 인자가 아니라 로더가 생성 구간 반복 금지 프로세서로 바꿔 끼우는 키.
+GEN_NGRAM_KEY = "gen_ngram_size"
 
 
 def resolve_json_repetition(value: str | None) -> tuple[dict[str, Any], str]:
@@ -70,7 +72,11 @@ def resolve_json_repetition(value: str | None) -> tuple[dict[str, Any], str]:
     raw = (value or "").strip().lower()
     kind, _, number = raw.partition(":")
     try:
-        if kind == "penalty":
+        if kind == "gen_ngram":
+            size = int(number)
+            if 2 <= size <= 20:
+                return {GEN_NGRAM_KEY: size}, f"gen_ngram:{size}"
+        elif kind == "penalty":
             penalty = float(number)
             if 1.0 <= penalty <= 1.5:
                 return {"repetition_penalty": penalty}, f"penalty:{penalty:g}"
@@ -81,6 +87,38 @@ def resolve_json_repetition(value: str | None) -> tuple[dict[str, Any], str]:
     except ValueError:
         pass
     return {}, REPETITION_OFF
+
+
+def generated_ngram_bans(generated: list[int], size: int) -> set[int]:
+    """생성된 토큰 안에서만 본 n-gram 반복 금지. 마지막 size-1개 토큰으로 시작하는 이전 n-gram의 다음 토큰을 막는다.
+
+    HF no_repeat_ngram_size 는 프롬프트까지 보아 규칙에 적힌 고정 문장을 쓰지 못하게 한다(DGX 2026-10-26 e2) -
+    그래서 프롬프트·prefill 은 보지 않는다.
+    """
+    if size < 2 or len(generated) < size:
+        return set()
+    prefix = tuple(generated[-(size - 1):])
+    banned: set[int] = set()
+    for start in range(len(generated) - size + 1):
+        if tuple(generated[start:start + size - 1]) == prefix:
+            banned.add(generated[start + size - 1])
+    return banned
+
+
+def generated_ngram_processor(input_len: int, size: int) -> Any:
+    """generate 의 logits_processor. input_len 이후(생성 구간)만 반복 금지를 적용한다."""
+    import torch  # type: ignore[reportMissingImports]
+    from transformers import LogitsProcessor, LogitsProcessorList  # type: ignore[reportMissingImports]
+
+    class _GeneratedNoRepeatNgram(LogitsProcessor):
+        def __call__(self, input_ids: Any, scores: Any) -> Any:
+            for row in range(input_ids.shape[0]):
+                banned = generated_ngram_bans(input_ids[row][input_len:].tolist(), size)
+                if banned:
+                    scores[row, list(banned)] = -float("inf")
+            return scores
+
+    return LogitsProcessorList([_GeneratedNoRepeatNgram()])
 
 
 @dataclass
@@ -304,6 +342,9 @@ class MedGemmaLoader:
                 "do_sample": False,
                 **self._json_repetition_kwargs,
             }
+            gen_ngram = generate_kwargs.pop(GEN_NGRAM_KEY, None)
+            if gen_ngram:
+                generate_kwargs["logits_processor"] = generated_ngram_processor(input_len, gen_ngram)
             banned = self._banned_token_ids()
             if banned:
                 generate_kwargs["bad_words_ids"] = banned
