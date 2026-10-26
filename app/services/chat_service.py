@@ -41,8 +41,10 @@ def _origin(exc: BaseException) -> str:
 # 오케스트레이터에 넘긴 입력값이 응답 meta 로 되돌아온다. 챗 기록(context_json)에는 남기지 않는다:
 # 예약 API 키(자격 증명), 직전 턴 상태 사본(storedFlow - 같은 기록이 이미 직전 행에 있음), 사용자 원문(message 컬럼에 있음).
 _UNSTORED_META_KEYS = ("reservationApiKey", "storedFlow", "rawMessage")
-# 위기 고정 응답 직후 예약을 다시 이어갈 때 답 맨 앞에 붙이는 한 줄(2026-10-25, 라우터 점검 M-2).
+# 위기 고정 응답 직후 첫 일반 턴(예약 재개·증상·일반 대화) 답 맨 앞에 붙이는 한 줄(2026-10-25 예약, 2026-10-26 점검 H-1로 확장).
 _CRISIS_FOLLOWUP = "힘드시면 언제든 자살예방 상담전화 109(24시간)에 이야기해 보세요."
+# 라우터 실패 시 앞 턴 위기에 이어지는 짧은 말로 볼 최대 길이(공백 제외, 점검 M-1).
+_CRISIS_CONTINUE_MAX_CHARS = 12
 
 
 def _persistable_meta(meta: Any) -> dict:
@@ -103,7 +105,8 @@ class ChatService:
         ward_id = (payload.context.wardId or "").strip() if payload.context and payload.context.wardId else ""
         history = [{"role": item.role, "content": item.content} for item in payload.history]
         log_message = message
-        resume_after_crisis = False
+        # 위기 응답 직후 첫 일반 턴이면 답 앞에 109 안내 한 줄을 붙인다(한 번만 - 이 턴 기록엔 selfHarm이 없다).
+        crisis_followup = False
         if not log_message and ui_selection:
             log_message = f"[선택] {ui_selection['field']}: {ui_selection['value']}"
 
@@ -174,14 +177,32 @@ class ChatService:
                 }
             route_info = self._force_emergency(route_info, message)
             self_harm_trigger = self._self_harm_trigger(self_harm_keyword, route_info, history)
-            if self._resume_reservation_after_crisis(db, payload.userId, session_id, message, self_harm_trigger):
-                # 위기 응답 직후 "응 예약해줘": 라우터가 직전 위기 턴을 보고 응급으로 판단해 같은 안내가 반복되던 것.
-                # 이번 문장에 자해·응급 키워드와 증상 단어가 없고 예약 의도가 분명할 때만 예약으로 보낸다(새 예약으로 시작).
-                _LOG.info("[CHAT-SAFETY] resume_reservation_after_crisis=true trigger=%s", self_harm_trigger)
-                resume_after_crisis = True
-                self_harm_trigger = None
-                route_info = {**route_info, "route": "reservation", "emergency": False, "emergency_signals": [],
-                              "normalized_message": message, "reason": "resume-after-crisis"}
+            router_failed = route_info.get("engine") == "keyword"
+            if router_failed and self_harm_trigger is None and self._crisis_continues_without_router(message, history):
+                # 라우터 실패(키워드 분류): 앞 턴 위기 뒤 짧은 말("어떻게 해야 할지 모르겠어")은 라우터 판단 없이도 위기 응답으로.
+                _LOG.info("[CHAT-SAFETY] crisis_continues_fallback=true text_len=%s", len(message))
+                self_harm_trigger = "history"
+                route_info = {**route_info, "route": "symptom", "emergency": True, "reason": "crisis-continues-fallback"}
+            after_crisis = bool(message) and not self_harm_keyword and self._previous_turn_was_crisis(db, payload.userId, session_id)
+            release = self._release_after_crisis(route_info, message, self_harm_trigger) if after_crisis else None
+            if release is not None:
+                if release == "reservation":
+                    # "응 예약해줘": 증상 단어가 없고 예약 의도가 분명하면 예약으로(새 예약으로 시작).
+                    _LOG.info("[CHAT-SAFETY] resume_reservation_after_crisis=true trigger=%s", self_harm_trigger)
+                    crisis_followup = True
+                    self_harm_trigger = None
+                    route_info = {**route_info, "route": "reservation", "emergency": False, "emergency_signals": [],
+                                  "normalized_message": message, "reason": "resume-after-crisis"}
+                else:
+                    # 증상·일반 대화는 라우터 경로 그대로(라우터가 응급이라고 했으면 위기 고정 응답이 아닌 일반 응급 안내로).
+                    _LOG.info("[CHAT-SAFETY] crisis_released=true route=%s trigger=%s", route_info["route"], self_harm_trigger)
+                    crisis_followup = True
+                    self_harm_trigger = None
+                    route_info = {**route_info, "reason": "release-after-crisis"}
+            elif self_harm_trigger is None and message and (
+                after_crisis or (router_failed and MedicalLlmService.self_harm_in_history(history))
+            ):
+                crisis_followup = True
             self_harm = self_harm_trigger is not None
             # 상담 내용(증상 요약·예약 문장)은 로그에 남기지 않는다 - 길이만.
             _LOG.info(
@@ -288,13 +309,19 @@ class ChatService:
             _LOG.error("chat process_message fallback: %s at %s", type(exc).__name__, _origin(exc))
             result = self._fallback_reply(message or log_message, history)
             route_info = {}
-        if resume_after_crisis and route_info and isinstance(result.get("reply"), str):
+        if crisis_followup and route_info and isinstance(result.get("reply"), str):
             result["reply"] = f"{_CRISIS_FOLLOWUP}\n{result['reply']}"
+            result.setdefault("meta", {})
+            if isinstance(result["meta"], dict):
+                result["meta"]["crisisFollowup"] = True
         post_started = time.perf_counter()
         if route_info:
             result.setdefault("meta", {})
             if isinstance(result["meta"], dict):
                 result["meta"]["router"] = {k: route_info.get(k) for k in ("route", "engine", "reason", "normalized_message", "symptom_summary", "emergency", "emergency_signals")}
+                # 라우터가 자해로 봤는지(점검 L-1). 라우터를 거치지 않은 턴(키워드·규칙·UI)은 None - 모르는 값을 false로 채우지 않는다.
+                router_self_harm = route_info.get("self_harm")
+                result["meta"]["router"]["self_harm"] = router_self_harm if isinstance(router_self_harm, bool) else None
                 # 라우터 기억은 이 상담의 피보호자에게 묶는다 - 다른 피보호자 상담에서 앞 사람의 병원·날짜를 이어 쓰지 않게.
                 result["meta"]["router"]["wardId"] = ward_id
 
@@ -372,19 +399,46 @@ class ChatService:
             "chatNo": log.chat_no,
         }
 
-    @staticmethod
-    def _resume_reservation_after_crisis(db: Session, user_id: str, session_id: str, message: str, trigger: str | None) -> bool:
-        """위기 고정 응답 직후 예약을 다시 이어가려는 문장인가. 판정 근거가 router·history일 때만(이번 문장 키워드면 위기 유지),
-        이번 문장에 응급 키워드·증상 단어가 없고("응급실"도 응급 키워드라 여기서 걸린다) 예약 의도가 분명해야 한다.
-        직전 턴은 클라이언트 history가 아니라 서버 챗 기록(같은 세션, upstreamMeta.selfHarm)으로 본다."""
+    @classmethod
+    def _release_after_crisis(cls, route_info: dict, message: str, trigger: str | None) -> str | None:
+        """위기 응답 직후 턴을 위기 고정 응답에서 풀어 줄지. "reservation" = 예약으로 재개 / "release" = 라우터 경로 그대로 / None = 위기 유지.
+        라우터가 앞 턴 위기를 이번 턴 신호로 옮겨 평범한 말까지 같은 고정 응답에 갇히던 것(점검 H-1): 근거가 router·history이고
+        이번 문장에 자해·응급 키워드가 없으며 라우터가 이번 문장 기준으로 자해가 아니라고 하면(self_harm=false) 푼다.
+        라우터가 이번 문장도 자해라고 하면(self_harm=true) 예약 의도가 있어도 위기 응답을 유지한다(점검 M-2).
+        평가 스크립트(tests/eval/crisis_followup_router.py)도 같은 함수로 잰다."""
         if trigger not in {"router", "history"} or not message:
-            return False
+            return None
         if MedicalLlmService.emergency_signals(message) or MedicalLlmService.self_harm_signals(message):
+            return None
+        if route_info.get("self_harm") is not True and cls._reservation_resume_intent(message):
+            return "reservation"
+        if route_info.get("self_harm") is False:
+            return "release"
+        return None
+
+    @staticmethod
+    def _reservation_resume_intent(message: str) -> bool:
+        """위기 응답 뒤 예약을 다시 이어가려는 문장인가 - 증상 단어가 없고 예약 의도가 분명해야 한다.
+        응급·자해 키워드("응급실"도 응급 키워드)는 호출 전에 걸러진다."""
+        if not message or any(word in message for word in MedicalLlmService.MEDICAL_KEYWORDS):
+            return False
+        return ReservationOrchestrator._looks_like_reservation(message)
+
+    @staticmethod
+    def _crisis_continues_without_router(message: str, history: list[dict[str, str]]) -> bool:
+        """라우터가 실패했을 때 위기가 이어지는 말로 볼 것인가(점검 M-1): 직전 사용자 턴 2개에 자해 키워드가 있고,
+        이번 문장이 짧고(공백 빼고 12자 이하) 증상·예약 의도가 없다. 라우터 판단이 없어 안전 쪽으로 넓게 잡는다."""
+        if not message or not MedicalLlmService.self_harm_in_history(history):
+            return False
+        if len(re.sub(r"\s", "", message)) > _CRISIS_CONTINUE_MAX_CHARS:
             return False
         if any(word in message for word in MedicalLlmService.MEDICAL_KEYWORDS):
             return False
-        if not ReservationOrchestrator._looks_like_reservation(message):
-            return False
+        return not ReservationOrchestrator._looks_like_reservation(message)
+
+    @staticmethod
+    def _previous_turn_was_crisis(db: Session, user_id: str, session_id: str) -> bool:
+        """같은 세션의 직전 턴이 위기 고정 응답이었는가. 클라이언트 history가 아니라 서버 챗 기록(upstreamMeta.selfHarm)으로 본다."""
         log = db.query(ChatLog).filter(ChatLog.user_id == user_id).order_by(ChatLog.id.desc()).first()
         if not log:
             return False
