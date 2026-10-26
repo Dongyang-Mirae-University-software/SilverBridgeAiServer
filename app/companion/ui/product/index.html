@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CareAI 말벗</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root {
+      --bg: #fbf5ef; --panel: #fdf9f5; --card: #ffffff; --line: #efe2d6;
+      --peach: #f6cba7; --peach-soft: #fbe7d9; --brand: #c4503a; --brand-soft: #f9e0d8;
+      --ink: #231c18; --muted: #7d6f66; --ok: #3f7d58; --warn: #b26a00;
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; line-height: 1.55; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    .app { max-width: 880px; margin: 0 auto; padding: 16px 16px 48px; }
+    .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.15rem; color: var(--brand); }
+    .brand .dot { width: 30px; height: 30px; border-radius: 50%; background: var(--peach); display: grid; place-items: center; color: var(--brand); font-size: .9rem; }
+    .switch { display: inline-flex; background: var(--peach-soft); border-radius: 999px; padding: 4px; }
+    .switch button { border: 0; background: transparent; padding: 8px 16px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 700; }
+    .switch button.on { background: var(--brand); color: #fff; }
+    .card { background: var(--card); border-radius: var(--radius); padding: 18px; margin-bottom: 14px; box-shadow: 0 1px 0 rgba(0,0,0,.02), 0 6px 18px rgba(120,70,40,.06); }
+    .card h2 { font-size: 1.1rem; margin: 0 0 12px; }
+    .eyebrow { color: var(--brand); font-weight: 700; font-size: .9rem; margin: 0 0 4px; }
+    .title { font-size: 1.45rem; font-weight: 800; margin: 0 0 6px; line-height: 1.35; }
+    .muted { color: var(--muted); font-size: .92rem; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 180px; }
+    .field label { font-size: .85rem; color: var(--muted); font-weight: 700; }
+    input, select, textarea { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; width: 100%; }
+    textarea { min-height: 84px; resize: vertical; }
+    .btn { border: 0; border-radius: 999px; padding: 12px 20px; background: var(--brand); color: #fff; font-weight: 800; cursor: pointer; font-size: 1rem; }
+    .btn.ghost { background: transparent; color: var(--brand); border: 1.5px solid var(--brand); }
+    .btn.soft { background: var(--peach); color: var(--ink); }
+    .btn:disabled { opacity: .45; cursor: default; }
+    .btn.big { padding: 18px 26px; font-size: 1.2rem; }
+    .msg { min-height: 1.3em; font-size: .92rem; margin-top: 8px; }
+    .msg.err { color: var(--brand); } .msg.ok { color: var(--ok); } .msg.busy { color: var(--muted); }
+
+    /* 보호자: 시간표 */
+    .timeline { display: grid; gap: 10px; }
+    .slot { display: grid; grid-template-columns: 74px 1fr; gap: 12px; align-items: center; }
+    .slot .time { width: 64px; height: 64px; border-radius: 50%; background: var(--peach-soft); display: grid; place-items: center; font-weight: 800; color: var(--ink); }
+    .slot.now .time { background: var(--brand); color: #fff; }
+    .slot .box { background: var(--panel); border-radius: 14px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
+    .face { width: 44px; height: 44px; flex: 0 0 44px; }
+    .label { font-weight: 800; }
+    .label.warn { color: var(--brand); }
+    .label.empty { color: var(--muted); font-weight: 600; }
+    .alert { background: var(--peach); border-radius: 16px; padding: 16px 18px; margin-top: 12px; }
+    .alert b { color: var(--brand); font-size: 1.05rem; }
+    .moodrow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+    .mood { background: var(--panel); border-radius: 14px; padding: 12px; }
+    .mood small { color: var(--muted); display: block; }
+    .mood b { font-size: 1.05rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 12px; font-size: .88rem; cursor: pointer; color: var(--brand); }
+
+    /* 어르신: 대화 */
+    .big-q { font-size: 1.5rem; font-weight: 800; line-height: 1.5; background: var(--peach-soft); border-radius: 22px; padding: 22px; margin: 6px 0 14px; }
+    .bubble { max-width: 88%; padding: 12px 16px; border-radius: 18px; margin: 8px 0; font-size: 1.1rem; }
+    .bubble.ai { background: var(--panel); border: 1px solid var(--line); }
+    .bubble.me { background: var(--peach); margin-left: auto; }
+    .bubble .who { display: block; font-size: .8rem; color: var(--muted); font-weight: 700; margin-bottom: 2px; }
+    .timer { font-size: 1.05rem; font-weight: 800; color: var(--brand); }
+    .thread { max-height: 360px; overflow: auto; padding-right: 4px; }
+    .done-box { background: var(--panel); border-radius: 16px; padding: 16px; text-align: center; }
+    .elder-slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+    .elder-slots button { border: 0; border-radius: 16px; padding: 12px 4px; background: var(--peach-soft); cursor: pointer; font-weight: 800; }
+    .elder-slots button.on { background: var(--brand); color: #fff; }
+    .elder-slots button:disabled { opacity: .5; cursor: default; }
+    .hidden { display: none !important; }
+    .foot { color: var(--muted); font-size: .8rem; margin-top: 18px; text-align: center; }
+    .devkey { margin-top: 10px; }
+    @media (max-width: 520px) {
+      .title { font-size: 1.25rem; }
+      .moodrow { grid-template-columns: 1fr; }
+      .big-q { font-size: 1.3rem; }
+      .bubble { font-size: 1.02rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div class="brand"><span class="dot">C</span> CareAI 말벗</div>
+    <div class="switch" role="tablist">
+      <button id="tabGuardian" class="on" type="button">보호자 화면</button>
+      <button id="tabElder" type="button">어르신 화면</button>
+    </div>
+  </div>
+
+  <!-- 보호자 화면 -->
+  <section id="guardian">
+    <div class="card">
+      <p class="eyebrow">오늘의 마음</p>
+      <h1 class="title">하루 다섯 번, 먼저 안부를 묻습니다</h1>
+      <p class="muted">AI 말벗이 정해진 시각에 먼저 말을 겁니다. 대화가 끝나면 결과를 여기서 확인합니다.</p>
+      <div class="row" style="margin-top:12px">
+        <div class="field"><label for="gWard">어르신 ID</label><input id="gWard" value="TEST-WARD"></div>
+        <div class="field"><label for="gDate">날짜</label><input id="gDate" type="date"></div>
+        <button id="gRefresh" class="btn ghost" type="button">새로고침</button>
+      </div>
+      <div class="timeline" id="gTimeline" style="margin-top:14px"></div>
+      <div id="gAlert"></div>
+      <div class="moodrow" id="gMood"></div>
+      <div class="msg" id="gMsg"></div>
+      <div style="margin-top:14px">
+        <h2 style="font-size:1rem;margin:0 0 6px">실시간 전달 기록</h2>
+        <div class="muted" style="font-size:.85rem" id="gLive">대화가 시작되면 결과가 3초 안에 여기에 나타나요.</div>
+        <div id="gFeed" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>시간대별 질문 정하기</h2>
+      <p class="muted">어르신께 그 시각에 먼저 드릴 질문입니다. 예시를 골라 쓰거나 직접 적으세요. (200자 이내)</p>
+      <div class="row">
+        <div class="field" style="flex:0 0 140px"><label for="qSlot">시각</label><select id="qSlot"></select></div>
+      </div>
+      <textarea id="qText" maxlength="200" style="margin-top:8px" placeholder="예: 점심은 맛있게 드셨어요?"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="qSave" class="btn" type="button">이 시각 질문 저장</button>
+        <button id="qExamples" class="btn ghost" type="button">예시 보기</button>
+      </div>
+      <div class="chips" id="qChips"></div>
+      <div class="msg" id="qMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>연결 설정 <span class="muted">(개발용)</span></h2>
+      <div class="field devkey"><label for="apiKey">API 키 (화면에만 입력, 저장하지 않음)</label><input id="apiKey" type="password" autocomplete="off" placeholder="COMPANION_API_KEY"></div>
+      <p class="muted" style="margin-top:8px">실제 서비스에서는 로그인으로 대체됩니다.</p>
+    </div>
+  </section>
+
+  <!-- 어르신 화면 -->
+  <section id="elder" class="hidden">
+    <div class="card">
+      <p class="eyebrow">안녕하세요</p>
+      <h1 class="title" id="eTitle">오늘의 말동무가 기다리고 있어요</h1>
+      <p class="muted">먼저 시각을 고르고, 시작을 누르면 질문이 나와요. 편하게 이야기해 주세요. 2분이 넘으면 자동으로 마칩니다.</p>
+      <div class="elder-slots" id="eSlots" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card" id="eStartCard">
+      <div class="big-q" id="eQuestion">시각을 고르고 시작을 누르세요</div>
+      <div class="row">
+        <button id="eStart" class="btn big" type="button">이야기 시작</button>
+        <span class="timer" id="eTimer"></span>
+      </div>
+    </div>
+
+    <div class="card hidden" id="eTalkCard">
+      <div class="timer" id="eTalkTimer" style="font-size:1.15rem;margin-bottom:8px"></div>
+      <label class="muted" style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+        <input type="checkbox" id="eConsent" checked> 확인 필요 턴에 얼굴 사진 한 장을 보호자 쪽으로 전달 (테스트용: 기본 켜짐, 끄기 가능)
+      </label>
+      <div class="row" style="margin-bottom:10px">
+        <select id="eCamSelect" style="flex:0 1 240px" aria-label="카메라 선택"></select>
+        <button id="eCam" class="btn ghost" type="button">카메라 켜기</button>
+        <span class="muted" id="eCamMsg">카메라를 켜면 표정을 함께 읽어요. 사진은 저장하지 않아요.</span>
+      </div>
+      <video id="eVideo" autoplay playsinline muted style="display:none;width:100%;max-width:280px;border-radius:14px;background:#000;margin-bottom:10px"></video>
+      <div class="thread" id="eThread"></div>
+      <textarea id="eText" style="margin-top:10px;min-height:96px;font-size:1.1rem" placeholder="여기에 적거나, 아래 버튼으로 말씀해 주세요"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button id="eSend" class="btn big" type="button">보내기</button>
+        <button id="eRec" class="btn ghost big" type="button">말하기</button>
+        <button id="eFinish" class="btn soft" type="button">이야기 마치기</button>
+      </div>
+      <div class="msg" id="eMsg"></div>
+    </div>
+
+    <div class="card hidden" id="eDoneCard">
+      <div class="done-box">
+        <p class="eyebrow" style="margin-bottom:6px">오늘도 이야기 나눠 주셔서 고마워요</p>
+        <div class="title" id="eDoneTitle"></div>
+        <p class="muted" id="eDoneText"></p>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">CareAI · 테스트 화면 (API 목업 연결). 실제 제품 화면과 로그인은 FE 작업에서 만듭니다.</div>
+</div>
+
+<script>
+(() => {
+  const SLOTS = ["09:00", "12:00", "15:00", "18:00", "21:00"];
+  const SLOT_LABEL = {"09:00": "9시", "12:00": "12시", "15:00": "15시", "18:00": "18시", "21:00": "21시"};
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+  const todayLocal = () => { const d = new Date(); const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+  const setMsg = (el, text, kind) => { el.textContent = text; el.className = "msg" + (kind ? " " + kind : ""); };
+
+  async function call(method, path, body) {
+    const headers = {"X-API-Key": $("apiKey").value.trim()};
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const res = await fetch(path, {method, headers, body: body === undefined ? undefined : JSON.stringify(body)});
+    const json = await res.json().catch(() => null);
+    if (res.status === 401) throw new Error("연결 설정의 API 키를 확인해 주세요.");
+    if (!res.ok || !json || json.success === false) {
+      const m = json && typeof json.message === "string" ? json.message : "요청을 처리하지 못했습니다.";
+      throw new Error(m);
+    }
+    return json.data;
+  }
+  const ward = () => $("gWard").value.trim();
+
+  // 표정 그림 (브로셔의 과일 캐릭터를 단순한 원으로 표현)
+  const FACE = {
+    "기쁨": {color: "#f6b26b", mouth: "M14 27 Q22 35 30 27"},
+    "평온": {color: "#f9cf9c", mouth: "M15 29 Q22 31 29 29"},
+    "확인 필요": {color: "#e9826a", mouth: "M15 31 Q22 25 29 31"},
+    "판단 보류": {color: "#e3d3c6", mouth: "M16 30 L28 30"},
+    "판단 불가": {color: "#e3d3c6", mouth: "M16 30 L28 30"},
+    "분석 실패": {color: "#e3d3c6", mouth: "M16 30 L28 30"},
+    "대화 전": null,
+  };
+  function faceSvg(label) {
+    const f = FACE[label];
+    if (!f) return '<svg class="face" viewBox="0 0 44 44"><circle cx="22" cy="22" r="16" fill="none" stroke="#cbb9ab" stroke-dasharray="3 3"/></svg>';
+    return `<svg class="face" viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" fill="${f.color}"/><circle cx="16" cy="19" r="2" fill="#4a3428"/><circle cx="28" cy="19" r="2" fill="#4a3428"/><path d="${f.mouth}" stroke="#4a3428" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`;
+  }
+
+  // ----- 보호자 -----
+  // 실시간 전달 기록: 새로 저장된 결과를 보호자 화면에 쌓는다 (프로토타입은 3초마다 확인, 실제 제품은 백엔드 푸시)
+  let seenCount = -1;
+  let feedItems = [];
+  function startLive() {
+    if (window.__live) return;
+    window.__live = setInterval(() => {
+      if (!$("guardian").classList.contains("hidden") && $("gDate").value === todayLocal()) loadDay();
+    }, 3000);
+  }
+  function renderFeed() {
+    $("gFeed").innerHTML = feedItems.map((it) =>
+      `<div class="slot" style="grid-template-columns:auto 1fr;margin-bottom:8px"><div class="muted" style="min-width:52px">${esc(it.at)}</div>
+       <div class="box" style="padding:8px 12px"><b>${esc(SLOT_LABEL[it.slot])} · ${esc(it.label)}</b> <span class="muted">${esc(it.reason)}</span></div></div>`).join("");
+  }
+  $("gDate").value = todayLocal();
+  for (const s of SLOTS) $("qSlot").insertAdjacentHTML("beforeend", `<option value="${s}">${SLOT_LABEL[s]}</option>`);
+
+  async function loadDay() {
+    try {
+      const data = await call("GET", `/companion/emotions?wardId=${encodeURIComponent(ward())}&date=${$("gDate").value}`);
+      if (seenCount >= 0 && data.items.length > seenCount) {
+        const at = new Date().toLocaleTimeString("ko-KR", {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+        for (const it of data.items.slice(seenCount)) feedItems.unshift({slot: it.slot, label: it.label, reason: it.reason, at});
+        renderFeed();
+      }
+      seenCount = data.items.length;
+      $("gLive").textContent = `실시간 확인 중 · 마지막 확인 ${new Date().toLocaleTimeString("ko-KR")}`;
+      const bySlot = {};
+      for (const it of data.items) (bySlot[it.slot] ||= []).push(it);
+      $("gTimeline").innerHTML = SLOTS.map((s) => {
+        const rows = bySlot[s] || [];
+        const last = rows[rows.length - 1];
+        const label = last ? last.label : "대화 전";
+        const cls = label === "확인 필요" ? "warn" : (last ? "" : "empty");
+        const reason = last ? esc(last.reason) : "아직 대화가 없어요";
+        return `<div class="slot"><div class="time">${SLOT_LABEL[s]}</div>
+          <div class="box">${faceSvg(label)}<div><div class="label ${cls}">${esc(label)}</div><div class="muted">${reason}</div></div></div></div>`;
+      }).join("");
+      const alert = data.dayResult === "확인 필요";
+      $("gAlert").innerHTML = alert
+        ? `<div class="alert"><b>평소와 다른 마음, 가족이 먼저 압니다</b><div class="muted" style="color:#4a3428">말투의 변화가 보여서 확인이 필요합니다. 어르신과 직접 통화해 보세요.</div></div>`
+        : "";
+      const count = (name) => data.items.filter((i) => i.label === name).length;
+      $("gMood").innerHTML = `
+        <div class="mood"><small>오늘의 마음</small><b>${esc(data.dayResult)}</b></div>
+        <div class="mood"><small>대화 횟수</small><b>${data.items.length}번</b></div>
+        <div class="mood"><small>확인 필요</small><b>${count("확인 필요")}번</b></div>
+        <div class="mood" style="grid-column:1/-1"><small>전체 구성</small><b>${esc(data.summary || "-")}</b></div>`;
+      setMsg($("gMsg"), "", "");
+    } catch (e) { setMsg($("gMsg"), e.message, "err"); }
+  }
+  $("gRefresh").addEventListener("click", loadDay);
+
+  $("qExamples").addEventListener("click", async () => {
+    try {
+      const data = await call("GET", "/companion/examples");
+      $("qChips").innerHTML = "";
+      for (const g of data.categories) for (const ex of g.examples) {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "chip"; b.textContent = ex;
+        b.addEventListener("click", () => { $("qText").value = ex; });
+        $("qChips").appendChild(b);
+      }
+    } catch (e) { setMsg($("qMsg"), e.message, "err"); }
+  });
+  $("qSave").addEventListener("click", async () => {
+    const text = $("qText").value.trim();
+    if (!text) { setMsg($("qMsg"), "질문을 적어 주세요.", "err"); return; }
+    try {
+      const slot = $("qSlot").value;
+      await call("PUT", `/companion/questions/${slot}?wardId=${encodeURIComponent(ward())}`, {question: text});
+      setMsg($("qMsg"), `${SLOT_LABEL[slot]} 질문을 저장했습니다.`, "ok");
+    } catch (e) { setMsg($("qMsg"), e.message, "err"); }
+  });
+
+  // ----- 어르신 -----
+  // 카메라와 표정 (테스트용 표시: 사진은 읽고 바로 버리며 저장하지 않음)
+  let eStream = null;
+  async function listCameras() {
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+    const sel = $("eCamSelect");
+    const before = sel.value;
+    sel.innerHTML = devices.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || "카메라 " + (i + 1))}</option>`).join("");
+    if (before && devices.some((d) => d.deviceId === before)) {
+      sel.value = before;
+    } else {
+      const real = devices.find((d) => !/droidcam/i.test(d.label));
+      if (real) sel.value = real.deviceId;
+    }
+  }
+  $("eCam").addEventListener("click", async () => {
+    if (eStream) {
+      eStream.getTracks().forEach((t) => t.stop());
+      eStream = null;
+      $("eVideo").srcObject = null;
+      $("eVideo").style.display = "none";
+      $("eCam").textContent = "카메라 켜기";
+      $("eCamMsg").textContent = "카메라를 껐어요.";
+      return;
+    }
+    try {
+      // 권한을 먼저 받아야 카메라 이름이 보인다. DroidCam 같은 가상 카메라는 건너뛴다.
+      const probe = await navigator.mediaDevices.getUserMedia({video: true, audio: false});
+      probe.getTracks().forEach((t) => t.stop());
+      await listCameras();
+      const id = $("eCamSelect").value;
+      eStream = await navigator.mediaDevices.getUserMedia({video: id ? {deviceId: {exact: id}} : true, audio: false});
+      $("eVideo").srcObject = eStream;
+      $("eVideo").style.display = "block";
+      $("eCam").textContent = "카메라 끄기";
+      $("eCamMsg").textContent = "카메라가 켜져 있어요. 표정은 화면에만 보여요.";
+    } catch (e) {
+      $("eCamMsg").textContent = "카메라를 켤 수 없어요. 허용 여부를 확인해 주세요.";
+    }
+  });
+  let lastPhoto = null; // 확인 필요 턴에 쓸 작은 사진 (base64 JPEG)
+  async function readExpression() {
+    const v = $("eVideo");
+    if (!eStream || !v.videoWidth) return null;
+    const c = document.createElement("canvas");
+    c.width = 320;
+    c.height = Math.round(320 * v.videoHeight / v.videoWidth);
+    c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+    const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.7));
+    lastPhoto = await new Promise((r) => {
+      const fr = new FileReader();
+      fr.onload = () => r(String(fr.result).split(",")[1]);
+      fr.readAsDataURL(blob);
+    });
+    const fd = new FormData();
+    fd.append("frame", blob, "frame.jpg");
+    const res = await fetch("/companion/expression-check", {method: "POST", headers: {"X-API-Key": $("apiKey").value.trim()}, body: fd});
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json) return {error: true};
+    return json.data;
+  }
+  // 한 턴의 표정: 사진 3장(1초 간격) 중 가장 많이 나온 표정. 동수면 평균 확신도가 높은 쪽.
+  async function readTurnExpression() {
+    const got = [];
+    for (let i = 0; i < 3; i++) {
+      const e = await readExpression().catch(() => null);
+      if (e && e.face) got.push(e);
+      if (i < 2) await new Promise((r) => setTimeout(r, 1000));
+    }
+    if (!got.length) return {face: false, frames: 0};
+    const groups = {};
+    for (const e of got) (groups[e.top] ||= []).push(e.topScore);
+    const ranked = Object.entries(groups).map(([label, scores]) => ({
+      label, n: scores.length, avg: scores.reduce((a, b) => a + b, 0) / scores.length})).sort((a, b) => b.n - a.n || b.avg - a.avg);
+    const best = ranked[0];
+    return {face: true, top: best.label, topScore: Math.round(best.avg * 1000) / 1000, frames: got.length, votes: best.n};
+  }
+  function exprText(expr) {
+    if (!expr || expr.error) return "";
+    if (!expr.face) return "표정: 얼굴이 보이지 않아요";
+    return "표정: " + expr.top + " (사진 " + expr.frames + "장 중 " + expr.votes + "장, 테스트 표시)";
+  }
+
+  let slot = null;
+  let dlg = null;      // {id, endsAt, ended}
+  let tick = null;
+  let rec = null, recChunks = [];
+
+  for (const s of SLOTS) $("eSlots").insertAdjacentHTML("beforeend", `<button type="button" data-slot="${s}">${SLOT_LABEL[s]}</button>`);
+  $("eSlots").addEventListener("click", async (e) => {
+    const b = e.target.closest("button[data-slot]");
+    if (!b || dlg) return;
+    slot = b.dataset.slot;
+    for (const x of $("eSlots").children) x.classList.toggle("on", x === b);
+    try {
+      const data = await call("GET", `/companion/question?wardId=${encodeURIComponent(ward())}&slot=${slot}`);
+      $("eQuestion").textContent = data.question;
+      setMsg($("eMsg"), "", "");
+    } catch (err) {
+      $("eQuestion").textContent = "이 시각의 질문이 아직 없어요.";
+    }
+  });
+
+  const mmss = (sec) => `${Math.floor(sec / 60)}분 ${String(sec % 60).padStart(2, "0")}초`;
+  function renderTimer() {
+    if (!dlg) { $("eTimer").textContent = ""; $("eTalkTimer").textContent = ""; return; }
+    const elapsed = Math.round((dlg.endedAt || Date.now()) - dlg.startedAt) / 1000;
+    const elapsedText = `대화 시간 ${mmss(Math.floor(elapsed))}`;
+    if (dlg.ended) {
+      $("eTimer").textContent = "이야기가 끝났어요";
+      $("eTalkTimer").textContent = elapsedText;
+      return;
+    }
+    const left = Math.max(0, Math.round((dlg.endsAt - Date.now()) / 1000));
+    $("eTimer").textContent = `남은 시간 ${mmss(left)}`;
+    $("eTalkTimer").textContent = `${elapsedText} · 남은 시간 ${mmss(left)}`;
+  }
+  function bubble(who, text, cls) {
+    const d = document.createElement("div");
+    d.className = "bubble " + cls;
+    d.innerHTML = `<span class="who">${who}</span>${esc(text)}`;
+    $("eThread").appendChild(d);
+    $("eThread").scrollTop = $("eThread").scrollHeight;
+  }
+  function showTalk() {
+    $("eStartCard").classList.add("hidden");
+    $("eTalkCard").classList.remove("hidden");
+  }
+
+  $("eStart").addEventListener("click", async () => {
+    if (!slot) { setMsg($("eMsg"), "먼저 시각을 골라 주세요.", "err"); return; }
+    try {
+      const data = await call("POST", "/companion/dialogues", {wardId: ward(), sessionId: "elder-" + Date.now(), slot});
+      dlg = {id: data.dialogueId, startedAt: Date.now(), endsAt: Date.now() + data.secondsLeft * 1000, endedAt: null, ended: false};
+      $("eThread").innerHTML = "";
+      bubble("AI 말벗", data.question, "ai");
+      showTalk();
+      if (!tick) tick = setInterval(renderTimer, 500);
+      renderTimer();
+    } catch (e) { setMsg($("eMsg"), e.message, "err"); }
+  });
+
+  async function afterTurn(data, text, expr) {
+    dlg.endsAt = Date.now() + data.secondsLeft * 1000;
+    bubble("나", text, "me");
+    const line = exprText(expr);
+    if (line) $("eThread").lastElementChild.insertAdjacentHTML("beforeend", `<div class="muted" style="font-size:.85rem">${esc(line)}</div>`);
+    $("eThread").lastElementChild.insertAdjacentHTML("beforeend", `<div class="muted" style="font-size:.85rem">보호자 화면에 전달했어요 (테스트 표시): ${esc(data.label)}</div>`);
+    if (data.reply) bubble("AI 말벗", data.reply, "ai");
+    if (data.done) await finish();
+  }
+
+  $("eSend").addEventListener("click", async () => {
+    const text = $("eText").value.trim();
+    if (!dlg || dlg.ended) return;
+    if (!text) { setMsg($("eMsg"), "대답을 적어 주세요.", "err"); return; }
+    $("eSend").disabled = true;
+    try {
+      const expr = await readTurnExpression().catch(() => null);
+      const data = await call("POST", `/companion/dialogues/${dlg.id}/reply`, {text, face: expr && expr.face ? {label: expr.top, score: expr.topScore} : null, consentPhoto: $("eConsent").checked, photo: $("eConsent").checked ? lastPhoto : null});
+      $("eText").value = "";
+      await afterTurn(data, text, expr);
+    } catch (e) { setMsg($("eMsg"), e.message, "err"); }
+    finally { $("eSend").disabled = !!(dlg && dlg.ended); }
+  });
+
+  function encodeWav(samples, rate) {
+    const buf = new ArrayBuffer(44 + samples.length * 2); const v = new DataView(buf);
+    const put = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    put(0, "RIFF"); v.setUint32(4, 36 + samples.length * 2, true); put(8, "WAVE"); put(12, "fmt ");
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true);
+    v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); put(36, "data"); v.setUint32(40, samples.length * 2, true);
+    for (let i = 0, o = 44; i < samples.length; i++, o += 2) { const s = Math.max(-1, Math.min(1, samples[i])); v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
+    return buf;
+  }
+  async function sendAudio(blob, expr) {
+    const busy = ["eSend", "eRec", "eFinish"];
+    busy.forEach((id) => ($(id).disabled = true));
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 60000);
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+      const off = new OfflineAudioContext(1, Math.ceil(decoded.duration * 16000), 16000);
+      const src = off.createBufferSource(); src.buffer = decoded; src.connect(off.destination); src.start();
+      const wav = encodeWav((await off.startRendering()).getChannelData(0), 16000);
+      const fd = new FormData(); fd.append("audio", new Blob([wav], {type: "audio/wav"}), "answer.wav");
+      if (expr && expr.face) { fd.append("faceLabel", expr.top); fd.append("faceScore", String(expr.topScore)); }
+      fd.append("consentPhoto", $("eConsent").checked ? "true" : "false");
+      if ($("eConsent").checked && lastPhoto) fd.append("photo", lastPhoto);
+      const res = await fetch(`/companion/dialogues/${dlg.id}/reply/audio`, {method: "POST", headers: {"X-API-Key": $("apiKey").value.trim()}, body: fd, signal: ctl.signal});
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json || json.success === false) throw new Error(json && typeof json.message === "string" ? "말씀을 알아듣지 못했어요. 다시 말씀해 주세요." : "음성 처리 실패");
+      await afterTurn(json.data, json.data.transcript, expr);
+    } catch (e) {
+      setMsg($("eMsg"), e.name === "AbortError" ? "음성 처리가 오래 걸려요. 글로 적어 주세요." : e.message, "err");
+    } finally {
+      clearTimeout(timer);
+      busy.forEach((id) => ($(id).disabled = !!(dlg && dlg.ended)));
+    }
+  }
+  $("eRec").addEventListener("click", async () => {
+    if (!dlg || dlg.ended) return;
+    if (rec && rec.state === "recording") { rec.stop(); return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setMsg($("eMsg"), "이 기기에서는 말하기를 쓸 수 없어요. 글로 적어 주세요.", "err"); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+      recChunks = [];
+      rec = new MediaRecorder(stream);
+      rec.ondataavailable = (e) => recChunks.push(e.data);
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        $("eRec").textContent = "말하기";
+        setMsg($("eMsg"), "듣고 있어요...", "busy");
+        const expr = await readTurnExpression().catch(() => null);
+        await sendAudio(new Blob(recChunks, {type: rec.mimeType}), expr);
+      };
+      rec.start();
+      $("eRec").textContent = "말 멈추기";
+      setMsg($("eMsg"), "말씀해 주세요. 끝나면 '말 멈추기'를 눌러 주세요.", "busy");
+    } catch (e) { setMsg($("eMsg"), "마이크를 켤 수 없어요. 허용 여부를 확인해 주세요.", "err"); }
+  });
+
+  async function finish() {
+    if (!dlg || dlg.ended) return;
+    try {
+      const f = await call("POST", `/companion/dialogues/${dlg.id}/finish`);
+      dlg.ended = true; dlg.endedAt = Date.now(); renderTimer();
+      $("eTalkCard").classList.add("hidden");
+      $("eDoneCard").classList.remove("hidden");
+      $("eDoneTitle").textContent = f.sessionLabel === "기쁨" || f.sessionLabel === "평온" ? "오늘도 좋은 마음이에요" : "조금 더 살펴볼게요";
+      $("eDoneText").textContent = `이야기한 시간은 ${mmss(Math.floor((dlg.endedAt - dlg.startedAt) / 1000))}이에요. 대화 결과는 ${f.sessionLabel}입니다. 전체 구성: ${f.summary || "-"}`;
+    } catch (e) { setMsg($("eMsg"), e.message, "err"); }
+  }
+  $("eFinish").addEventListener("click", finish);
+
+  // ----- 탭 -----
+  function show(which) {
+    const g = which === "g";
+    $("guardian").classList.toggle("hidden", !g);
+    $("elder").classList.toggle("hidden", g);
+    $("tabGuardian").classList.toggle("on", g);
+    $("tabElder").classList.toggle("on", !g);
+    if (g) { loadDay(); startLive(); }
+  }
+  $("tabGuardian").addEventListener("click", () => show("g"));
+  $("tabElder").addEventListener("click", () => show("e"));
+  const resetFeed = () => { seenCount = -1; feedItems = []; renderFeed(); loadDay(); };
+  $("gDate").addEventListener("change", resetFeed);
+  $("gWard").addEventListener("change", resetFeed);
+  show("g");
+})();
+</script>
+</body>
+</html>
