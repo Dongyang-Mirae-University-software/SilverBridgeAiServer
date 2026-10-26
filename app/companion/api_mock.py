@@ -33,19 +33,19 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-import dialogue as dlg
-import review_log
-from dialogue import MAX_TURNS, TIME_LIMIT_SEC, Dialogue
-from pydantic import BaseModel, Field
-
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]  # 저장소 루트 (data/, .env 위치)
-sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE))  # 같은 폴더의 모듈을 짧은 이름으로 부른다
 load_dotenv(ROOT / ".env")
+
+import dialogue as dlg  # noqa: E402
+import review_log  # noqa: E402
+from dialogue import MAX_TURNS, TIME_LIMIT_SEC, Dialogue  # noqa: E402
+from pydantic import BaseModel, Field
 
 from fusion import Signal, fuse, is_ambiguous  # noqa: E402
 
@@ -73,12 +73,10 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="companion API mock", version="0.3", lifespan=lifespan)
-# 테스트용 화면 (로컬). 같은 주소에서 열리므로 API 호출 설정이 필요 없다. 화면은 companion-emotion\ui\index.html
-app.mount("/ui", StaticFiles(directory=HERE / "ui", html=True), name="ui")
+# 말벗 API 라우터. AI 서버 앱(app/main.py)에 붙여서 Swagger 에 나타난다.
+router = APIRouter(tags=["말벗 (Companion)"])
 
 
-@app.exception_handler(HTTPException)
 async def http_error(request: Request, exc: HTTPException):
     return JSONResponse(status_code=exc.status_code,
                         content={"success": False, "message": exc.detail, "data": None, "code": exc.detail})
@@ -186,7 +184,7 @@ class AnswerBody(BaseModel):
     faceCheckSec: int = Field(default=0, ge=0, le=10)
 
 
-@app.get("/companion/question", dependencies=[Depends(require_key)])
+@router.get("/companion/question", dependencies=[Depends(require_key)])
 def get_question(wardId: str = Query(...), slot: str = Query(...)) -> dict:
     _check_slot(slot)
     saved = _load(QUESTIONS_FILE, {})
@@ -196,7 +194,7 @@ def get_question(wardId: str = Query(...), slot: str = Query(...)) -> dict:
     return ok({"slot": slot, "question": saved[key]})
 
 
-@app.put("/companion/questions/{slot}", dependencies=[Depends(require_key)])
+@router.put("/companion/questions/{slot}", dependencies=[Depends(require_key)])
 def put_question(slot: str, body: QuestionBody, wardId: str = Query(...)) -> dict:
     _check_slot(slot)
     q = body.question.strip()
@@ -208,12 +206,12 @@ def put_question(slot: str, body: QuestionBody, wardId: str = Query(...)) -> dic
     return ok({"slot": slot, "question": q}, "질문이 저장되었습니다.")
 
 
-@app.get("/companion/examples", dependencies=[Depends(require_key)])
+@router.get("/companion/examples", dependencies=[Depends(require_key)])
 def get_examples() -> dict:
     return ok(json.loads(EXAMPLES_FILE.read_text(encoding="utf-8")))
 
 
-@app.post("/companion/expression-check", dependencies=[Depends(require_key)])
+@router.post("/companion/expression-check", dependencies=[Depends(require_key)])
 async def post_expression_check(frame: UploadFile = File(...)) -> dict:
     """테스트 화면용: 사진 한 장의 얼굴·표정을 읽는다. 사진은 저장하지 않는다."""
     if frame.content_type not in {"image/jpeg", "image/jpg"}:
@@ -302,14 +300,14 @@ class ReviewDecision(BaseModel):
     decision: str  # approved 또는 rejected
 
 
-@app.get("/companion/review/replies", dependencies=[Depends(require_key)])
+@router.get("/companion/review/replies", dependencies=[Depends(require_key)])
 def list_review(status: Optional[str] = Query(default=None)) -> dict:
     if status is not None and status not in review_log.STATUSES:
         raise HTTPException(status_code=422, detail="STATUS_INVALID")
     return ok(review_log.list_items(_load(REVIEW_FILE, []), status))
 
 
-@app.post("/companion/review/replies/{item_id}", dependencies=[Depends(require_key)])
+@router.post("/companion/review/replies/{item_id}", dependencies=[Depends(require_key)])
 def decide_review(item_id: str, body: ReviewDecision) -> dict:
     rows = _load(REVIEW_FILE, [])
     try:
@@ -322,7 +320,7 @@ def decide_review(item_id: str, body: ReviewDecision) -> dict:
     return ok(item, "검수 결과를 저장했습니다.")
 
 
-@app.post("/companion/dialogues", dependencies=[Depends(require_key)])
+@router.post("/companion/dialogues", dependencies=[Depends(require_key)])
 def start_dialogue(body: DialogueStart) -> dict:
     _check_slot(body.slot)
     saved = _load(QUESTIONS_FILE, {})
@@ -340,7 +338,7 @@ def start_dialogue(body: DialogueStart) -> dict:
                "maxTurns": MAX_TURNS, "secondsLeft": TIME_LIMIT_SEC}, "대화를 시작했습니다.")
 
 
-@app.post("/companion/dialogues/{did}/reply", dependencies=[Depends(require_key)])
+@router.post("/companion/dialogues/{did}/reply", dependencies=[Depends(require_key)])
 def reply_dialogue(did: str, body: DialogueReply) -> dict:
     d = DIALOGUES.get(did)
     if d is None:
@@ -362,7 +360,7 @@ def _photo_for_backend(data: dict, consent: bool, photo: Optional[str]) -> Optio
     return None
 
 
-@app.post("/companion/dialogues/{did}/reply/audio", dependencies=[Depends(require_key)])
+@router.post("/companion/dialogues/{did}/reply/audio", dependencies=[Depends(require_key)])
 async def reply_dialogue_audio(did: str, audio: UploadFile = File(...), faceLabel: Optional[str] = Form(None),
                                faceScore: Optional[float] = Form(None), consentPhoto: bool = Form(False),
                                photo: Optional[str] = Form(None)) -> dict:
@@ -390,7 +388,7 @@ async def reply_dialogue_audio(did: str, audio: UploadFile = File(...), faceLabe
     return ok(data, "대답이 저장되었습니다.")
 
 
-@app.post("/companion/dialogues/{did}/finish", dependencies=[Depends(require_key)])
+@router.post("/companion/dialogues/{did}/finish", dependencies=[Depends(require_key)])
 def finish_dialogue(did: str) -> dict:
     d = DIALOGUES.get(did)
     if d is None:
@@ -398,7 +396,7 @@ def finish_dialogue(did: str) -> dict:
     return ok(d.finish(), "대화를 마쳤습니다.")
 
 
-@app.post("/companion/answers", dependencies=[Depends(require_key)])
+@router.post("/companion/answers", dependencies=[Depends(require_key)])
 def post_answer(body: AnswerBody) -> dict:
     _check_slot(body.slot)
     text = body.text.strip()
@@ -412,7 +410,7 @@ def post_answer(body: AnswerBody) -> dict:
     return _store_answer(body.wardId, body.sessionId, body.slot, text, None, face=face)
 
 
-@app.post("/companion/answers/audio", dependencies=[Depends(require_key)])
+@router.post("/companion/answers/audio", dependencies=[Depends(require_key)])
 async def post_answer_audio(wardId: str = Form(...), sessionId: str = Form(...), slot: str = Form(...),
                             audio: UploadFile = File(...)) -> dict:
     _check_slot(slot)
@@ -479,7 +477,7 @@ def _transcribe(raw: bytes) -> tuple[str, float]:
     return text, seconds
 
 
-@app.get("/companion/emotions", dependencies=[Depends(require_key)])
+@router.get("/companion/emotions", dependencies=[Depends(require_key)])
 def get_emotions(wardId: str = Query(...), date: str = Query(...)) -> dict:
     rows = _load(ANSWERS_FILE, [])
     items = [{"slot": r["slot"], "label": r["label"], "reason": r["reason"]}
@@ -489,3 +487,11 @@ def get_emotions(wardId: str = Query(...), date: str = Query(...)) -> dict:
     dist = dlg.distribution(labels)
     summary = dlg.summarize(labels)
     return ok({"date": date, "dayResult": day, "summary": summary, "distribution": dist, "items": items})
+
+
+# 독립 실행용 목업 서버 (개발·시험). AI 서버에서는 위의 router 만 쓴다.
+app = FastAPI(title="companion API mock", version="0.3", lifespan=lifespan)
+app.include_router(router)
+app.add_exception_handler(HTTPException, http_error)
+# 테스트용 화면 (로컬). 같은 주소에서 열리므로 API 호출 설정이 필요 없다.
+app.mount("/ui", StaticFiles(directory=HERE / "ui", html=True), name="ui")

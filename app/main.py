@@ -8,8 +8,10 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 
+from app.companion.api_mock import router as companion_router
 from app.core.config import get_settings
 from app.core.response import error_response
 from app.core.security import require_api_key
@@ -133,6 +135,10 @@ async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse
 
 
 app.include_router(health_router)
+# 말벗·정서 분석 API (Swagger 에 /companion 경로로 나타난다). 인증은 COMPANION_API_KEY 로 따로 건다.
+app.include_router(companion_router)
+# 말벗 테스트 화면 (개발용): /companion/ui/ 와 /companion/ui/product/
+app.mount("/companion/ui", StaticFiles(directory=str(Path(__file__).resolve().parent / "companion" / "ui"), html=True), name="companion-ui")
 app.include_router(model_router, dependencies=[Depends(require_api_key)])
 app.include_router(camera_router, dependencies=[Depends(require_api_key)])
 app.include_router(analysis_router, dependencies=[Depends(require_api_key)])
