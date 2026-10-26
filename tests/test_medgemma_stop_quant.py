@@ -39,7 +39,9 @@ def test_non_object_does_not_stop() -> None:
 def test_resolve_quant_defaults_to_none() -> None:
     assert resolve_quant("nf4") == "nf4"
     assert resolve_quant(" NF4 ") == "nf4"
-    for value in ("none", "", None, "int8", "4bit"):
+    assert resolve_quant("int8") == "int8"
+    assert resolve_quant(" INT8 ") == "int8"
+    for value in ("none", "", None, "8bit", "4bit", "fp16"):
         assert resolve_quant(value) == "none"
 
 
@@ -151,6 +153,44 @@ def test_nf4_failure_falls_back_to_none_with_one_warn(
     warns = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warns) == 1
     assert warns[0].getMessage() == "[MEDGEMMA-QUANT-FALLBACK] MEDGEMMA_QUANT=nf4 -> none (ModuleNotFoundError)"
+
+
+def test_int8_loads_with_8bit_config_and_skips_to(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _install_fakes(monkeypatch, bnb_installed=True)
+    loader = MedGemmaLoader(_settings("int8"))
+    loader.load()
+
+    assert loader.state.loaded and loader.quant == "int8"
+    assert len(calls) == 1
+    assert calls[0]["quantization_config"].kwargs == {"load_in_8bit": True}
+    assert "load_in_8bit" not in calls[0]  # transformers 5.x 는 직접 인자를 받지 않는다 - 설정 객체로만
+    assert calls[0]["device_map"] == {"": 0}
+    assert loader._model.moved is False  # 8비트 모델에도 .to() 를 부르지 않는다
+
+
+def test_int8_failure_falls_back_to_none_with_one_warn(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    calls = _install_fakes(monkeypatch, bnb_installed=False)
+    loader = MedGemmaLoader(_settings("int8"))
+    with caplog.at_level(logging.WARNING, logger="app.models.medgemma_loader"):
+        loader.load()
+
+    assert loader.state.loaded and loader.quant == "none"
+    assert len(calls) == 1 and "quantization_config" not in calls[0]
+    assert loader._model.moved is True
+    warns = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert warns == ["[MEDGEMMA-QUANT-FALLBACK] MEDGEMMA_QUANT=int8 -> none (ModuleNotFoundError)"]
+
+
+def test_unknown_quant_loads_none_without_bitsandbytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _install_fakes(monkeypatch, bnb_installed=True)
+    monkeypatch.delitem(sys.modules, "bitsandbytes")
+    loader = MedGemmaLoader(_settings("8bit"))
+    loader.load()
+
+    assert loader.quant == "none" and "quantization_config" not in calls[0]
+    assert "bitsandbytes" not in sys.modules
 
 
 # ---- 생성 경로: 멈춤 조건은 prefill="{" 일 때만 (실제 torch 필요) ----------------------------------------

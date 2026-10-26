@@ -158,7 +158,7 @@ class Settings(BaseModel):
     repetition_penalty: float = _as_float("REPETITION_PENALTY", 1.1)
     do_sample: bool = _as_bool("DO_SAMPLE", True)
     load_in_8bit: bool = _as_bool("LOAD_IN_8BIT", False)
-    # MedGemma 가중치 양자화. none(기본, bf16 그대로) | nf4(bitsandbytes 4비트). 모르는 값은 none으로 본다.
+    # MedGemma 가중치 양자화. none(기본, bf16 그대로) | nf4(bitsandbytes 4비트) | int8(bitsandbytes 8비트). 모르는 값은 none으로 본다.
     medgemma_quant: str = os.getenv("MEDGEMMA_QUANT", "none").strip().lower()
     # MedGemma 구조화(JSON) 생성 전용 상한(2026-10-26). 비면 MAX_NEW_TOKENS, 64~2048 밖이면 MAX_NEW_TOKENS로 대체한다.
     medgemma_json_max_tokens: int = _as_int_in_range("MEDGEMMA_JSON_MAX_TOKENS", max_new_tokens, 64, 2048)
