@@ -16,3 +16,18 @@ python-multipart==0.0.32
 pillow==12.3.0  # 약 봉투 OCR 이미지 정규화(직접 사용). ultralytics·torchvision 이 끌어오던 버전과 같게 고정
 imageio-ffmpeg==0.6.0  # 클립 인코딩용 정적 ffmpeg 7.0.2(libvpx 포함). 시스템 ffmpeg 불필요
 anthropic>=1.0
+
+# ── 말벗·정서 분석 (app/companion) ──────────────────────────────
+# 위 목록과 겹치는 패키지(fastapi, uvicorn, pillow, python-dotenv, transformers, python-multipart)는 위 버전을 따른다.
+# 충돌 주의:
+#   opencv: 말벗 얼굴 검출은 OpenCV 4.x 의 CascadeClassifier 를 쓴다. 위의 opencv-python-headless 5.x 에는 없다.
+#           같은 환경에서 둘 다 쓸 수 없으므로 결정이 필요하다 (docs/companion/README.md 참고).
+#   torch: 말벗 음성·표정은 CPU 로도 돌아가지만, 위 Dockerfile 의 CUDA 휠을 그대로 쓴다.
+soundfile==0.14.0
+tzdata==2026.5
+faster-whisper==1.2.1  # 음성 → 글자 (STT)
+emotiefflib==1.1.1  # 표정 모델 (HSEmotion)
+timm==0.9.12  # HSEmotion 가중치와 맞는 버전 (최신 timm 은 오류)
+onnxruntime==1.31.0
+openpyxl==3.1.5  # 평가 스크립트 (AI Hub 엑셀 읽기)
+scikit-learn==1.9.1  # 평가 스크립트 (정확도·F1)
