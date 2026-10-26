@@ -319,6 +319,9 @@ class ChatService:
             result.setdefault("meta", {})
             if isinstance(result["meta"], dict):
                 result["meta"]["router"] = {k: route_info.get(k) for k in ("route", "engine", "reason", "normalized_message", "symptom_summary", "emergency", "emergency_signals")}
+                # 라우터가 자해로 봤는지(점검 L-1). 라우터를 거치지 않은 턴(키워드·규칙·UI)은 None - 모르는 값을 false로 채우지 않는다.
+                router_self_harm = route_info.get("self_harm")
+                result["meta"]["router"]["self_harm"] = router_self_harm if isinstance(router_self_harm, bool) else None
                 # 라우터 기억은 이 상담의 피보호자에게 묶는다 - 다른 피보호자 상담에서 앞 사람의 병원·날짜를 이어 쓰지 않게.
                 result["meta"]["router"]["wardId"] = ward_id
 
