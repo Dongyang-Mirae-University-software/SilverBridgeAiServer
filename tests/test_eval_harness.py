@@ -63,6 +63,17 @@ def test_v5_set_keeps_v4_items_and_adds_crisis_recheck_items() -> None:
     assert next(i for i in v5 if i["id"] == "qa.D5")["direction_check"] == "alcohol_glucose"
 
 
+def test_v6_set_keeps_v5_items_and_adds_drug_alcohol_items() -> None:
+    eval_dir = Path(__file__).parent / "eval"
+    v5 = json.loads((eval_dir / "eval_set_v5.json").read_text(encoding="utf-8"))["items"]
+    v6 = json.loads((eval_dir / "eval_set_v6.json").read_text(encoding="utf-8"))["items"]
+    assert v6[: len(v5)] == v5
+    added = v6[len(v5):]
+    assert [i["id"] for i in added] == [f"ax.{n:02d}" for n in range(1, 9)]
+    rules = {"diabetes", "sedative", "acetaminophen", "anticoagulant", "blood_pressure"}
+    assert all(i["drug_alcohol"] in rules | {None} for i in added)
+
+
 def test_judge_replay_release_key() -> None:
     expect = {"replay_release": True, "crisis_reply": False}
     released = [{"crisisReply": True}, {"crisisReply": False, "crisisFollowup": True}]

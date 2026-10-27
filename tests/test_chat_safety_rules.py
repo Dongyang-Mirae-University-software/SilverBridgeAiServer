@@ -210,7 +210,7 @@ def test_diabetes_alcohol_question_gets_hypoglycemia_sentence(message: str, capl
     with caplog.at_level(logging.INFO):
         out = _generate(message, "술은 혈당을 높일 수 있어요. 의사와 상의하세요.")  # 방향이 반대인 모델 답(qa.D5 관찰)
     assert HYPO in out["reply"] and out["reply"].count(HYPO) == 1
-    assert "[CHAT-SAFETY] alcohol_hypoglycemia_sentence=added" in "\n".join(r.getMessage() for r in caplog.records)
+    assert "added=diabetes" in "\n".join(r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.parametrize("advice", [
@@ -226,19 +226,19 @@ def test_glucose_up_sentence_is_replaced_by_hypoglycemia_sentence(advice: str, c
     assert HYPO in reply
     assert not re.search(r"혈당[^.]{0,12}(높|오르|올라|올리|올려|상승)", reply.replace(HYPO, ""))
     joined = "\n".join(r.getMessage() for r in caplog.records)
-    assert "[CHAT-SAFETY] alcohol_glucose_up_dropped=1" in joined and "혈당을" not in joined
+    assert "[CHAT-SAFETY] drug_alcohol dropped={'diabetes': 1} added=diabetes" in joined and "혈당을" not in joined
 
 
 def test_drop_keeps_other_sentences_and_hypoglycemia_sentence() -> None:
     reply = "말씀해 주신 내용을 정리했어요.\n· 증상: 음주 문의\n술은 혈당을 높일 수 있어요. 안주로 단 음료는 피하세요.\n술은 저혈당을 일으키고 혈당을 높일 수도 있어요."
-    out, removed = MedicalLlmService.drop_alcohol_glucose_up_sentences(reply)
-    assert removed == 1
+    out, dropped, added = MedicalLlmService.apply_drug_alcohol_rules("당뇨약 먹는데 술 마셔도 돼요", reply)
+    assert dropped == {"diabetes": 1} and added == []  # 남은 문장에 저혈당이 있어 고정 문장은 붙이지 않는다
     assert out == "말씀해 주신 내용을 정리했어요.\n· 증상: 음주 문의\n안주로 단 음료는 피하세요.\n술은 저혈당을 일으키고 혈당을 높일 수도 있어요."
 
 
 def test_drop_removes_line_left_empty() -> None:
-    out, removed = MedicalLlmService.drop_alcohol_glucose_up_sentences("공감\n· 특징: 술은 혈당을 높여요.\n권고")
-    assert removed == 1 and out == "공감\n권고"
+    out, dropped, _ = MedicalLlmService.apply_drug_alcohol_rules("당뇨약 먹는데 술 마셔도 돼요", "공감\n· 특징: 술은 혈당을 높여요.\n권고")
+    assert dropped == {"diabetes": 1} and out == f"공감\n권고\n{HYPO}"
 
 
 def test_glucose_up_sentence_kept_for_other_questions() -> None:
@@ -262,6 +262,66 @@ def test_hypoglycemia_sentence_not_added_on_emergency() -> None:
     out = MedicalLlmService(Settings(), _Loader("x")).generate(
         "당뇨약 먹고 술 마셨는데 의식이 흐려요", {}, [], intent="emergency_guidance")
     assert HYPO not in out["reply"]
+
+
+# ---- 2026-10-27 약 + 술 규칙 확장(수면제·타이레놀·항응고제·혈압약, 허용 문장) ------------------------------------
+
+SEDATIVE = "수면제나 안정제를 술과 함께 드시면 숨이 약해지거나 깨어나기 어려울 만큼 위험할 수 있어요. 술과 함께 드시지 마세요."
+ACETAMINOPHEN = "타이레놀(아세트아미노펜)을 드시는 중에 술을 마시면 간이 상할 수 있어요. 함께 드시지 마시고, 술을 자주 드시면 의사·약사와 상의하세요."
+ANTICOAGULANT = "와파린 같은 피를 묽게 하는 약을 드시는 중에 술을 마시면 출혈 위험이 커지고 약 효과가 달라질 수 있어요. 드시기 전에 의사·약사와 꼭 상의하세요."
+BLOOD_PRESSURE = "혈압약을 드시는 중에 술을 마시면 혈압이 너무 떨어져 어지럽거나 넘어질 수 있어요. 드시기 전에 의사·약사와 상의하세요."
+
+
+@pytest.mark.parametrize(("message", "sentence"), [
+    ("수면제 먹고 술 한잔 해도 돼요?", SEDATIVE),
+    ("타이레놀 먹고 소주 마셔도 괜찮아?", ACETAMINOPHEN),
+    ("와파린 먹는데 막걸리 마셔도 되나요", ANTICOAGULANT),
+    ("고혈압약 먹는데 술 마셔도 되나요", BLOOD_PRESSURE),
+])
+def test_drug_alcohol_question_gets_fixed_sentence(message: str, sentence: str) -> None:
+    out = _generate(message, "약을 더 드시거나 바꾸기 전에 의사·약사와 상담하세요.")  # 측정에서 본 질문과 맞지 않는 일반 문구
+    assert out["reply"].count(sentence) == 1
+
+
+def test_fixed_sentence_skipped_when_reply_already_covers_risk() -> None:
+    out = _generate("타이레놀 먹고 소주 마셔도 괜찮아?", "술과 함께 드시면 간 손상 위험이 있어 피하세요.")
+    assert ACETAMINOPHEN not in out["reply"]
+
+
+def test_anticoagulant_wrong_direction_dropped_correct_kept() -> None:
+    reply = "술은 혈액 응고 위험이 높아질 수 있어요. 술은 피가 잘 응고되지 않게 해 출혈 위험이 높아져요."
+    out, dropped, added = MedicalLlmService.apply_drug_alcohol_rules("와파린 먹는데 술 마셔도 돼요?", reply)
+    assert dropped == {"anticoagulant": 1} and added == []
+    assert out == "술은 피가 잘 응고되지 않게 해 출혈 위험이 높아져요."
+
+
+@pytest.mark.parametrize("sentence", ["한 잔 정도는 괜찮을 수 있으나 혈당을 확인하세요.", "술은 적당히 드셔도 괜찮아요.", "소주 한두 잔은 문제없어요."])
+def test_alcohol_allowance_sentence_dropped(sentence: str) -> None:
+    out, dropped, _ = MedicalLlmService.apply_drug_alcohol_rules("혈당약 먹는데 소주 한 잔 괜찮아요?", f"주의가 필요해요. {sentence}")
+    assert dropped == {"allowance": 1} and sentence not in out
+
+
+@pytest.mark.parametrize("sentence", ["한 잔도 괜찮지 않아요.", "조금이라도 드시면 안 돼요."])
+def test_negated_allowance_kept(sentence: str) -> None:
+    out, dropped, _ = MedicalLlmService.apply_drug_alcohol_rules("수면제 먹는데 술 한 잔 괜찮아요?", sentence)
+    assert "allowance" not in dropped and sentence in out
+
+
+def test_multiple_drugs_get_each_sentence() -> None:
+    out, _, added = MedicalLlmService.apply_drug_alcohol_rules("혈압약이랑 당뇨약 먹는데 술 마셔도 돼요?", "상담하세요.")
+    assert added == ["diabetes", "blood_pressure"] and HYPO in out and BLOOD_PRESSURE in out
+
+
+@pytest.mark.parametrize("message", ["수면제를 매일 먹어도 되나요", "타이레놀 몇 알까지 먹어도 돼?", "와파린 먹는데 수술해도 되나요", "한 잔 정도 물 마셔도 돼요?"])
+def test_drug_alcohol_rules_only_with_alcohol_and_drug(message: str) -> None:
+    reply = "조금은 드셔도 괜찮아요. 의사와 상의하세요."
+    assert MedicalLlmService.apply_drug_alcohol_rules(message, reply) == (reply, {}, [])
+
+
+def test_drug_alcohol_rules_not_applied_on_emergency() -> None:
+    out = MedicalLlmService(Settings(), _Loader("x")).generate(
+        "수면제 먹고 술 마셨는데 숨쉬기 힘들어요", {}, [], intent="emergency_guidance")
+    assert SEDATIVE not in out["reply"]
 
 
 # ---- C-4 진료과 키워드 --------------------------------------------------------------------------------
