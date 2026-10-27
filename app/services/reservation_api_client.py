@@ -59,6 +59,18 @@ def _department_matches(query: str, departments: list[Any] | tuple[Any, ...] | N
     return any(dept in candidate for candidate in candidates)
 
 
+def _slot_department(query: str, departments: list[Any] | tuple[Any, ...] | None) -> str | None:
+    """병원 진료과 중 사용자가 찾은 진료과에 해당하는 실제 이름(같은 이름 우선, 없으면 그 말을 포함한 첫 진료과).
+    시간 칸은 진료과마다 따로라 빈 시간 조회에 이 이름을 넘긴다. 못 고르면 None(병원 전체 기준)."""
+    q = (query or "").strip()
+    if not q or not isinstance(departments, (list, tuple)):
+        return None
+    names = [str(item).strip() for item in departments if str(item).strip()]
+    if q in names:
+        return q
+    return next((name for name in names if q in name), None)
+
+
 def _filter_future_slot_times(slot_date: str | None, slots: list[str]) -> list[str]:
     date_text = (slot_date or "").strip()
     if not date_text:
@@ -293,10 +305,14 @@ class ReservationApiClient:
 
             slot_list: list[str] = []
             if slot_date and hid is not None:
+                slot_params = {"date": slot_date}
+                slot_dept = _slot_department(dept, depts)
+                if slot_dept:
+                    slot_params["department"] = slot_dept
                 st2, slot_data = self._request(
                     "GET",
                     f"/hospitals/{hid}/available-slots",
-                    params={"date": slot_date},
+                    params=slot_params,
                     auth=auth_mode,
                     token_override=api_key_override,
                 )
@@ -373,12 +389,18 @@ class ReservationApiClient:
         )
         return {"httpStatus": st, "data": data}
 
-    def get_available_slots(self, hospital_id: int, date: str, *, api_key_override: str | None = None) -> dict[str, Any]:
+    def get_available_slots(
+        self, hospital_id: int, date: str, *, api_key_override: str | None = None, department: str | None = None
+    ) -> dict[str, Any]:
+        """빈 시간. 시간 칸은 진료과마다 따로라 진료과를 넘기면 그 진료과 기준이다(생략하면 병원 전체 기준)."""
         auth_mode = "api_key" if self._resolve_api_key(api_key_override) else "none"
+        params = {"date": date}
+        if department and department.strip():
+            params["department"] = department.strip()
         st, data = self._request(
             "GET",
             f"/hospitals/{hospital_id}/available-slots",
-            params={"date": date},
+            params=params,
             auth=auth_mode,
             token_override=api_key_override,
         )

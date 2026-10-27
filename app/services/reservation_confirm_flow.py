@@ -21,7 +21,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.database.session import SessionLocal
 from app.models.reservation_token_claim import ReservationTokenClaim
-from app.services.reservation_common import _SEOUL_TZ, _date_label, _digits, _phone_last4, _trace
+from app.services.reservation_common import DEMO_NOTICE, _SEOUL_TZ, _date_label, _digits, _phone_last4, _trace, with_demo_notice
 from app.services.reservation_intake import ReservationDraft, build_reservation_draft
 
 CONFIRM_FIELDS = frozenset(
@@ -258,6 +258,7 @@ class ReservationFlowMixin:
         ]
         if replaces:
             lines.append(f"※ 기존 예약({replaces.get('label')})은 새 예약이 완료되면 취소돼요.")
+        lines.append(DEMO_NOTICE)
         _trace(
             meta, "reservation_confirm_shown", hospital_id=draft.hospital_id, department=draft.department,
             reservation_date=draft.reservation_date, reservation_time=draft.reservation_time,
@@ -335,7 +336,7 @@ class ReservationFlowMixin:
         if draft.hospital_id is None or not draft.reservation_date:
             return None
         draft.reservation_time = None
-        slot_date, slots = self._find_slots(draft.hospital_id, draft.reservation_date, key, meta)  # type: ignore[attr-defined]
+        slot_date, slots = self._find_slots(draft.hospital_id, draft.reservation_date, key, meta, draft.department)  # type: ignore[attr-defined]
         if slot_date is None or not slots:
             return None
         out = self._time_select_reply(  # type: ignore[attr-defined]
@@ -362,9 +363,10 @@ class ReservationFlowMixin:
                     "kind": "cancel", "token": token, "reservationId": int(replaces["id"]),
                     "wardId": self._ward_id(req), "label": replaces.get("label"), "createdAt": int(time.time()),
                 }
-                reply = f"새 예약은 완료되었지만 기존 예약({replaces.get('label')}) 취소에 실패했어요. 기존 예약을 취소할까요?"
+                # 질문이 마지막 줄에 오도록 시연용 안내를 앞에 둔다.
+                reply = f"{DEMO_NOTICE}\n새 예약은 완료되었지만 기존 예약({replaces.get('label')}) 취소에 실패했어요. 기존 예약을 취소할까요?"
                 ui = self._cancel_confirm_ui(token)
-        out = self._flow_message(meta, reply, ui)
+        out = self._flow_message(meta, with_demo_notice(reply), ui)
         out.update({"type": "tool_result", "tool": "make_appointment", "data": shaped})
         return out
 

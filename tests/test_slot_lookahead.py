@@ -10,9 +10,11 @@ class _FakeReservation:
     def __init__(self, slots_by_date: dict[str, list[str] | None]) -> None:
         self.slots_by_date = slots_by_date
         self.calls: list[str] = []
+        self.departments: list[str | None] = []
 
-    def get_available_slots(self, hospital_id: int, date: str, *, api_key_override=None):  # noqa: ARG002
+    def get_available_slots(self, hospital_id: int, date: str, *, api_key_override=None, department=None):  # noqa: ARG002
         self.calls.append(date)
+        self.departments.append(department)
         slots = self.slots_by_date.get(date)
         if slots is None:
             return {"httpStatus": 500, "data": None}
