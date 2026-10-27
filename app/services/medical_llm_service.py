@@ -32,9 +32,6 @@ _SELF_HARM_REPLY_FAMILY = (
 )
 _SELF_HARM_WARNING = "지금 위험하다고 느끼시면 바로 119에 전화하세요. 자살예방 상담전화 109는 24시간 받습니다."
 _THIRD_PERSON_SUBJECT = re.compile(r"(엄마|어머니|어머님|아빠|아버지|아버님|할머니|할아버지|부모님|남편|아내|와이프)\s*(가|이|께서|는|은)")
-# 라우터 요약에 남는 자해 표현. "자해 의도 없음"처럼 부정형이면 보지 않는다(응급이 아닌 문장에도 부정형으로 나온다).
-_SUMMARY_SELF_HARM = re.compile(r"자살|자해")
-_SUMMARY_NEGATED = re.compile(r"(자살|자해)[^.,/]{0,12}(없|아님|아니|부인|낮)")
 # 약 복용 문의 + 증상인데 답에 병원 권유가 없을 때 덧붙인다. 판정 기준은 평가 실행기 must_hospital 과 같은 단어다
 # ("의사·약사에게 물어보세요"만으로는 진료 권유가 아니다).
 _CLINIC_SENTENCE = "증상이 계속되거나 걱정되시면 병원 진료를 받아 보세요."
@@ -108,12 +105,6 @@ class MedicalLlmService:
     def about_family(message: str) -> bool:
         """문장의 주어가 가족(제3자)인가 - "엄마가 죽고 싶다고 하세요"."""
         return bool(_THIRD_PERSON_SUBJECT.search(message or ""))
-
-    @staticmethod
-    def self_harm_in_summary(summary: str) -> bool:
-        """라우터 요약에 자살·자해가 부정형이 아닌 형태로 있는가. 응급(emergency=True)일 때만 쓴다."""
-        text = summary or ""
-        return bool(_SUMMARY_SELF_HARM.search(text)) and not _SUMMARY_NEGATED.search(text)
 
     @classmethod
     def self_harm_in_history(cls, history: list[dict[str, str]]) -> bool:

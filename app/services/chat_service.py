@@ -45,6 +45,9 @@ _UNSTORED_META_KEYS = ("reservationApiKey", "storedFlow", "rawMessage")
 _CRISIS_FOLLOWUP = "힘드시면 언제든 자살예방 상담전화 109(24시간)에 이야기해 보세요."
 # 라우터 실패 시 앞 턴 위기에 이어지는 짧은 말로 볼 최대 길이(공백 제외, 점검 M-1).
 _CRISIS_CONTINUE_MAX_CHARS = 12
+# 그 짧은 말 중 감사 표현은 위기가 이어지는 말로 보지 않는다(일반 폴백 + 109 한 줄, 2026-10-27).
+# 작별 인사("안녕"·"잘 있어")는 위기 신호일 수 있어 넣지 않는다.
+_CRISIS_CONTINUE_EXCLUDED = re.compile(r"고마|고맙|감사")
 
 
 def _persistable_meta(meta: Any) -> dict:
@@ -183,8 +186,17 @@ class ChatService:
                 _LOG.info("[CHAT-SAFETY] crisis_continues_fallback=true text_len=%s", len(message))
                 self_harm_trigger = "history"
                 route_info = {**route_info, "route": "symptom", "emergency": True, "reason": "crisis-continues-fallback"}
-            after_crisis = bool(message) and not self_harm_keyword and self._previous_turn_was_crisis(db, payload.userId, session_id)
-            release = self._release_after_crisis(route_info, message, self_harm_trigger) if after_crisis else None
+            prev_meta = self._previous_turn_meta(db, payload.userId, session_id) if message and not self_harm_keyword else {}
+            after_crisis = bool(prev_meta.get("selfHarm"))
+            # 위기 뒤 해제된 턴(서버 기록 crisisFollowup)의 다음 턴도 history(앞 턴 자해 키워드) 근거로 다시 갇히지 않게
+            # 같은 해제 검사를 탄다(2026-10-27). 클라이언트 history만 있고 서버 기록이 없으면 풀지 않는다.
+            # 라우터가 실패한 턴의 history 근거는 라우터 판단이 없어 그대로 둔다.
+            history_after_release = (
+                self_harm_trigger == "history" and not router_failed and not after_crisis and bool(prev_meta.get("crisisFollowup"))
+            )
+            release = (
+                self._release_after_crisis(route_info, message, self_harm_trigger) if after_crisis or history_after_release else None
+            )
             if release is not None:
                 if release == "reservation":
                     # "응 예약해줘": 증상 단어가 없고 예약 의도가 분명하면 예약으로(새 예약으로 시작).
@@ -427,28 +439,30 @@ class ChatService:
     @staticmethod
     def _crisis_continues_without_router(message: str, history: list[dict[str, str]]) -> bool:
         """라우터가 실패했을 때 위기가 이어지는 말로 볼 것인가(점검 M-1): 직전 사용자 턴 2개에 자해 키워드가 있고,
-        이번 문장이 짧고(공백 빼고 12자 이하) 증상·예약 의도가 없다. 라우터 판단이 없어 안전 쪽으로 넓게 잡는다."""
+        이번 문장이 짧고(공백 빼고 12자 이하) 증상·예약 의도·감사 표현이 없다. 라우터 판단이 없어 안전 쪽으로 넓게 잡는다."""
         if not message or not MedicalLlmService.self_harm_in_history(history):
             return False
         if len(re.sub(r"\s", "", message)) > _CRISIS_CONTINUE_MAX_CHARS:
             return False
-        if any(word in message for word in MedicalLlmService.MEDICAL_KEYWORDS):
+        if any(word in message for word in MedicalLlmService.MEDICAL_KEYWORDS) or _CRISIS_CONTINUE_EXCLUDED.search(message):
             return False
         return not ReservationOrchestrator._looks_like_reservation(message)
 
     @staticmethod
-    def _previous_turn_was_crisis(db: Session, user_id: str, session_id: str) -> bool:
-        """같은 세션의 직전 턴이 위기 고정 응답이었는가. 클라이언트 history가 아니라 서버 챗 기록(upstreamMeta.selfHarm)으로 본다."""
+    def _previous_turn_meta(db: Session, user_id: str, session_id: str) -> dict:
+        """같은 세션 직전 턴의 위기 표시(selfHarm = 위기 고정 응답 / crisisFollowup = 위기 뒤 해제되어 109 한 줄이 붙음).
+        클라이언트 history가 아니라 서버 챗 기록(upstreamMeta)으로 본다. 다른 세션이거나 기록이 없으면 빈 dict."""
         log = db.query(ChatLog).filter(ChatLog.user_id == user_id).order_by(ChatLog.id.desc()).first()
         if not log:
-            return False
+            return {}
         try:
             ctx = json.loads(log.context_json or "{}")
         except json.JSONDecodeError:
-            return False
+            return {}
         if ctx.get("sessionId") != session_id:
-            return False
-        return bool((ctx.get("upstreamMeta") or {}).get("selfHarm"))
+            return {}
+        meta = ctx.get("upstreamMeta") or {}
+        return {k: bool(meta.get(k)) for k in ("selfHarm", "crisisFollowup")}
 
     @staticmethod
     def _last_flow_state(db: Session, user_id: str, session_id: str) -> dict:
@@ -567,16 +581,15 @@ class ChatService:
 
     @staticmethod
     def _self_harm_trigger(keyword: bool, route_info: dict, history: list[dict[str, str]]) -> str | None:
-        """위기 고정 응답을 낼 근거. keyword = 이번 문장 키워드 / router = 라우터 self_harm 칸이 true이거나, 응급이고 요약에 자해·자살(부정형 제외) /
-        history = 이번 턴이 응급이고 직전 사용자 턴 2개에 자해 신호. 응급이 아니면 앞 턴 때문에 위기 응답에 가두지 않는다."""
+        """위기 고정 응답을 낼 근거. keyword = 이번 문장 키워드 / router = 라우터 self_harm 칸이 true /
+        history = 이번 턴이 응급이고 직전 사용자 턴 2개에 자해 신호. 응급이 아니면 앞 턴 때문에 위기 응답에 가두지 않는다.
+        라우터 요약 문구(자살·자해)로 보던 판정은 뺐다(2026-10-27) - 측정에서 칸 true 밖으로 잡은 건이 0건이었다."""
         if keyword:
             return "keyword"
         if route_info and route_info.get("self_harm") is True:
             return "router"
         if not route_info or not route_info.get("emergency"):
             return None
-        if MedicalLlmService.self_harm_in_summary(str(route_info.get("symptom_summary") or "")):
-            return "router"
         if MedicalLlmService.self_harm_in_history(history):
             return "history"
         return None

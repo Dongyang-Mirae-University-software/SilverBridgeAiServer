@@ -55,10 +55,16 @@ def test_trigger_router_from_flag_even_without_summary_words() -> None:
     assert ChatService._self_harm_trigger(False, route_info, []) == "router"
 
 
-def test_trigger_keeps_summary_basis_as_fallback() -> None:
-    # 칸이 false여도 기존 판정(응급 + 요약에 자살·자해)은 그대로 산다(전환기 이중 안전망).
+def test_summary_words_alone_no_longer_trigger() -> None:
+    # 2026-10-27 요약 문구 판정 제거(의도된 변경): 칸이 false면 요약에 자살·자해가 있어도 위기 응답 근거가 아니다(일반 응급 안내로).
     route_info = {"route": "symptom", "emergency": True, "self_harm": False, "symptom_summary": "자살 생각을 표현함"}
-    assert ChatService._self_harm_trigger(False, route_info, []) == "router"
+    assert ChatService._self_harm_trigger(False, route_info, []) is None
+
+
+def test_summary_helper_removed() -> None:
+    from app.services import medical_llm_service as mls
+    assert not hasattr(mls.MedicalLlmService, "self_harm_in_summary")
+    assert not hasattr(mls, "_SUMMARY_NEGATED") and not hasattr(mls, "_SUMMARY_SELF_HARM")
 
 
 def test_no_trigger_when_flag_false_and_summary_negated() -> None:

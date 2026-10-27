@@ -178,7 +178,7 @@ def test_resume_reservation_after_crisis(env, caplog) -> None:
     assert env.orch.calls == 1
     assert out["reply"].startswith(cs._CRISIS_FOLLOWUP)
     assert out["intent"] == "hospital_reservation"
-    assert "resume_reservation_after_crisis=true trigger=router" in "\n".join(r.getMessage() for r in caplog.records)
+    assert "resume_reservation_after_crisis=true trigger=history" in "\n".join(r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.parametrize("message", ["가슴이 답답해서 예약해줘", "응급실 예약해줘", "죽고 싶어 예약해줘", "고마워요"])
