@@ -180,6 +180,41 @@ def test_router_failure_after_release_keeps_history_basis(env) -> None:
     assert env.llm.calls == before and _last_meta(env)["selfHarm"] is True
 
 
+# ---- 2026-10-27 점검 M-1: 해제된 턴에서 생성이 실패해도 위기 응답을 되살리지 않는다 --------------------------------
+
+
+class _FailingLlm:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate(self, *a, **k) -> dict[str, Any]:  # noqa: ARG002
+        self.calls += 1
+        raise RuntimeError("MedGemmaBusyError")
+
+
+@pytest.mark.parametrize("after_release", [False, True])
+def test_llm_failure_on_released_emergency_turn_gives_emergency_fallback(env, after_release: bool) -> None:
+    history = _released(env) if after_release else (_crisis(env) or CRISIS_HISTORY)
+    env.llm = _FailingLlm()
+    env.router = _FlagRouter(self_harm=False, emergency=True, summary="식은땀·시야 흐림")
+    out = _send(env, "갑자기 식은땀이 나고 눈앞이 캄캄해요", "s1", history)
+    meta = _last_meta(env)
+    assert not meta.get("selfHarm") and meta["crisisFollowup"] is True  # 위기 응답 + 해제 모순 기록 없음
+    assert out["reply"].startswith(cs._CRISIS_FOLLOWUP) and out["reply"].count("109") == 1
+    assert out["riskLevel"] == "high" and any("119" in w for w in out["emergencyWarning"])
+
+
+def test_fallback_history_basis_switch(env) -> None:
+    # 폴백 자체: history_basis=True(기본)면 앞 턴 자해 키워드 + 응급 = 위기 응답, False면 일반 119 폴백.
+    # 이번 문장의 자해 키워드는 history_basis 와 상관없이 위기 응답.
+    kept = env.svc._fallback_reply("식은땀이 나요", CRISIS_HISTORY, emergency=True)
+    released = env.svc._fallback_reply("식은땀이 나요", CRISIS_HISTORY, emergency=True, history_basis=False)
+    keyword = env.svc._fallback_reply("죽고 싶어", CRISIS_HISTORY, emergency=True, history_basis=False)
+    assert kept["meta"]["selfHarm"] is True
+    assert not (released.get("meta") or {}).get("selfHarm") and released["riskLevel"] == "high"
+    assert keyword["meta"]["selfHarm"] is True
+
+
 # ---- 2026-10-27 재점검 ②: 키워드 밖 위기 표현은 라우터 칸에 달려 있다 -------------------------------------------------
 
 

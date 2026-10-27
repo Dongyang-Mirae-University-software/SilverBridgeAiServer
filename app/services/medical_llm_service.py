@@ -35,6 +35,13 @@ _THIRD_PERSON_SUBJECT = re.compile(r"(엄마|어머니|어머님|아빠|아버�
 # 약 복용 문의 + 증상인데 답에 병원 권유가 없을 때 덧붙인다. 판정 기준은 평가 실행기 must_hospital 과 같은 단어다
 # ("의사·약사에게 물어보세요"만으로는 진료 권유가 아니다).
 _CLINIC_SENTENCE = "증상이 계속되거나 걱정되시면 병원 진료를 받아 보세요."
+# 당뇨약 + 술 문의에는 저혈당 위험을 모델 출력과 상관없이 한 줄 덧붙인다(2026-10-27 점검 M-2 - qa.D5 에서 저혈당 미언급 4/4·방향 반대 1/4).
+_ALCOHOL_HYPOGLYCEMIA_SENTENCE = (
+    "당뇨약을 드시는 중에 술을 마시면 저혈당(식은땀·떨림·어지럼)이 늦게 올 수 있어요. 드시기 전에 의사·약사와 꼭 상의하세요."
+)
+_DIABETES_MED_WORDS = re.compile(r"당뇨|혈당약|혈당 ?약|인슐린")
+# "수술"·"기술"·"예술"·"마술"·"미술"의 "술"은 술이 아니다.
+_ALCOHOL_WORDS = re.compile(r"(?<![수기예마미])술|음주|소주|맥주|막걸리|와인|양주|알코올|알콜")
 _HOSPITAL_WORDS = re.compile(r"병원|진료|응급실|119")
 _MEDICATION_WORD = re.compile(r"약|항생제|진통제|수면제|소화제|해열제|아스피린")
 _MEDICATION_ASK = re.compile(r"먹어도|드셔도|복용해도|끊어도|중단해도|먹으면|드시면|먹을까")
@@ -131,6 +138,14 @@ class MedicalLlmService:
             "emergencyWarning": [_SELF_HARM_WARNING],
             "meta": {"selfHarm": True, "selfHarmTrigger": trigger, "selfHarmFamily": family},
         }
+
+    @staticmethod
+    def needs_alcohol_hypoglycemia_sentence(message: str, reply: str) -> bool:
+        """당뇨약(혈당약·인슐린)과 술을 함께 묻는데 답에 저혈당 언급이 없으면 True."""
+        text = message or ""
+        if not (_DIABETES_MED_WORDS.search(text) and _ALCOHOL_WORDS.search(text)):
+            return False
+        return "저혈당" not in (reply or "")
 
     @staticmethod
     def needs_clinic_sentence(message: str, reply: str) -> bool:
@@ -355,6 +370,9 @@ class MedicalLlmService:
         emergency_warning = [_EMERGENCY_REPLY] if emergency_hint or intent == "emergency_guidance" else []
         risk_level, recommended_action, reservation_required = self.infer_risk(message, intent, emergency_warning)
         reply = self.format_answer(normalized, emergency=bool(emergency_warning))
+        if not emergency_warning and self.needs_alcohol_hypoglycemia_sentence(message, reply):
+            reply = f"{reply}\n{_ALCOHOL_HYPOGLYCEMIA_SENTENCE}"
+            _LOG.info("[CHAT-SAFETY] alcohol_hypoglycemia_sentence=added")
         if not emergency_warning and self.needs_clinic_sentence(message, reply):
             # 모델이 "의사·약사에게 물어보세요"로만 끝내도 진료 권유가 빠지지 않게 한 줄 덧붙인다(모델 출력에 기대지 않는다).
             reply = f"{reply}\n{_CLINIC_SENTENCE}"
