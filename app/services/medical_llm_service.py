@@ -42,6 +42,9 @@ _ALCOHOL_HYPOGLYCEMIA_SENTENCE = (
 _DIABETES_MED_WORDS = re.compile(r"당뇨|혈당약|혈당 ?약|인슐린")
 # "수술"·"기술"·"예술"·"마술"·"미술"의 "술"은 술이 아니다.
 _ALCOHOL_WORDS = re.compile(r"(?<![수기예마미])술|음주|소주|맥주|막걸리|와인|양주|알코올|알콜")
+# 술이 혈당을 올린다고 쓴 문장(방향이 반대, 2026-10-27 재측정 4/5). "저혈당"이 든 문장은 건드리지 않는다.
+_GLUCOSE_UP = re.compile(r"혈당[^.!?。]{0,12}(높|오르|올라|올리|올려|상승)")
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?。])\s+")
 _HOSPITAL_WORDS = re.compile(r"병원|진료|응급실|119")
 _MEDICATION_WORD = re.compile(r"약|항생제|진통제|수면제|소화제|해열제|아스피린")
 _MEDICATION_ASK = re.compile(r"먹어도|드셔도|복용해도|끊어도|중단해도|먹으면|드시면|먹을까")
@@ -140,10 +143,33 @@ class MedicalLlmService:
         }
 
     @staticmethod
+    def is_diabetes_alcohol_question(message: str) -> bool:
+        """당뇨약(혈당약·인슐린)과 술을 함께 묻는 문장인가."""
+        text = message or ""
+        return bool(_DIABETES_MED_WORDS.search(text) and _ALCOHOL_WORDS.search(text))
+
+    @staticmethod
+    def drop_alcohol_glucose_up_sentences(reply: str) -> tuple[str, int]:
+        """술이 혈당을 올린다고 쓴 문장을 뺀다(저혈당이 든 문장은 남긴다). 다 빠진 줄은 줄째 뺀다(줄머리 "· 특징:"은 첫 문장에 붙어 함께 빠진다).
+        (고친 답, 뺀 문장 수). 당뇨약 + 술 문의에만 쓴다 - 다른 상담의 문장은 건드리지 않는다."""
+        removed = 0
+        lines: list[str] = []
+        for line in (reply or "").split("\n"):
+            sentences = _SENTENCE_SPLIT.split(line)
+            kept = [x for x in sentences if not (_ALCOHOL_WORDS.search(x) and _GLUCOSE_UP.search(x) and "저혈당" not in x)]
+            if len(kept) == len(sentences):
+                lines.append(line)  # 뺄 문장이 없는 줄은 그대로
+                continue
+            removed += len(sentences) - len(kept)
+            new_line = " ".join(kept).strip()
+            if new_line:
+                lines.append(new_line)
+        return "\n".join(lines), removed
+
+    @staticmethod
     def needs_alcohol_hypoglycemia_sentence(message: str, reply: str) -> bool:
         """당뇨약(혈당약·인슐린)과 술을 함께 묻는데 답에 저혈당 언급이 없으면 True."""
-        text = message or ""
-        if not (_DIABETES_MED_WORDS.search(text) and _ALCOHOL_WORDS.search(text)):
+        if not MedicalLlmService.is_diabetes_alcohol_question(message):
             return False
         return "저혈당" not in (reply or "")
 
@@ -370,6 +396,11 @@ class MedicalLlmService:
         emergency_warning = [_EMERGENCY_REPLY] if emergency_hint or intent == "emergency_guidance" else []
         risk_level, recommended_action, reservation_required = self.infer_risk(message, intent, emergency_warning)
         reply = self.format_answer(normalized, emergency=bool(emergency_warning))
+        if not emergency_warning and self.is_diabetes_alcohol_question(message):
+            reply, dropped = self.drop_alcohol_glucose_up_sentences(reply)
+            if dropped:
+                # 상담 내용은 남기지 않는다 - 뺀 문장 수만.
+                _LOG.info("[CHAT-SAFETY] alcohol_glucose_up_dropped=%s", dropped)
         if not emergency_warning and self.needs_alcohol_hypoglycemia_sentence(message, reply):
             reply = f"{reply}\n{_ALCOHOL_HYPOGLYCEMIA_SENTENCE}"
             _LOG.info("[CHAT-SAFETY] alcohol_hypoglycemia_sentence=added")
