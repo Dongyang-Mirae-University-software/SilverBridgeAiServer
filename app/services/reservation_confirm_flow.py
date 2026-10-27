@@ -104,6 +104,14 @@ def _status(row: dict[str, Any]) -> str:
     return str(row.get("status") or "").strip().upper()
 
 
+_DUPLICATE_PREFIX = "같은 시간대에 이미 예약이 있어요. 다른 시간을 골라 주세요."
+# 예약 서비스가 이 코드로 거절하면 시간을 다시 고르게 한다(PAST_TIME = 오늘 이미 지난 시간, 예약 서비스 #4).
+_RESELECT_PREFIX = {
+    "DUPLICATE_RESERVATION": _DUPLICATE_PREFIX,
+    "PAST_TIME": "그 시간은 이미 지났어요. 다른 시간을 골라 주세요.",
+}
+
+
 def _error_text(data: Any, default: str) -> tuple[str, str]:
     if isinstance(data, dict):
         return str(data.get("message") or default), str(data.get("code") or "REQUEST_FAILED")
@@ -323,14 +331,21 @@ class ReservationFlowMixin:
 
         msg, code = _error_text(data, "예약 처리에 실패했습니다.")
         _trace(meta, "reservation_submit_failed", http_status=st, code=code)  # 예약 서비스 문구는 입력값을 되돌려 줄 수 있어 남기지 않는다
-        if code == "DUPLICATE_RESERVATION":
-            reselect = self._reselect_time(meta, draft, key, replaces, self._ward_id(req))
+        # 같은 시간대 중복·확인 카드를 띄운 사이 지나 버린 시간은 막다른 길이 아니라 시간을 다시 고르게 한다.
+        if code in _RESELECT_PREFIX:
+            reselect = self._reselect_time(meta, draft, key, replaces, self._ward_id(req), _RESELECT_PREFIX[code])
             if reselect is not None:
                 return reselect
         return self._flow_error(meta, "make_appointment", msg, code, data)
 
     def _reselect_time(
-        self, meta: dict[str, Any], draft: ReservationDraft, key: str | None, replaces: dict[str, Any] | None, ward_id: str
+        self,
+        meta: dict[str, Any],
+        draft: ReservationDraft,
+        key: str | None,
+        replaces: dict[str, Any] | None,
+        ward_id: str,
+        prefix: str = _DUPLICATE_PREFIX,
     ) -> dict[str, Any] | None:
         """같은 시간대 중복은 막다른 길이 아니라 시간을 다시 고르게 한다. 다시 고를 시간이 없으면 None."""
         if draft.hospital_id is None or not draft.reservation_date:
@@ -341,7 +356,7 @@ class ReservationFlowMixin:
             return None
         out = self._time_select_reply(  # type: ignore[attr-defined]
             meta, draft, draft.reservation_date, slot_date, slots,
-            prefix="같은 시간대에 이미 예약이 있어요. 다른 시간을 골라 주세요.",
+            prefix=prefix,
         )
         return self._remember_flow(out, meta, draft, replaces, ward_id)
 
