@@ -341,7 +341,15 @@ class MedicalLlmService:
             raise RuntimeError("CHAT_ENABLE_LLM=false")
 
         self._loader.ensure_loaded()
-        raw = self._loader.generate_structured_text(SYSTEM_PROMPT, user_prompt, prefill="{")
+        # 응급 턴은 생성 슬롯 줄을 오래 서지 않는다 - 넘기면 MedGemmaBusyError -> chat_service가 119 안내 고정 문구로 답한다.
+        wait_timeout_sec = (
+            self._settings.medgemma_gen_wait_timeout_emergency_sec
+            if emergency_hint
+            else self._settings.medgemma_gen_wait_timeout_sec
+        )
+        raw = self._loader.generate_structured_text(
+            SYSTEM_PROMPT, user_prompt, prefill="{", wait_timeout_sec=wait_timeout_sec
+        )
         parsed = extract_json_object(raw)
         if parsed is None:
             # 출력이 max_new_tokens에 걸려 잘린 경우: 완성된 필드만이라도 살린다.

@@ -165,7 +165,7 @@ class _Loader:
     def ensure_loaded(self) -> None:
         return None
 
-    def generate_structured_text(self, system_prompt: str, user_prompt: str, prefill: str = "") -> str:  # noqa: ARG002
+    def generate_structured_text(self, system_prompt: str, user_prompt: str, prefill: str = "", **kwargs) -> str:  # noqa: ARG002
         return json.dumps({"empathy": "걱정되셨겠어요.", "symptoms": "약 복용 문의", "features": "",
                            "advice": self.advice, "reply": ""}, ensure_ascii=False)
 

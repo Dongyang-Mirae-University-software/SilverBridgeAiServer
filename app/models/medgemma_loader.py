@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterator
 
 from app.core.config import Settings
 
@@ -126,6 +128,50 @@ def generated_ngram_processor(input_len: int, size: int) -> Any:
     return LogitsProcessorList([_GeneratedNoRepeatNgram()])
 
 
+class MedGemmaBusyError(RuntimeError):
+    """생성 슬롯을 대기 상한 안에 얻지 못했다. 생성하지 않았으며 호출자는 고정 문구로 답한다."""
+
+
+class GenerationSlot:
+    """MedGemma 생성 동시 실행 수 제한(2026-10-27).
+
+    생성이 겹치면 같은 GPU의 감지 모델(화재·흉기·낙상) 처리 시간이 늘어 프레임을 건너뛴다(10/27 측정 ×2.03).
+    상담 생성 경로만 잡는다 - 감지 스레드(stream-analyze)는 이 슬롯을 모른다. limit 0 이하면 제한하지 않는다.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self._semaphore = threading.BoundedSemaphore(limit) if limit > 0 else None
+        self._count_lock = threading.Lock()
+        self._waiting = 0
+
+    @contextmanager
+    def acquire(self, timeout_sec: float) -> Iterator[None]:
+        semaphore = self._semaphore
+        if semaphore is None:
+            yield
+            return
+        if not semaphore.acquire(blocking=False):
+            with self._count_lock:
+                self._waiting += 1
+                waiting = self._waiting
+            started = time.perf_counter()
+            try:
+                acquired = semaphore.acquire(timeout=timeout_sec)
+            finally:
+                with self._count_lock:
+                    self._waiting -= 1
+            wait_ms = int((time.perf_counter() - started) * 1000)
+            # 대기 시간·대기 수만 남긴다(상담 내용·사용자 ID 금지).
+            if not acquired:
+                _LOG.warning("[MEDGEMMA-GEN-BUSY] waitMs=%d waiting=%d limitSec=%g", wait_ms, waiting, timeout_sec)
+                raise MedGemmaBusyError("generation slot busy")
+            _LOG.info("[MEDGEMMA-GEN-WAIT] waitMs=%d waiting=%d", wait_ms, waiting)
+        try:
+            yield
+        finally:
+            semaphore.release()
+
+
 @dataclass
 class ModelState:
     loaded: bool
@@ -144,6 +190,7 @@ class MedGemmaLoader:
         self._torch = None
         self._uses_processor = False
         self._quant = QUANT_NONE  # 실제로 적재된 양자화(nf4·int8 실패 시 none)
+        self._gen_slot = GenerationSlot(settings.medgemma_max_concurrent_generate)
         self._json_repetition_kwargs, self._json_repetition_label = resolve_json_repetition(
             settings.medgemma_json_repetition
         )
@@ -302,10 +349,17 @@ class MedGemmaLoader:
                 banned.append([token_id])
         return banned
 
-    def generate_structured_text(self, system_prompt: str, user_prompt: str, prefill: str = "") -> str:
+    def generate_structured_text(
+        self, system_prompt: str, user_prompt: str, prefill: str = "", *, wait_timeout_sec: float | None = None
+    ) -> str:
+        """생성 슬롯을 잡고 생성한다. wait_timeout_sec(없으면 MEDGEMMA_GEN_WAIT_TIMEOUT_SEC) 안에 못 잡으면 MedGemmaBusyError."""
         if not self._state.loaded or self._model is None or self._torch is None:
             raise RuntimeError(self._state.load_error or "model not loaded")
+        timeout = self._settings.medgemma_gen_wait_timeout_sec if wait_timeout_sec is None else wait_timeout_sec
+        with self._gen_slot.acquire(timeout):
+            return self._generate_structured_text(system_prompt, user_prompt, prefill)
 
+    def _generate_structured_text(self, system_prompt: str, user_prompt: str, prefill: str) -> str:
         model = self._model
         torch = self._torch
 
