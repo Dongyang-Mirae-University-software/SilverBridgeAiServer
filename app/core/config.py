@@ -164,6 +164,12 @@ class Settings(BaseModel):
     medgemma_json_max_tokens: int = _as_int_in_range("MEDGEMMA_JSON_MAX_TOKENS", max_new_tokens, 64, 2048)
     # 구조화 생성 반복 억제. off(기본, 지금과 같음) | gen_ngram:<2~20>(생성 구간만) | penalty:<1.0~1.5> | ngram:<2~20>. 모르는 값은 off.
     medgemma_json_repetition: str = os.getenv("MEDGEMMA_JSON_REPETITION", "off").strip().lower()
+    # MedGemma 동시 생성 수(2026-10-27). 생성이 겹치면 같은 GPU의 감지(화재·흉기·낙상) 처리 시간이 2배가 된다. 0 이하면 제한 없음.
+    medgemma_max_concurrent_generate: int = _as_int("MEDGEMMA_MAX_CONCURRENT_GENERATE", 1)
+    # 생성 슬롯 대기 상한(초). 넘기면 생성하지 않고 고정 문구로 답한다 - BE 상담 제한 130초 안에 끝나게.
+    medgemma_gen_wait_timeout_sec: int = _as_int_in_range("MEDGEMMA_GEN_WAIT_TIMEOUT_SEC", 60, 1, 120)
+    # 응급 턴은 줄을 오래 서지 않는다 - 넘기면 바로 119 안내 고정 문구로 답한다.
+    medgemma_gen_wait_timeout_emergency_sec: int = _as_int_in_range("MEDGEMMA_GEN_WAIT_TIMEOUT_EMERGENCY_SEC", 3, 1, 30)
     chat_history_keep_turns: int = _as_int("CHAT_HISTORY_KEEP_TURNS", 8)
 
     def resolved_chat_model_id(self) -> str:

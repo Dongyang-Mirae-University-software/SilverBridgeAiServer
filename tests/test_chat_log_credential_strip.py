@@ -98,7 +98,7 @@ def test_medgemma_parse_fallback_log_has_no_model_output(caplog) -> None:
         def generate_structured_text(self, *a, **k) -> str:  # noqa: ARG002
             return f'{{"empathy": "{SENSITIVE}", "advice": "잘린 출력'  # 닫히지 않은 JSON
 
-    svc = MedicalLlmService(SimpleNamespace(chat_history_keep_turns=6, chat_enable_llm=True), _Loader())  # type: ignore[arg-type]
+    svc = MedicalLlmService(SimpleNamespace(chat_history_keep_turns=6, chat_enable_llm=True, medgemma_gen_wait_timeout_sec=60, medgemma_gen_wait_timeout_emergency_sec=3), _Loader())  # type: ignore[arg-type]
     with caplog.at_level(logging.WARNING, logger="app.services.medical_llm_service"):
         svc.generate("무릎이 아파요", {}, [])
     lines = [r.getMessage() for r in caplog.records if "parse fallback" in r.getMessage()]
