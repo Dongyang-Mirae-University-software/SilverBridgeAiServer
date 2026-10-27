@@ -64,7 +64,7 @@ def test_ordinary_turn_after_crisis_is_released_with_followup(env, caplog, messa
     assert not meta.get("selfHarm") and meta["crisisFollowup"] is True
     assert meta["router"]["reason"] == "release-after-crisis" and meta["router"]["self_harm"] is False
     joined = _logs(caplog)
-    assert "[CHAT-SAFETY] crisis_released=true route=symptom trigger=router" in joined
+    assert "[CHAT-SAFETY] crisis_released=true route=symptom trigger=history" in joined
     assert message not in joined
 
 
@@ -132,6 +132,69 @@ def test_no_release_without_server_crisis_record(env) -> None:
     assert "109" in out["reply"] and env.llm.calls == 0
 
 
+# ---- 2026-10-27 재점검 ①: 해제된 턴의 다음 턴 ---------------------------------------------------------------
+
+
+def _released(env) -> list[dict[str, str]]:
+    """위기 → "고마워요"(해제)까지 보내고 다음 턴에 쓸 history 를 돌려준다(history 에 앞 턴 자해 키워드가 남는다)."""
+    _crisis(env)
+    env.router = _FlagRouter(self_harm=False, route="general")
+    second = _send(env, "고마워요", "s1", CRISIS_HISTORY)
+    assert second["reply"].startswith(cs._CRISIS_FOLLOWUP)
+    return CRISIS_HISTORY + [{"role": "user", "content": "고마워요"}, {"role": "assistant", "content": second["reply"]}]
+
+
+def test_router_emergency_after_release_is_not_locked_again(env, caplog) -> None:
+    history = _released(env)
+    env.router, before = _FlagRouter(self_harm=False, emergency=True, summary="식은땀·시야 흐림"), env.llm.calls
+    with caplog.at_level(logging.INFO):
+        out = _send(env, "갑자기 식은땀이 나고 눈앞이 캄캄해요", "s1", history)
+    # 위기 고정 응답이 아니라 일반 응급 안내(MedGemma emergency_guidance) + 109 한 줄.
+    assert env.llm.calls == before + 1 and out["reply"].startswith(cs._CRISIS_FOLLOWUP)
+    meta = _last_meta(env)
+    assert not meta.get("selfHarm") and meta["router"]["emergency"] is True
+    assert "[CHAT-SAFETY] crisis_released=true route=symptom trigger=history" in _logs(caplog)
+
+
+def test_router_self_harm_after_release_keeps_crisis_reply(env) -> None:
+    history = _released(env)
+    env.router, before = _FlagRouter(self_harm=True, summary="위기 재발"), env.llm.calls
+    out = _send(env, "다 그만두고 싶어", "s1", history)
+    assert env.llm.calls == before and _last_meta(env)["selfHarmTrigger"] == "router"
+    assert "109" in out["reply"] and not out["reply"].startswith(cs._CRISIS_FOLLOWUP)
+
+
+def test_emergency_keyword_after_release_keeps_crisis_reply(env) -> None:
+    # 응급 키워드가 있으면 해제하지 않는다(위기 직후 턴과 같은 기준 - 위기 응답에도 119가 있다).
+    history = _released(env)
+    env.router, before = _FlagRouter(self_harm=False, emergency=True), env.llm.calls
+    _send(env, "가슴이 아파요", "s1", history)
+    assert env.llm.calls == before and _last_meta(env)["selfHarmTrigger"] == "history"
+
+
+def test_router_failure_after_release_keeps_history_basis(env) -> None:
+    # 라우터 실패(키워드 분류)면 이번 문장 판단이 없어 history 근거를 풀지 않는다.
+    history = _released(env)
+    env.router, before = _Router(fail="api_529"), env.llm.calls
+    _send(env, "가슴이 답답하고 기절할 것 같아요", "s1", history)
+    assert env.llm.calls == before and _last_meta(env)["selfHarm"] is True
+
+
+# ---- 2026-10-27 재점검 ②: 키워드 밖 위기 표현은 라우터 칸에 달려 있다 -------------------------------------------------
+
+
+def test_out_of_keyword_crisis_after_crisis_follows_router_flag(env) -> None:
+    _crisis(env)
+    env.router = _FlagRouter(self_harm=True, route="general")
+    _send(env, "더 이상 버틸 힘이 없어요", "s1", CRISIS_HISTORY)
+    assert _last_meta(env)["selfHarm"] is True
+    # 라우터가 놓치면(false) 해제되지만 109 한 줄은 남는다(마지막 보조망).
+    _crisis(env, "s2")
+    env.router = _FlagRouter(self_harm=False, route="general")
+    out = _send(env, "더 이상 버틸 힘이 없어요", "s2", CRISIS_HISTORY)
+    assert out["reply"].startswith(cs._CRISIS_FOLLOWUP)
+
+
 # ---- 점검 M-1: 라우터 실패 폴백 ------------------------------------------------------------------------------
 
 
@@ -152,13 +215,32 @@ def test_router_failure_without_server_record_uses_history(env) -> None:
     assert "109" in out["reply"] and env.llm.calls == 0
 
 
-@pytest.mark.parametrize("message", ["그런데 아까부터 배가 아파요", "고마워요. 이야기하니까 정말 많이 나아졌어요", "응 예약해줘"])
+@pytest.mark.parametrize("message", ["그런데 아까부터 배가 아파요", "고마워요. 이야기하니까 정말 많이 나아졌어요", "응 예약해줘",
+                                     "손주가 놀러 와서 기분이 좋아요"])  # 마지막 = 공백 빼고 13자(12자 기준 밖)
 def test_router_failure_other_turns_go_normal_with_followup(env, message: str) -> None:
     _crisis(env)
     env.router = _Router(fail="api_529")
     out = _send(env, message, "s1", CRISIS_HISTORY)
     assert out["reply"].startswith(cs._CRISIS_FOLLOWUP)
     assert "selfHarm" not in _last_meta(env)
+
+
+@pytest.mark.parametrize("message", ["고마워요", "정말 감사합니다", "고맙다"])
+def test_router_failure_short_thanks_is_not_crisis(env, message: str) -> None:
+    # 2026-10-27 재점검 ③: 짧은 감사 표현은 위기가 이어지는 말로 보지 않는다(일반 폴백 + 109 한 줄).
+    _crisis(env)
+    env.router = _Router(fail="api_529")
+    out = _send(env, message, "s1", CRISIS_HISTORY)
+    assert out["reply"].startswith(cs._CRISIS_FOLLOWUP) and "selfHarm" not in _last_meta(env)
+
+
+@pytest.mark.parametrize("message", ["오늘 날씨가 좋네요", "안녕", "잘 있어요", "모르겠어"])
+def test_router_failure_other_short_turns_stay_crisis(env, message: str) -> None:
+    # 12자 기준은 유지한다 - 라우터가 없을 때는 안전 쪽(작별 인사는 위기 신호일 수 있다).
+    _crisis(env)
+    env.router = _Router(fail="api_529")
+    _send(env, message, "s1", CRISIS_HISTORY)
+    assert _last_meta(env)["selfHarm"] is True
 
 
 def test_router_failure_without_crisis_history_is_unchanged(env) -> None:

@@ -111,11 +111,13 @@ def test_keyword_self_harm_skips_router(env, caplog) -> None:
 # ---- M-1 ③ 라우터 요약 -----------------------------------------------------------------------------------
 
 
-def test_router_emergency_with_self_harm_summary_gets_crisis_reply(env) -> None:
+def test_router_summary_alone_no_longer_gives_crisis_reply(env) -> None:
+    # 2026-10-27 요약 문구 판정 제거(의도된 변경): 라우터 self_harm 칸이 없으면 요약에 자살이 있어도 일반 응급 안내로 간다.
+    # 키워드 밖 위기 표현은 라우터 self_harm 칸으로 잡는다(tests/test_router_self_harm_flag.py).
     env.router = _Router(emergency=True, summary="자살 의도가 의심되는 위기 표현")
     out = _send(env, "다 끝내고 싶어")
-    assert env.router.calls == 1 and env.llm.calls == 0
-    assert _is_crisis(out)
+    assert env.router.calls == 1 and env.llm.calls == 1
+    assert not _is_crisis(out)
 
 
 def test_negated_self_harm_summary_is_ignored(env) -> None:
