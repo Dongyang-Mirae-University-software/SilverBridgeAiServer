@@ -1,0 +1,46 @@
+{
+ "note": "답변 본문·카메라 프레임·세션 ID 미포함. 감지 수치는 [LIVE-INFER] 60초 요약과 같은 구간 /frame 수신 수, GPU는 nvidia-smi 1초 간격.",
+ "server": {"host": "gosky", "gpu": "RTX 4070 SUPER", "gpuTotalMiB": 12282, "commit": "4d489eb", "env": {"MEDGEMMA_QUANT": "int8", "MEDGEMMA_JSON_REPETITION": "gen_ngram:10"}, "startedAt": "2026-10-26 18:11 KST", "restartDuringTest": false},
+ "camera": {"count": 1, "receivedPerMinute": [739, 887], "recommendedFps": 15, "sampleEveryNFrames": 1, "detectors": ["fire", "knife", "fall"]},
+ "idleGpuMiB": 5605,
+ "scenarios": {
+  "S1": {"kst": "2026-10-27 10:00:13~10:04:46", "load": "stream only",
+   "windows": [
+    {"analyzed": 710, "received": 774, "avgMs": 17.4, "maxMs": 35.9},
+    {"analyzed": 654, "received": 739, "avgMs": 17.8, "maxMs": 34.5},
+    {"analyzed": 785, "received": 843, "avgMs": 17.6, "maxMs": 34.2},
+    {"analyzed": 774, "received": 833, "avgMs": 17.6, "maxMs": 30.1}],
+   "perKindMs": {"quality": 0.3, "fire": 6.1, "knife": 5.9, "fall": 5.3},
+   "avgMs": 17.6, "analyzedRatioPct": 91.6, "gpuMaxMiB": 5653, "gpuUtilMaxPct": 12},
+  "S2": {"kst": "2026-10-27 10:05:38~10:11:26", "load": "stream + 20 chats sequential",
+   "windows": [
+    {"analyzed": 758, "received": 842, "avgMs": 25.3, "maxMs": 51.4},
+    {"analyzed": 759, "received": 848, "avgMs": 24.7, "maxMs": 39.6},
+    {"analyzed": 681, "received": 764, "avgMs": 25.5, "maxMs": 41.6},
+    {"analyzed": 791, "received": 887, "avgMs": 24.2, "maxMs": 44.7},
+    {"analyzed": 746, "received": 844, "avgMs": 25.9, "maxMs": 42.5}],
+   "avgMs": 25.1, "vsS1": 1.43, "analyzedRatioPct": 89.2, "gpuMaxMiB": 5667, "gpuUtilMaxPct": 69,
+   "chat": {"items": ["qa.A1","qa.A2","qa.A3","qa.A4","qa.A5","qa.A6","qa.A7","qa.A8","qa.B1","qa.B2","qa.B3","qa.B4","qa.D1","qa.D2","qa.D3","qa.D4","qa.D5","qa.D6","qa.E1","qa.E2"],
+    "http200": 20, "passed": 20, "clientMs": {"mean": 15378, "median": 15192, "p95": 17648, "max": 18141}, "llmMsMean": 12517, "routerMsMean": 2855,
+    "emergency": {"rows": 4, "has119": 4, "warning": 4, "high": 4}, "riskOverHigh": 0, "forbiddenHintRows": 0}},
+  "S3": {"kst": "2026-10-27 10:12:02~10:14:19", "load": "stream + 2 users concurrent x 5 chats",
+   "windows": [
+    {"analyzed": 735, "received": 848, "avgMs": 35.7, "maxMs": 58.3},
+    {"analyzed": 741, "received": 860, "avgMs": 35.9, "maxMs": 58.0}],
+   "avgMs": 35.8, "vsS1": 2.03, "analyzedRatioPct": 86.5, "gpuMaxMiB": 5837, "gpuUtilMaxPct": 89,
+   "chat": {"items": [["qa.A1","qa.A3","qa.A7","qa.D3","qa.E1"], ["qa.A4","qa.A5","qa.B1","qa.D5","qa.E2"]],
+    "http200": 10, "passed": 10, "clientMs": {"mean": 24924, "max": 28404}, "llmMsMean": [22737, 21488], "routerMsMean": [2735, 2877],
+    "emergency": {"rows": 1, "has119": 1, "warning": 1, "high": 1}, "riskOverHigh": 0, "forbiddenHintRows": 0}}
+ },
+ "counts": {"routerAuthOrLimitErrors": 0, "anomalyRecords": 0, "liveDetectFailed": 0, "chatLogsCleaned": 30},
+ "criteria": {
+  "avgWithin1_5xS1": {"S2": true, "S3": false},
+  "avgWithinBudget66_7ms": {"S2": true, "S3": true},
+  "analyzedRatioAtLeast90pctOfS1": {"S2": true, "S3": true},
+  "windowMaxAtMost300ms": {"S2": true, "S3": true},
+  "gpuHeadroomAfterExaone2560MiB": {"S2": 4055, "S3": 3885, "minRequired": 1536},
+  "chatUnderBeTimeout130s": {"S2": true, "S3": true}
+ },
+ "timeouts": {"feAxiosSec": 150, "feProxy": "none (Node fetch headers 300s)", "nginxSec": 1200, "beChatRelaySec": 130, "aiRouterPerCallSec": 60, "medgemmaTotal": "none"},
+ "feWaitingIndicator": {"present": true, "file": "src/components/chatbot/ChatbotContent.tsx", "line": 325, "feCommit": "c335ef1"}
+}
