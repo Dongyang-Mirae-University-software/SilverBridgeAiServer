@@ -11,6 +11,17 @@ _LOG = logging.getLogger("app.services.reservation_orchestrator")
 _SEOUL_TZ = ZoneInfo("Asia/Seoul")
 _WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"]
 
+# 예약 서비스는 팀이 만든 가상 예약 시스템이고 병원도 가상 데이터다(R-7). 진짜 예약으로 착각하지 않게
+# 병원 목록·확인 카드·완료·조회 문구에 같은 한 줄을 붙인다. 문구를 바꿀 때는 FE RESERVATION_DEMO_NOTICE 도 함께.
+DEMO_NOTICE = "시연용 가상 병원입니다. 실제 병원에는 예약되지 않아요."
+
+
+def with_demo_notice(text: str) -> str:
+    """안내 문구 끝에 시연용 안내 한 줄을 붙인다(이미 있으면 그대로)."""
+    if DEMO_NOTICE in text:
+        return text
+    return f"{text}\n{DEMO_NOTICE}" if text else DEMO_NOTICE
+
 
 def _date_label(date_text: str) -> str:
     """안내 문구용 날짜. 오늘이면 "오늘", 아니면 "10월 13일(화)"."""

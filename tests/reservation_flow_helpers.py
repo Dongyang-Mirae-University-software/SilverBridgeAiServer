@@ -39,6 +39,7 @@ class FakeReservation:
         self.create_result: dict[str, Any] | None = None
         self.cancel_result: dict[str, Any] | None = None
         self.slots: list[str] = ["09:00", "10:00", "14:00"]
+        self.slot_departments: list[str | None] = []  # 빈 시간 조회에 넘긴 진료과(시간 칸은 진료과별)
 
     def names(self) -> list[str]:
         return [c[0] for c in self.calls]
@@ -52,7 +53,8 @@ class FakeReservation:
     def list_departments(self, hospital_id: int, *, api_key_override=None):  # noqa: ARG002
         return {"httpStatus": 200, "data": {"departments": [{"name": "내과"}]}}
 
-    def get_available_slots(self, hospital_id: int, day: str, *, api_key_override=None):  # noqa: ARG002
+    def get_available_slots(self, hospital_id: int, day: str, *, api_key_override=None, department=None):  # noqa: ARG002
+        self.slot_departments.append(department)
         return {"httpStatus": 200, "data": {"availableSlots": list(self.slots)}}
 
     def list_my_appointments(self, api_key_override=None):  # noqa: ARG002

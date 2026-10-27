@@ -12,7 +12,7 @@ from app.core.reservation_prompts import EXTRACTION_SCHEMA, SYSTEM_PROMPT, build
 from app.schemas.chat_schema import ChatRequest, UiOption, UiPayload
 from app.services.claude_structured_client import ClaudeStructuredClient, failure_cause
 from app.services.reservation_api_client import ReservationApiClient
-from app.services.reservation_common import _date_label, _digits, _phone_last4, _trace
+from app.services.reservation_common import _date_label, _digits, _phone_last4, _trace, with_demo_notice
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS, ReservationFlowMixin, draft_from_dict
 from app.services.reservation_intake import (
     CHANGE_DATE_OPTION,
@@ -147,10 +147,16 @@ class ReservationOrchestrator(ReservationFlowMixin):
         return booked
 
     def _slots_on(
-        self, hospital_id: int, date_text: str, api_key: str | None, booked: dict[str, set[str]] | None = None
+        self,
+        hospital_id: int,
+        date_text: str,
+        api_key: str | None,
+        booked: dict[str, set[str]] | None = None,
+        department: str | None = None,
     ) -> list[str] | None:
-        """해당 날짜의 빈 시간(오늘이면 지난 시간 제외, 내가 이미 잡은 시간 제외). 조회 실패면 None."""
-        res = self._reservation.get_available_slots(hospital_id, date_text, api_key_override=api_key)
+        """해당 날짜의 빈 시간(오늘이면 지난 시간 제외, 내가 이미 잡은 시간 제외). 조회 실패면 None.
+        시간 칸은 진료과마다 따로라 진료과를 알면 함께 넘긴다(모르면 예약 서비스가 병원 전체 기준으로 센다)."""
+        res = self._reservation.get_available_slots(hospital_id, date_text, api_key_override=api_key, department=department)
         data = res.get("data")
         if int(res.get("httpStatus") or 0) != 200 or not isinstance(data, dict):
             return None
@@ -159,13 +165,18 @@ class ReservationOrchestrator(ReservationFlowMixin):
         return [s for s in _filter_future_times(date_text, slots) if s.split()[-1] not in taken]
 
     def _find_slots(
-        self, hospital_id: int, requested_date: str, api_key: str | None, meta: dict[str, Any]
+        self,
+        hospital_id: int,
+        requested_date: str,
+        api_key: str | None,
+        meta: dict[str, Any],
+        department: str | None = None,
     ) -> tuple[str | None, list[str]]:
         """요청 날짜에 빈 시간이 없으면 다음 날부터 SLOT_LOOKAHEAD_DAYS일 안에서 처음 비는 날을 찾는다.
 
         반환 (날짜, 슬롯). 요청 날짜 조회 자체가 실패하면 (None, [])로 기존 흐름(시간 직접 입력)에 맡긴다."""
         booked = self._booked_times(api_key)
-        slots = self._slots_on(hospital_id, requested_date, api_key, booked)
+        slots = self._slots_on(hospital_id, requested_date, api_key, booked, department)
         _trace(meta, "slot_lookup", hospital_id=hospital_id, slot_count=None if slots is None else len(slots))
         if slots is None:
             return None, []
@@ -177,7 +188,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
             return requested_date, []
         for offset in range(1, self.SLOT_LOOKAHEAD_DAYS + 1):
             candidate = (base + timedelta(days=offset)).isoformat()
-            found = self._slots_on(hospital_id, candidate, api_key, booked) or []
+            found = self._slots_on(hospital_id, candidate, api_key, booked, department) or []
             if found:
                 _trace(meta, "slot_lookahead", requested=requested_date, found=candidate)
                 return candidate, found
@@ -619,7 +630,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
                             options=options,
                         )
                     return {
-                        "reply": "예약 목록을 불러왔습니다. 확인할 예약을 선택해 주세요.",
+                        "reply": with_demo_notice("예약 목록을 불러왔습니다. 확인할 예약을 선택해 주세요."),
                         "riskLevel": "medium",
                         "recommendedAction": "guardian_contact",
                         "reservationRequired": True,
@@ -696,7 +707,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
             if 200 <= st < 300 and isinstance(data, dict):
                 data = self._shape_reservation_row(data)
                 return {
-                    "reply": "예약 상세를 불러왔습니다.",
+                    "reply": with_demo_notice("예약 상세를 불러왔습니다."),
                     "riskLevel": "medium",
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,
@@ -745,7 +756,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
                 data = [self._shape_reservation_row(item) for item in data if isinstance(item, dict)]
                 _trace(meta, "reservation_lookup_success", count=len(data))
                 return {
-                    "reply": "예약 내역을 불러왔습니다.",
+                    "reply": with_demo_notice("예약 내역을 불러왔습니다."),
                     "riskLevel": "medium",
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,
@@ -932,7 +943,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
             if len(unique_rows) > 1:
                 _trace(meta, "hospital_selection_needed", candidate_count=len(unique_rows))
                 return {
-                    "reply": f"{region} 기준으로 찾은 {_with_copula(draft.department or '병원')}. 예약하려면 병원을 선택해 주세요.",
+                    "reply": with_demo_notice(f"{region} 기준으로 찾은 {_with_copula(draft.department or '병원')}. 예약하려면 병원을 선택해 주세요."),
                     "riskLevel": "medium",
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,
@@ -1030,7 +1041,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
 
         if draft.hospital_id is not None and not draft.reservation_time:
             requested_date = draft.reservation_date
-            slot_date, slots = self._find_slots(draft.hospital_id, requested_date, reservation_api_key, meta)
+            slot_date, slots = self._find_slots(draft.hospital_id, requested_date, reservation_api_key, meta, draft.department)
             if slot_date is not None:
                 # 자동으로 넘긴 날짜는 서버에 저장되지 않으므로 시간 버튼 값("YYYY-MM-DD HH:mm")에 담아 다음 턴에 받는다.
                 draft.reservation_date = slot_date
