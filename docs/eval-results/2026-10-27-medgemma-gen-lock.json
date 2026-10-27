@@ -1,0 +1,178 @@
+{
+ "note": "답변 본문·카메라 프레임·세션 ID 미포함. 감지 수치는 [LIVE-INFER] 60초 요약과 같은 구간 /frame 수신 수, GPU는 nvidia-smi 1초 간격.",
+ "server": {
+  "host": "gosky",
+  "gpu": "RTX 4070 SUPER",
+  "gpuTotalMiB": 12282,
+  "commit": "00e0f20",
+  "pr": 64,
+  "env": {
+   "MEDGEMMA_QUANT": "int8",
+   "MEDGEMMA_JSON_REPETITION": "gen_ngram:10"
+  },
+  "slot": {
+   "MEDGEMMA_MAX_CONCURRENT_GENERATE": 1,
+   "MEDGEMMA_GEN_WAIT_TIMEOUT_SEC": 60,
+   "MEDGEMMA_GEN_WAIT_TIMEOUT_EMERGENCY_SEC": 3,
+   "source": "code default"
+  },
+  "startedAt": "2026-10-27 10:43:15 KST",
+  "deployCommand": "docker compose up -d --no-deps --build ai-server"
+ },
+ "camera": {
+  "count": 1,
+  "receivedPerMinute": [
+   843,
+   889
+  ],
+  "recommendedFps": 15
+ },
+ "scenarios": {
+  "S1": {
+   "kst": "2026-10-27 10:50:11~10:55:11",
+   "load": "stream only",
+   "windows": [
+    {
+     "analyzed": 761,
+     "received": 883,
+     "avgMs": 20.5,
+     "maxMs": 34.0
+    },
+    {
+     "analyzed": 713,
+     "received": 862,
+     "avgMs": 20.6,
+     "maxMs": 37.7
+    },
+    {
+     "analyzed": 758,
+     "received": 889,
+     "avgMs": 20.6,
+     "maxMs": 36.0
+    },
+    {
+     "analyzed": 737,
+     "received": 856,
+     "avgMs": 20.1,
+     "maxMs": 37.6
+    },
+    {
+     "analyzed": 743,
+     "received": 854,
+     "avgMs": 20.5,
+     "maxMs": 53.9
+    }
+   ],
+   "perKindMs": {
+    "quality": 0.7,
+    "fire": 6.9,
+    "knife": 6.7,
+    "fall": 6.0
+   },
+   "avgMs": 20.5,
+   "analyzedRatioPct": 85.5
+  },
+  "S3": {
+   "kst": "2026-10-27 10:55:11~10:57:17",
+   "load": "stream + 2 users concurrent x 5 chats",
+   "windows": [
+    {
+     "analyzed": 745,
+     "received": 862,
+     "avgMs": 31.0,
+     "maxMs": 49.4
+    },
+    {
+     "analyzed": 746,
+     "received": 843,
+     "avgMs": 29.4,
+     "maxMs": 271.2
+    }
+   ],
+   "perKindMs": {
+    "quality": 0.85,
+    "fire": 9.8,
+    "knife": 10.1,
+    "fall": 9.45
+   },
+   "avgMs": 30.2,
+   "vsS1": 1.48,
+   "analyzedRatioPct": 87.5,
+   "chat": {
+    "items": [
+     [
+      "qa.A1",
+      "qa.A3",
+      "qa.A7",
+      "qa.D3",
+      "qa.E1"
+     ],
+     [
+      "qa.A4",
+      "qa.A5",
+      "qa.B1",
+      "qa.D5",
+      "qa.E2"
+     ]
+    ],
+    "http200": 10,
+    "passed": 9,
+    "failed": {
+     "qa.A7": [
+      "no_hospital"
+     ]
+    },
+    "clientMs": {
+     "mean": 21921,
+     "meanExcludingFallback": 23761,
+     "max": 30170
+    },
+    "slotWait": {
+     "waitEvents": 7,
+     "waitMsMin": 6250,
+     "waitMsMax": 14781,
+     "busyEvents": 1
+    },
+    "busyFallback": {
+     "item": "qa.B1",
+     "emergency": true,
+     "waitMs": 3000,
+     "clientMs": 5368,
+     "engine": "fallback",
+     "riskLevel": "high",
+     "emergencyWarning": true,
+     "passed": true,
+     "log": "[CHAT-LLM-FAILED] MedGemmaBusyError"
+    },
+    "routerMsRange": [
+     2338,
+     3807
+    ]
+   }
+  }
+ },
+ "gpu": {
+  "maxMiB": 5709,
+  "utilMaxPct": 61,
+  "headroomAfterExaoneMiB": 4013
+ },
+ "compareMorning": {
+  "file": "2026-10-27-int8-live-check.json",
+  "S1avgMs": 17.6,
+  "S3avgMs": 35.8,
+  "S3vsS1": 2.03,
+  "S2sequentialVsS1": 1.43
+ },
+ "counts": {
+  "anomalyRecords": 0,
+  "liveDetectFailed": 0,
+  "chatLogsCleaned": 10
+ },
+ "criteria": {
+  "S3avgWithin1_5xS1": true,
+  "analyzedRatioAtLeast90pctOfS1": true,
+  "http200All": true,
+  "secondChatUnder130s": true,
+  "gpuHeadroomAtLeast1536MiB": true
+ }
+}
