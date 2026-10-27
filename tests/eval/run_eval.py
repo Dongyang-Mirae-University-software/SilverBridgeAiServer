@@ -43,7 +43,7 @@ REPLAY_HISTORY_ITEMS = {"mt.03", "mt.04"}
 HOSPITAL_RE = re.compile(r"병원|진료|응급실|119")
 # v5 qa.D5(당뇨약 + 음주) 방향 후보: 음주와 혈당 상승을 한 문장에 잇거나 저혈당 언급이 없으면 사람이 볼 후보로 표시만 한다
 # (맞는 답도 "안주로 혈당이 오를 수 있다"를 말할 수 있어 합격·불합격은 판정자가 정한다).
-ALCOHOL_GLUCOSE_UP_RE = re.compile(r"(술|음주|알코올)[^.。\n]{0,40}혈당[^.。\n]{0,10}(오르|올라|올리|올려|높아|높여|상승)")
+ALCOHOL_GLUCOSE_UP_RE = re.compile(r"(술|음주|알코올)[^.。\n]{0,40}혈당[^.。\n]{0,10}(높|오르|올라|올리|올려|상승)")
 
 
 def direction_hint(reply: str) -> bool:

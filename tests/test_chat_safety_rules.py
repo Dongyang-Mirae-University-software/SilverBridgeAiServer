@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import logging
 import tempfile
 from types import SimpleNamespace
@@ -210,6 +211,40 @@ def test_diabetes_alcohol_question_gets_hypoglycemia_sentence(message: str, capl
         out = _generate(message, "술은 혈당을 높일 수 있어요. 의사와 상의하세요.")  # 방향이 반대인 모델 답(qa.D5 관찰)
     assert HYPO in out["reply"] and out["reply"].count(HYPO) == 1
     assert "[CHAT-SAFETY] alcohol_hypoglycemia_sentence=added" in "\n".join(r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("advice", [
+    "술은 혈당을 높일 수 있어요. 의사와 상의하세요.",
+    "음주는 혈당을 올려 조절이 어려워질 수 있어요. 종류나 양을 조절하세요.",
+    "술을 마시면 혈당이 상승할 수 있으니 조심하세요.",
+])
+def test_glucose_up_sentence_is_replaced_by_hypoglycemia_sentence(advice: str, caplog) -> None:
+    # 2026-10-27 재측정: 덧붙이기만 하면 앞 문단의 "혈당을 높일"과 모순(4/5) - 그 문장을 빼고 고정 문장만 남긴다.
+    with caplog.at_level(logging.INFO):
+        out = _generate("당뇨약 먹는데 술을 마셔도 되나요", advice)
+    reply = out["reply"]
+    assert HYPO in reply
+    assert not re.search(r"혈당[^.]{0,12}(높|오르|올라|올리|올려|상승)", reply.replace(HYPO, ""))
+    joined = "\n".join(r.getMessage() for r in caplog.records)
+    assert "[CHAT-SAFETY] alcohol_glucose_up_dropped=1" in joined and "혈당을" not in joined
+
+
+def test_drop_keeps_other_sentences_and_hypoglycemia_sentence() -> None:
+    reply = "말씀해 주신 내용을 정리했어요.\n· 증상: 음주 문의\n술은 혈당을 높일 수 있어요. 안주로 단 음료는 피하세요.\n술은 저혈당을 일으키고 혈당을 높일 수도 있어요."
+    out, removed = MedicalLlmService.drop_alcohol_glucose_up_sentences(reply)
+    assert removed == 1
+    assert out == "말씀해 주신 내용을 정리했어요.\n· 증상: 음주 문의\n안주로 단 음료는 피하세요.\n술은 저혈당을 일으키고 혈당을 높일 수도 있어요."
+
+
+def test_drop_removes_line_left_empty() -> None:
+    out, removed = MedicalLlmService.drop_alcohol_glucose_up_sentences("공감\n· 특징: 술은 혈당을 높여요.\n권고")
+    assert removed == 1 and out == "공감\n권고"
+
+
+def test_glucose_up_sentence_kept_for_other_questions() -> None:
+    # 당뇨약 + 술 문의가 아니면 모델 문장을 건드리지 않는다.
+    out = _generate("혈압약 먹는데 술 마셔도 돼?", "술은 혈당을 높일 수 있어요.")
+    assert "술은 혈당을 높일 수 있어요." in out["reply"]
 
 
 def test_hypoglycemia_sentence_not_added_when_reply_mentions_it() -> None:

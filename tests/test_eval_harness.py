@@ -74,6 +74,7 @@ def test_judge_replay_release_key() -> None:
 @pytest.mark.parametrize(("reply", "hint"), [
     ("술은 저혈당을 일으킬 수 있어 조심하세요.", False),
     ("술을 마시면 혈당이 올라갈 수 있어요.", True),
+    ("술은 혈당을 높일 수 있어요. 저혈당도 조심하세요.", True),  # "높일" - 2026-10-27 재측정에서 놓친 형태
     ("의사와 상의해 주세요.", True),  # 저혈당 언급 없음 - 후보
 ])
 def test_direction_hint_regex(reply: str, hint: bool) -> None:
