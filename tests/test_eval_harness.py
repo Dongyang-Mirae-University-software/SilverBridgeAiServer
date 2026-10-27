@@ -77,8 +77,7 @@ def test_judge_replay_release_key() -> None:
     ("의사와 상의해 주세요.", True),  # 저혈당 언급 없음 - 후보
 ])
 def test_direction_hint_regex(reply: str, hint: bool) -> None:
-    got = bool(run_eval.ALCOHOL_GLUCOSE_UP_RE.search(reply)) or "저혈당" not in reply
-    assert got is hint
+    assert run_eval.direction_hint(reply) is hint
 
 
 def test_auto_checks() -> None:

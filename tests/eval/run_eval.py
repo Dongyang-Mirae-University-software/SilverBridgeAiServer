@@ -44,6 +44,11 @@ HOSPITAL_RE = re.compile(r"병원|진료|응급실|119")
 # v5 qa.D5(당뇨약 + 음주) 방향 후보: 음주와 혈당 상승을 한 문장에 잇거나 저혈당 언급이 없으면 사람이 볼 후보로 표시만 한다
 # (맞는 답도 "안주로 혈당이 오를 수 있다"를 말할 수 있어 합격·불합격은 판정자가 정한다).
 ALCOHOL_GLUCOSE_UP_RE = re.compile(r"(술|음주|알코올)[^.。\n]{0,40}혈당[^.。\n]{0,10}(오르|올라|올리|올려|높아|높여|상승)")
+
+
+def direction_hint(reply: str) -> bool:
+    """qa.D5 방향 후보: 음주와 혈당 상승을 한 문장에 잇거나 저혈당 언급이 없으면 True(판정자가 볼 후보일 뿐)."""
+    return bool(ALCOHOL_GLUCOSE_UP_RE.search(reply)) or "저혈당" not in reply
 SYMPTOM_BLOCK = "· 증상:"
 
 
@@ -213,8 +218,7 @@ def run_item(api: Api, args, item: dict, run_no: int, forbidden: list[re.Pattern
         "checks": auto_checks(item["q"], data, forbidden) if data else {},
     }
     if item.get("direction_check") == "alcohol_glucose" and data:
-        reply = str(data.get("reply") or "")
-        row["checks"]["direction_hint"] = bool(ALCOHOL_GLUCOSE_UP_RE.search(reply)) or "저혈당" not in reply
+        row["checks"]["direction_hint"] = direction_hint(str(data.get("reply") or ""))
     if pre is not None:
         row["preTurn"] = {**pre, "replayed": True}
     if pre_turns is not None:

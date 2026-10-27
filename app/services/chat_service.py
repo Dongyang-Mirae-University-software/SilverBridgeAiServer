@@ -110,6 +110,8 @@ class ChatService:
         log_message = message
         # 위기 응답 직후 첫 일반 턴이면 답 앞에 109 안내 한 줄을 붙인다(한 번만 - 이 턴 기록엔 selfHarm이 없다).
         crisis_followup = False
+        # 위기 뒤 해제된 턴인가. 해제된 턴은 생성이 실패해도 폴백이 history 근거로 위기 응답을 되살리지 않는다(2026-10-27 점검 M-1).
+        crisis_released = False
         if not log_message and ui_selection:
             log_message = f"[선택] {ui_selection['field']}: {ui_selection['value']}"
 
@@ -201,14 +203,14 @@ class ChatService:
                 if release == "reservation":
                     # "응 예약해줘": 증상 단어가 없고 예약 의도가 분명하면 예약으로(새 예약으로 시작).
                     _LOG.info("[CHAT-SAFETY] resume_reservation_after_crisis=true trigger=%s", self_harm_trigger)
-                    crisis_followup = True
+                    crisis_followup = crisis_released = True
                     self_harm_trigger = None
                     route_info = {**route_info, "route": "reservation", "emergency": False, "emergency_signals": [],
                                   "normalized_message": message, "reason": "resume-after-crisis"}
                 else:
                     # 증상·일반 대화는 라우터 경로 그대로(라우터가 응급이라고 했으면 위기 고정 응답이 아닌 일반 응급 안내로).
                     _LOG.info("[CHAT-SAFETY] crisis_released=true route=%s trigger=%s", route_info["route"], self_harm_trigger)
-                    crisis_followup = True
+                    crisis_followup = crisis_released = True
                     self_harm_trigger = None
                     route_info = {**route_info, "reason": "release-after-crisis"}
             elif self_harm_trigger is None and message and (
@@ -315,7 +317,9 @@ class ChatService:
                     timing["llmMs"] = _elapsed_ms(llm_started)
                     # 옛 챗 서버로 넘기던 폴백은 없앴다(2026-10-22) - 고정 문구로 끝낸다. 로그는 예외 클래스명만(상담 내용 금지).
                     _LOG.warning("[CHAT-LLM-FAILED] %s", type(exc).__name__)
-                    result = self._fallback_reply(message, history, emergency=bool(route_info.get("emergency")))
+                    result = self._fallback_reply(
+                        message, history, emergency=bool(route_info.get("emergency")), history_basis=not crisis_released
+                    )
         except Exception as exc:
             # 예외 문구·스택에는 SQL 파라미터·요청 값이 섞일 수 있어 클래스명과 발생 위치만 남긴다.
             _LOG.error("chat process_message fallback: %s at %s", type(exc).__name__, _origin(exc))
@@ -638,9 +642,13 @@ class ChatService:
             "emergencyWarning": [],
         }
 
-    def _fallback_reply(self, message: str, history: list[dict[str, str]], emergency: bool = False) -> dict:
+    def _fallback_reply(
+        self, message: str, history: list[dict[str, str]], emergency: bool = False, history_basis: bool = True
+    ) -> dict:
+        """생성 실패 폴백. history_basis=False(위기 뒤 해제된 턴)면 앞 턴 자해 키워드로 위기 응답을 되살리지 않는다 -
+        응급이면 일반 119 폴백. 이번 문장의 자해 키워드는 그대로 위기 응답이다."""
         trigger = "keyword" if MedicalLlmService.self_harm_signals(message) else (
-            "history" if emergency and MedicalLlmService.self_harm_in_history(history) else None
+            "history" if history_basis and emergency and MedicalLlmService.self_harm_in_history(history) else None
         )
         if trigger:
             family = MedicalLlmService.about_family(message)

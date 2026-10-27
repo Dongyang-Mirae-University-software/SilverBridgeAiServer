@@ -199,6 +199,36 @@ def test_clinic_sentence_not_added_on_emergency() -> None:
     assert CLINIC not in out["reply"]
 
 
+# ---- 2026-10-27 점검 M-2: 당뇨약 + 술 = 저혈당 문장 ---------------------------------------------------------
+
+HYPO = "당뇨약을 드시는 중에 술을 마시면 저혈당(식은땀·떨림·어지럼)이 늦게 올 수 있어요. 드시기 전에 의사·약사와 꼭 상의하세요."
+
+
+@pytest.mark.parametrize("message", ["당뇨약 먹는데 술을 마셔도 되나요", "인슐린 맞는데 맥주 한 잔 괜찮아요?", "혈당약 먹고 막걸리 마셔도 돼?"])
+def test_diabetes_alcohol_question_gets_hypoglycemia_sentence(message: str, caplog) -> None:
+    with caplog.at_level(logging.INFO):
+        out = _generate(message, "술은 혈당을 높일 수 있어요. 의사와 상의하세요.")  # 방향이 반대인 모델 답(qa.D5 관찰)
+    assert HYPO in out["reply"] and out["reply"].count(HYPO) == 1
+    assert "[CHAT-SAFETY] alcohol_hypoglycemia_sentence=added" in "\n".join(r.getMessage() for r in caplog.records)
+
+
+def test_hypoglycemia_sentence_not_added_when_reply_mentions_it() -> None:
+    out = _generate("당뇨약 먹는데 술을 마셔도 되나요", "술은 저혈당을 일으킬 수 있어 조심하세요.")
+    assert HYPO not in out["reply"]
+
+
+@pytest.mark.parametrize("message", ["당뇨가 있는데 수술해도 되나요", "당뇨약 먹는데 미술 수업 들어도 돼요?", "술 마시고 두통이 있어요", "혈압약 먹는데 술 마셔도 돼?"])
+def test_hypoglycemia_sentence_only_for_diabetes_and_alcohol(message: str) -> None:
+    out = _generate(message, "의사나 약사에게 물어봐 주세요.")
+    assert HYPO not in out["reply"]
+
+
+def test_hypoglycemia_sentence_not_added_on_emergency() -> None:
+    out = MedicalLlmService(Settings(), _Loader("x")).generate(
+        "당뇨약 먹고 술 마셨는데 의식이 흐려요", {}, [], intent="emergency_guidance")
+    assert HYPO not in out["reply"]
+
+
 # ---- C-4 진료과 키워드 --------------------------------------------------------------------------------
 
 
