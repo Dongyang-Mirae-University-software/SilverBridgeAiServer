@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 import logging
 import re
-from typing import Any
+from typing import Any, NamedTuple
 
 from app.core.config import Settings, get_settings
 from app.models.medgemma_loader import MedGemmaLoader
@@ -35,7 +35,7 @@ _THIRD_PERSON_SUBJECT = re.compile(r"(엄마|어머니|어머님|아빠|아버�
 # 약 복용 문의 + 증상인데 답에 병원 권유가 없을 때 덧붙인다. 판정 기준은 평가 실행기 must_hospital 과 같은 단어다
 # ("의사·약사에게 물어보세요"만으로는 진료 권유가 아니다).
 _CLINIC_SENTENCE = "증상이 계속되거나 걱정되시면 병원 진료를 받아 보세요."
-# 당뇨약 + 술 문의에는 저혈당 위험을 모델 출력과 상관없이 한 줄 덧붙인다(2026-10-27 점검 M-2 - qa.D5 에서 저혈당 미언급 4/4·방향 반대 1/4).
+# 당뇨약 + 술 문의에 붙이는 저혈당 문장(2026-10-27 점검 M-2 - qa.D5 에서 저혈당 미언급 4/4·방향 반대 1/4). 약 종류별 규칙은 _DRUG_ALCOHOL_RULES.
 _ALCOHOL_HYPOGLYCEMIA_SENTENCE = (
     "당뇨약을 드시는 중에 술을 마시면 저혈당(식은땀·떨림·어지럼)이 늦게 올 수 있어요. 드시기 전에 의사·약사와 꼭 상의하세요."
 )
@@ -45,6 +45,55 @@ _ALCOHOL_WORDS = re.compile(r"(?<![수기예마미])술|음주|소주|맥주|막
 # 술이 혈당을 올린다고 쓴 문장(방향이 반대, 2026-10-27 재측정 4/5). "저혈당"이 든 문장은 건드리지 않는다.
 _GLUCOSE_UP = re.compile(r"혈당[^.!?。]{0,12}(높|오르|올라|올리|올려|상승)")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?。])\s+")
+
+
+class _DrugAlcoholRule(NamedTuple):
+    """약 + 술 문의 안전 규칙(2026-10-27, 약+술 탐색 측정에서 사실 반대·허용 표현·핵심 위험 누락).
+    drug = 질문의 약 이름 / sentence = 모델 출력과 상관없이 붙일 고정 문장 / covered = 답에 이미 있으면 문장을 붙이지 않는 핵심어 /
+    wrong = 이 약에서 방향이 반대인 문장(covered 가 든 문장은 남긴다)."""
+
+    name: str
+    drug: re.Pattern[str]
+    sentence: str
+    covered: re.Pattern[str]
+    wrong: re.Pattern[str] | None
+
+
+_DRUG_ALCOHOL_RULES = (
+    _DrugAlcoholRule("diabetes", _DIABETES_MED_WORDS, _ALCOHOL_HYPOGLYCEMIA_SENTENCE, re.compile("저혈당"), _GLUCOSE_UP),
+    _DrugAlcoholRule(
+        "sedative",
+        re.compile(r"수면제|수면 ?유도제|수면 ?보조제|신경 ?안정제|안정제|진정제|항불안제|졸피뎀|스틸녹스|자낙스|알프라졸람|로라제팜"),
+        "수면제나 안정제를 술과 함께 드시면 숨이 약해지거나 깨어나기 어려울 만큼 위험할 수 있어요. 술과 함께 드시지 마세요.",
+        re.compile(r"(함께|같이) (드시지|복용하지|먹지) 마"),
+        None,
+    ),
+    _DrugAlcoholRule(
+        "acetaminophen",
+        re.compile(r"타이레놀|아세트아미노펜|펜잘|게보린|써스펜"),
+        "타이레놀(아세트아미노펜)을 드시는 중에 술을 마시면 간이 상할 수 있어요. 함께 드시지 마시고, 술을 자주 드시면 의사·약사와 상의하세요.",
+        re.compile(r"간(이|을|에| 손상| 기능| 독성)"),
+        None,
+    ),
+    _DrugAlcoholRule(
+        "anticoagulant",
+        re.compile(r"와파린|쿠마딘|항응고제|피 ?묽게|피를 ?묽게|혈액 ?희석"),
+        "와파린 같은 피를 묽게 하는 약을 드시는 중에 술을 마시면 출혈 위험이 커지고 약 효과가 달라질 수 있어요. 드시기 전에 의사·약사와 꼭 상의하세요.",
+        re.compile(r"출혈|피가 (잘 )?안 멈|피가 멈추지"),
+        # 술이 응고(혈전) 위험을 높인다고 쓴 문장 - 실제로는 출혈 위험(2026-10-27 측정 2/3).
+        re.compile(r"(응고|혈전)[^.!?。]{0,12}(높|커|증가|올라|올리|상승)"),
+    ),
+    _DrugAlcoholRule(
+        "blood_pressure",
+        re.compile(r"고혈압약|혈압약|혈압 ?약"),
+        "혈압약을 드시는 중에 술을 마시면 혈압이 너무 떨어져 어지럽거나 넘어질 수 있어요. 드시기 전에 의사·약사와 상의하세요.",
+        re.compile(r"어지|낙상|넘어|쓰러"),
+        None,
+    ),
+)
+# 약 + 술 문의에서 술을 조금은 괜찮다고 허용하는 문장(2026-10-27 측정 "한 잔 정도는 괜찮을 수"). 부정형("괜찮지 않아요")은 남긴다.
+_ALCOHOL_ALLOWANCE = re.compile(r"(한두 ?잔|한 ?잔|두 ?잔|조금|적당히|소량|가볍게)[^.!?。]{0,15}(괜찮|마셔도 (돼|됩|괜)|드셔도 (돼|됩|괜)|문제(가)? ?없|무방)")
+_ALLOWANCE_NEGATED = re.compile(r"괜찮지 않|괜찮은 (것|게) 아니|안 괜찮|되지 않|안 ?돼")
 _HOSPITAL_WORDS = re.compile(r"병원|진료|응급실|119")
 _MEDICATION_WORD = re.compile(r"약|항생제|진통제|수면제|소화제|해열제|아스피린")
 _MEDICATION_ASK = re.compile(r"먹어도|드셔도|복용해도|끊어도|중단해도|먹으면|드시면|먹을까")
@@ -143,35 +192,59 @@ class MedicalLlmService:
         }
 
     @staticmethod
-    def is_diabetes_alcohol_question(message: str) -> bool:
-        """당뇨약(혈당약·인슐린)과 술을 함께 묻는 문장인가."""
+    def drug_alcohol_rules(message: str) -> list[_DrugAlcoholRule]:
+        """약 + 술을 함께 묻는 문장이면 해당 약 규칙들(여러 개일 수 있다). 술이 없으면 빈 목록."""
         text = message or ""
-        return bool(_DIABETES_MED_WORDS.search(text) and _ALCOHOL_WORDS.search(text))
+        if not _ALCOHOL_WORDS.search(text):
+            return []
+        return [rule for rule in _DRUG_ALCOHOL_RULES if rule.drug.search(text)]
 
     @staticmethod
-    def drop_alcohol_glucose_up_sentences(reply: str) -> tuple[str, int]:
-        """술이 혈당을 올린다고 쓴 문장을 뺀다(저혈당이 든 문장은 남긴다). 다 빠진 줄은 줄째 뺀다(줄머리 "· 특징:"은 첫 문장에 붙어 함께 빠진다).
-        (고친 답, 뺀 문장 수). 당뇨약 + 술 문의에만 쓴다 - 다른 상담의 문장은 건드리지 않는다."""
-        removed = 0
+    def apply_drug_alcohol_rules(message: str, reply: str) -> tuple[str, dict[str, int], list[str]]:
+        """약 + 술 문의 답 손보기: ① 술을 조금은 괜찮다고 허용한 문장 ② 그 약에서 방향이 반대인 문장을 빼고
+        ③ 답에 핵심 위험이 없으면 고정 문장을 붙인다. (고친 답, 뺀 문장 수 {이유: 수}, 붙인 규칙 이름). 다른 상담은 그대로."""
+        rules = MedicalLlmService.drug_alcohol_rules(message)
+        if not rules:
+            return reply, {}, []
+
+        def drop_reason(sentence: str) -> str | None:
+            if (
+                (_ALCOHOL_WORDS.search(sentence) or "잔" in sentence)
+                and _ALCOHOL_ALLOWANCE.search(sentence)
+                and not _ALLOWANCE_NEGATED.search(sentence)
+            ):
+                return "allowance"
+            for rule in rules:
+                if rule.wrong and _ALCOHOL_WORDS.search(sentence) and rule.wrong.search(sentence) and not rule.covered.search(sentence):
+                    return rule.name
+            return None
+
+        dropped: dict[str, int] = {}
         lines: list[str] = []
         for line in (reply or "").split("\n"):
             sentences = _SENTENCE_SPLIT.split(line)
-            kept = [x for x in sentences if not (_ALCOHOL_WORDS.search(x) and _GLUCOSE_UP.search(x) and "저혈당" not in x)]
+            kept = []
+            for sentence in sentences:
+                reason = drop_reason(sentence)
+                if reason is None:
+                    kept.append(sentence)
+                else:
+                    dropped[reason] = dropped.get(reason, 0) + 1
             if len(kept) == len(sentences):
                 lines.append(line)  # 뺄 문장이 없는 줄은 그대로
                 continue
-            removed += len(sentences) - len(kept)
             new_line = " ".join(kept).strip()
             if new_line:
                 lines.append(new_line)
-        return "\n".join(lines), removed
-
-    @staticmethod
-    def needs_alcohol_hypoglycemia_sentence(message: str, reply: str) -> bool:
-        """당뇨약(혈당약·인슐린)과 술을 함께 묻는데 답에 저혈당 언급이 없으면 True."""
-        if not MedicalLlmService.is_diabetes_alcohol_question(message):
-            return False
-        return "저혈당" not in (reply or "")
+        out = "\n".join(lines)
+        # 핵심 위험이 이미 있는지는 모델 답만 보고 정한다 - 앞서 붙인 고정 문장의 단어("어지럼")로 다른 약 문장이 빠지지 않게.
+        model_text = out
+        added = []
+        for rule in rules:
+            if not rule.covered.search(model_text):
+                out = f"{out}\n{rule.sentence}"
+                added.append(rule.name)
+        return out, dropped, added
 
     @staticmethod
     def needs_clinic_sentence(message: str, reply: str) -> bool:
@@ -396,14 +469,11 @@ class MedicalLlmService:
         emergency_warning = [_EMERGENCY_REPLY] if emergency_hint or intent == "emergency_guidance" else []
         risk_level, recommended_action, reservation_required = self.infer_risk(message, intent, emergency_warning)
         reply = self.format_answer(normalized, emergency=bool(emergency_warning))
-        if not emergency_warning and self.is_diabetes_alcohol_question(message):
-            reply, dropped = self.drop_alcohol_glucose_up_sentences(reply)
-            if dropped:
-                # 상담 내용은 남기지 않는다 - 뺀 문장 수만.
-                _LOG.info("[CHAT-SAFETY] alcohol_glucose_up_dropped=%s", dropped)
-        if not emergency_warning and self.needs_alcohol_hypoglycemia_sentence(message, reply):
-            reply = f"{reply}\n{_ALCOHOL_HYPOGLYCEMIA_SENTENCE}"
-            _LOG.info("[CHAT-SAFETY] alcohol_hypoglycemia_sentence=added")
+        if not emergency_warning:
+            reply, dropped, added = self.apply_drug_alcohol_rules(message, reply)
+            if dropped or added:
+                # 상담 내용은 남기지 않는다 - 규칙 이름·뺀 문장 수만.
+                _LOG.info("[CHAT-SAFETY] drug_alcohol dropped=%s added=%s", dropped or {}, ",".join(added) or "-")
         if not emergency_warning and self.needs_clinic_sentence(message, reply):
             # 모델이 "의사·약사에게 물어보세요"로만 끝내도 진료 권유가 빠지지 않게 한 줄 덧붙인다(모델 출력에 기대지 않는다).
             reply = f"{reply}\n{_CLINIC_SENTENCE}"
