@@ -269,7 +269,8 @@ def test_hypoglycemia_sentence_not_added_on_emergency() -> None:
 SEDATIVE = "수면제나 안정제를 술과 함께 드시면 숨이 약해지거나 깨어나기 어려울 만큼 위험할 수 있어요. 술과 함께 드시지 마세요."
 ACETAMINOPHEN = "타이레놀(아세트아미노펜)을 드시는 중에 술을 마시면 간이 상할 수 있어요. 함께 드시지 마시고, 술을 자주 드시면 의사·약사와 상의하세요."
 ANTICOAGULANT = "와파린 같은 피를 묽게 하는 약을 드시는 중에 술을 마시면 출혈 위험이 커지고 약 효과가 달라질 수 있어요. 드시기 전에 의사·약사와 꼭 상의하세요."
-BLOOD_PRESSURE = "혈압약을 드시는 중에 술을 마시면 혈압이 너무 떨어져 어지럽거나 넘어질 수 있어요. 드시기 전에 의사·약사와 상의하세요."
+BLOOD_PRESSURE = "혈압약을 드시는 중에 술을 마시면 혈압이 갑자기 떨어져 어지럽거나 넘어질 수 있고, 자주 마시면 오히려 혈압이 올라 약 효과가 떨어질 수 있어요. 드시기 전에 의사·약사와 상의하세요."
+ANTIBIOTIC = "항생제를 드시는 동안에는 술을 피하세요. 일부 항생제는 술과 함께 드시면 심한 두근거림·구토가 생길 수 있어요. 드시는 약이 괜찮은지 약사에게 확인해 주세요."
 
 
 @pytest.mark.parametrize(("message", "sentence"), [
@@ -277,10 +278,22 @@ BLOOD_PRESSURE = "혈압약을 드시는 중에 술을 마시면 혈압이 너�
     ("타이레놀 먹고 소주 마셔도 괜찮아?", ACETAMINOPHEN),
     ("와파린 먹는데 막걸리 마셔도 되나요", ANTICOAGULANT),
     ("고혈압약 먹는데 술 마셔도 되나요", BLOOD_PRESSURE),
+    ("항생제 먹는 중인데 맥주 마셔도 돼요?", ANTIBIOTIC),
 ])
 def test_drug_alcohol_question_gets_fixed_sentence(message: str, sentence: str) -> None:
     out = _generate(message, "약을 더 드시거나 바꾸기 전에 의사·약사와 상담하세요.")  # 측정에서 본 질문과 맞지 않는 일반 문구
     assert out["reply"].count(sentence) == 1
+
+
+def test_blood_pressure_sentence_covers_both_directions() -> None:
+    # 모델이 "혈압이 더 높아질"만 써도 고정 문장이 두 방향을 함께 말해 반대로 읽히지 않는다(2026-10-27 측정 ax.01).
+    out = _generate("고혈압약 먹는데 술 마셔도 되나요", "술을 마시면 혈압이 더 높아질 수 있어요. 혈압을 확인하세요.")
+    assert BLOOD_PRESSURE in out["reply"] and "떨어져" in BLOOD_PRESSURE and "혈압이 올라" in BLOOD_PRESSURE
+
+
+def test_antibiotic_sentence_skipped_when_reply_says_avoid_alcohol() -> None:
+    out = _generate("항생제 먹는 중인데 맥주 마셔도 돼요?", "항생제를 드시는 동안 술은 피하는 것이 좋아요.")
+    assert ANTIBIOTIC not in out["reply"]
 
 
 def test_fixed_sentence_skipped_when_reply_already_covers_risk() -> None:
