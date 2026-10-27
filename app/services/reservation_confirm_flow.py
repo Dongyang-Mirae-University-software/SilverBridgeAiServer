@@ -41,6 +41,17 @@ _DRAFT_KEYS = (
     "patient_name", "phone", "birth_date", "symptom_summary", "memo",
 )
 _PENDING_TTL_SECONDS = 1800  # 확인 카드는 30분 안에 눌러야 한다(오래된 카드가 며칠 뒤에 예약되지 않게)
+
+
+def fresh_flow_state(flow: Any) -> bool:
+    """이어 쓸 수 있는 예약 초안 상태인가 - 초안이 있고 createdAt 이 확인 카드와 같은 TTL 안이다.
+    createdAt 이 없는 옛 상태(배포 전)는 이어 쓰지 않고 예전처럼 이력에서 다시 만든다(R-8)."""
+    return (
+        isinstance(flow, dict)
+        and isinstance(flow.get("draft"), dict)
+        and isinstance(flow.get("createdAt"), int)
+        and 0 <= int(time.time()) - flow["createdAt"] <= _PENDING_TTL_SECONDS
+    )
 _STALE_REPLY = "확인 시간이 지났어요. 예약하실 병원과 진료과, 날짜를 다시 알려 주세요."
 
 
@@ -230,11 +241,13 @@ class ReservationFlowMixin:
     def _remember_flow(
         self, out: dict[str, Any], meta: dict[str, Any], draft: ReservationDraft, replaces: dict[str, Any] | None, ward_id: str
     ) -> dict[str, Any]:
-        """고치기·변경 중이면 다음 턴이 이 초안을 이어 쓰도록 남긴다(확인 카드가 나온 턴은 pendingAction 이 대신한다).
-        초안은 시작한 피보호자(wardId)에게 묶인다 - 다른 피보호자 상담에서 이어 쓰면 환자 정보가 섞인다."""
+        """다음 턴이 이 초안을 이어 쓰도록 남긴다 - 고치기·변경뿐 아니라 일반 예약 흐름도(R-8, 확인 카드가 나온 턴은 pendingAction 이 대신한다).
+        초안은 시작한 피보호자(wardId)에게 묶이고(다른 피보호자 상담에서 이어 쓰면 환자 정보가 섞인다) 확인 카드와 같은 TTL 이 지나면 버린다."""
         target = out.get("meta") if isinstance(out.get("meta"), dict) else meta
         if "pendingAction" not in target:
-            target["flowState"] = {"draft": draft_to_dict(draft), "replaces": replaces, "wardId": ward_id}
+            target["flowState"] = {
+                "draft": draft_to_dict(draft), "replaces": replaces, "wardId": ward_id, "createdAt": int(time.time()),
+            }
         out["meta"] = target
         return out
 
@@ -525,7 +538,10 @@ class ReservationFlowMixin:
             draft = draft_from_dict(pending.get("draft") or {})
             replaces = pending.get("replaces") if isinstance(pending.get("replaces"), dict) else None
             if action == "edit":
-                meta["flowState"] = {"draft": draft_to_dict(draft), "replaces": replaces, "editToken": token, "wardId": ward_id}
+                meta["flowState"] = {
+                    "draft": draft_to_dict(draft), "replaces": replaces, "editToken": token, "wardId": ward_id,
+                    "createdAt": int(time.time()),
+                }
                 return self._flow_message(
                     meta,
                     "무엇을 고칠까요?",
@@ -548,6 +564,7 @@ class ReservationFlowMixin:
             flow = stored.get("flowState") if isinstance(stored.get("flowState"), dict) else {}
             if (
                 not token
+                or not fresh_flow_state(flow)
                 or flow.get("editToken") != token
                 or "wardId" not in flow  # 배포 전에 저장된 옛 상태
                 or (flow.get("wardId") or "") != ward_id

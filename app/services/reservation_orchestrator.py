@@ -13,7 +13,7 @@ from app.schemas.chat_schema import ChatRequest, UiOption, UiPayload
 from app.services.claude_structured_client import ClaudeStructuredClient, failure_cause
 from app.services.reservation_api_client import ReservationApiClient
 from app.services.reservation_common import _date_label, _digits, _phone_last4, _trace, with_demo_notice
-from app.services.reservation_confirm_flow import CONFIRM_FIELDS, ReservationFlowMixin, draft_from_dict
+from app.services.reservation_confirm_flow import CONFIRM_FIELDS, ReservationFlowMixin, draft_from_dict, fresh_flow_state
 from app.services.reservation_intake import (
     CHANGE_DATE_OPTION,
     ReservationDraft,
@@ -64,6 +64,31 @@ def _symptom_department(text: str) -> str | None:
         if any(word in text for word in words):
             return department
     return None
+
+
+def _linked_fields(draft: ReservationDraft) -> tuple[str | None, ...]:
+    """이어 쓰는 초안에서 바뀌면 다른 칸을 낡게 만드는 값(병원 id, 병원 이름, 진료과, 날짜, 시간)."""
+    return (
+        None if draft.hospital_id is None else str(draft.hospital_id),
+        draft.hospital_name, draft.department, draft.reservation_date, draft.reservation_time,
+    )
+
+
+def _clear_stale_links(before: tuple[str | None, ...], draft: ReservationDraft, meta: dict[str, Any]) -> None:
+    """저장된 초안을 이어 쓸 때 이번 턴에 바뀐 값에 엮인 칸을 비운다(R-8).
+    병원 이름이 바뀌었는데 id 가 그대로면 옛 병원으로 예약되고, 병원·진료과·날짜가 바뀌었는데 시간이 그대로면
+    그 시간이 비어 있는지 확인하지 않은 채 확인 카드로 간다. 이번 턴에 함께 정해진 값(날짜를 담은 시간 버튼 등)은 지우지 않는다."""
+    old_id, old_hospital, old_dept, old_date, old_time = before
+    new_id, new_hospital, new_dept, new_date, new_time = _linked_fields(draft)
+    cleared: list[str] = []
+    if new_hospital != old_hospital and new_id == old_id and draft.hospital_id is not None:
+        draft.hospital_id = None
+        cleared.append("hospital_id")
+    if (new_hospital != old_hospital or new_dept != old_dept or new_date != old_date) and new_time == old_time and draft.reservation_time:
+        draft.reservation_time = None
+        cleared.append("reservation_time")
+    if cleared:
+        _trace(meta, "reservation_draft_links_cleared", cleared=cleared)
 
 
 def _with_copula(word: str) -> str:
@@ -780,19 +805,21 @@ class ReservationOrchestrator(ReservationFlowMixin):
         history_text, loc = self._conversation_context(req)
         normalized_loc = self._normalize_location_hint(loc)
 
-        # 고치기·변경 중이면 초안을 이력에서 다시 만들지 않고 직전 턴이 남긴 것을 이어 쓴다(옛 시간·병원이 이력에서 되살아나는 것 방지).
+        # 직전 턴이 남긴 초안이 있으면 이력에서 다시 만들지 않고 이어 쓴다(옛 시간·병원이 이력에서 되살아나는 것 방지).
+        # 일반 예약 흐름도 매 턴 저장한다(R-8). 이력 재구성은 저장 초안이 없거나(옛 기록·다른 대화가 낌) TTL 이 지났을 때의 폴백이다.
         flow = (meta.get("storedFlow") or {}).get("flowState") if isinstance(meta.get("storedFlow"), dict) else None
         in_flow = (
-            isinstance(flow, dict)
-            and isinstance(flow.get("draft"), dict)
+            fresh_flow_state(flow)
             # 다른 피보호자로 바뀌었으면 이어 쓰지 않고 새로 만든다. wardId 키가 없는 옛 상태(배포 전)도 이어 쓰지 않는다.
             and "wardId" in flow
             and (flow.get("wardId") or "") == self._ward_id(req)
             and bool(req.uiSelection or not self._is_new_request(raw_message))
         )
         replaces: dict[str, Any] | None = None
+        before: tuple[str | None, ...] | None = None
         if in_flow:
             draft = draft_from_dict(flow["draft"])  # type: ignore[index]
+            before = _linked_fields(draft)
             replaces = flow.get("replaces") if isinstance(flow.get("replaces"), dict) else None  # type: ignore[union-attr]
             if raw_message and not req.uiSelection:
                 extracted = self._extract_reservation_fields(req, history_text, normalized_loc or loc, meta)
@@ -832,8 +859,11 @@ class ReservationOrchestrator(ReservationFlowMixin):
                     draft.department = dept_in_message
                 _trace(meta, "new_request_reset", hospital=draft.hospital_name, time=draft.reservation_time, date=draft.reservation_date, department=draft.department)
 
+        ward_id = self._ward_id(req)
         if req.uiSelection and self._apply_ui_selection(draft, req.uiSelection.field, req.uiSelection.value.strip()):
-            return self._ask_location(meta, draft.department)
+            return self._remember_flow(self._ask_location(meta, draft.department), meta, draft, replaces, ward_id)
+        if before is not None:
+            _clear_stale_links(before, draft, meta)
 
         _trace(
             meta,
@@ -848,7 +878,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
         )
 
         out = self._advance(req, meta, draft, reservation_api_key, replaces)
-        return self._remember_flow(out, meta, draft, replaces, self._ward_id(req)) if in_flow else out
+        return self._remember_flow(out, meta, draft, replaces, ward_id)
 
     def _advance(
         self,
