@@ -115,11 +115,16 @@ def _status(row: dict[str, Any]) -> str:
     return str(row.get("status") or "").strip().upper()
 
 
+DEPARTMENT_NOT_OFFERED_FLAG = "_departmentNotOffered"  # 빈 시간 조회가 그 병원에 없는 진료과라고 답한 턴의 표시 - 같은 턴 안에서 꺼낸다
+
 _DUPLICATE_PREFIX = "같은 시간대에 이미 예약이 있어요. 다른 시간을 골라 주세요."
 # 예약 서비스가 이 코드로 거절하면 시간을 다시 고르게 한다(PAST_TIME = 오늘 이미 지난 시간, 예약 서비스 #4).
 _RESELECT_PREFIX = {
     "DUPLICATE_RESERVATION": _DUPLICATE_PREFIX,
     "PAST_TIME": "그 시간은 이미 지났어요. 다른 시간을 골라 주세요.",
+    # 말로 정한 시간은 빈 시간 확인 없이 확인 카드로 오므로 마감·30분 칸이 아닌 시각도 막다른 오류 대신 다시 고르게 한다(점검 M-2)
+    "SLOT_TAKEN": "그 시간은 이미 마감됐어요. 다른 시간을 골라 주세요.",
+    "INVALID_TIME": "그 시간에는 예약할 수 없어요. 아래 시간 중에서 골라 주세요.",
 }
 
 
@@ -317,7 +322,7 @@ class ReservationFlowMixin:
         booked = self._booked_times(key)  # type: ignore[attr-defined]
         if draft.reservation_time and draft.reservation_time in booked.get(draft.reservation_date or "", set()):
             _trace(meta, "reservation_precheck_duplicate")
-            reselect = self._reselect_time(meta, draft, key, replaces, self._ward_id(req))
+            reselect = self._reselect_time(meta, draft, key, replaces, self._ward_id(req), req=req)
             if reselect is not None:
                 return reselect
         args = draft.to_make_appointment_args()
@@ -346,7 +351,7 @@ class ReservationFlowMixin:
         _trace(meta, "reservation_submit_failed", http_status=st, code=code)  # 예약 서비스 문구는 입력값을 되돌려 줄 수 있어 남기지 않는다
         # 같은 시간대 중복·확인 카드를 띄운 사이 지나 버린 시간은 막다른 길이 아니라 시간을 다시 고르게 한다.
         if code in _RESELECT_PREFIX:
-            reselect = self._reselect_time(meta, draft, key, replaces, self._ward_id(req), _RESELECT_PREFIX[code])
+            reselect = self._reselect_time(meta, draft, key, replaces, self._ward_id(req), _RESELECT_PREFIX[code], req=req)
             if reselect is not None:
                 return reselect
         return self._flow_error(meta, "make_appointment", msg, code, data)
@@ -359,12 +364,20 @@ class ReservationFlowMixin:
         replaces: dict[str, Any] | None,
         ward_id: str,
         prefix: str = _DUPLICATE_PREFIX,
+        req: ChatRequest | None = None,
     ) -> dict[str, Any] | None:
         """같은 시간대 중복은 막다른 길이 아니라 시간을 다시 고르게 한다. 다시 고를 시간이 없으면 None."""
         if draft.hospital_id is None or not draft.reservation_date:
             return None
         draft.reservation_time = None
         slot_date, slots = self._find_slots(draft.hospital_id, draft.reservation_date, key, meta, draft.department)  # type: ignore[attr-defined]
+        if meta.pop(DEPARTMENT_NOT_OFFERED_FLAG, False):
+            # 그 사이 진료과가 사라졌다 - 병원의 진료과 목록에서 다시 고르게 한다(점검 L-1)
+            draft.department = None
+            if req is None:
+                return None
+            out = self._advance(req, meta, draft, key, replaces)  # type: ignore[attr-defined]
+            return self._remember_flow(out, meta, draft, replaces, ward_id)
         if slot_date is None or not slots:
             return None
         out = self._time_select_reply(  # type: ignore[attr-defined]

@@ -13,7 +13,13 @@ from app.schemas.chat_schema import ChatRequest, UiOption, UiPayload
 from app.services.claude_structured_client import ClaudeStructuredClient, failure_cause
 from app.services.reservation_api_client import ReservationApiClient
 from app.services.reservation_common import _date_label, _digits, _phone_last4, _trace, with_demo_notice
-from app.services.reservation_confirm_flow import CONFIRM_FIELDS, ReservationFlowMixin, draft_from_dict, fresh_flow_state
+from app.services.reservation_confirm_flow import (
+    CONFIRM_FIELDS,
+    DEPARTMENT_NOT_OFFERED_FLAG,
+    ReservationFlowMixin,
+    draft_from_dict,
+    fresh_flow_state,
+)
 from app.services.reservation_intake import (
     CHANGE_DATE_OPTION,
     ReservationDraft,
@@ -66,6 +72,11 @@ def _symptom_department(text: str) -> str | None:
     return None
 
 
+class _DepartmentNotOffered(Exception):
+    """빈 시간 조회가 400 INVALID_DEPARTMENT - 그 병원에 이 진료과가 없다(관리자가 이름을 바꿨거나 사용 중지). 진료과를 다시 묻는다."""
+
+
+
 def _linked_fields(draft: ReservationDraft) -> tuple[str | None, ...]:
     """이어 쓰는 초안에서 바뀌면 다른 칸을 낡게 만드는 값(병원 id, 병원 이름, 진료과, 날짜, 시간)."""
     return (
@@ -76,11 +87,19 @@ def _linked_fields(draft: ReservationDraft) -> tuple[str | None, ...]:
 
 def _clear_stale_links(before: tuple[str | None, ...], draft: ReservationDraft, meta: dict[str, Any]) -> None:
     """저장된 초안을 이어 쓸 때 이번 턴에 바뀐 값에 엮인 칸을 비운다(R-8).
+    진료과가 바뀌었는데 병원이 그대로면 그 병원에 새 진료과가 없을 수 있어 병원을 비우고,
     병원 이름이 바뀌었는데 id 가 그대로면 옛 병원으로 예약되고, 병원·진료과·날짜가 바뀌었는데 시간이 그대로면
     그 시간이 비어 있는지 확인하지 않은 채 확인 카드로 간다. 이번 턴에 함께 정해진 값(날짜를 담은 시간 버튼 등)은 지우지 않는다."""
     old_id, old_hospital, old_dept, old_date, old_time = before
     new_id, new_hospital, new_dept, new_date, new_time = _linked_fields(draft)
     cleared: list[str] = []
+    # 진료과를 바꿨는데 병원이 그대로면 그 병원에 새 진료과가 없을 수 있다 - 고치기 흐름처럼 병원을 다시 찾는다(점검 M-1).
+    # 병원은 정했는데 진료과가 비어 있다 처음 정해지는 경우(old_dept 없음)는 바뀐 것이 아니다.
+    if old_dept and new_dept != old_dept and new_hospital == old_hospital and draft.hospital_name:
+        draft.hospital_name = None
+        draft.hospital_id = None
+        cleared.append("hospital")
+        new_hospital, new_id = None, None
     if new_hospital != old_hospital and new_id == old_id and draft.hospital_id is not None:
         draft.hospital_id = None
         cleared.append("hospital_id")
@@ -183,7 +202,10 @@ class ReservationOrchestrator(ReservationFlowMixin):
         시간 칸은 진료과마다 따로라 진료과를 알면 함께 넘긴다(모르면 예약 서비스가 병원 전체 기준으로 센다)."""
         res = self._reservation.get_available_slots(hospital_id, date_text, api_key_override=api_key, department=department)
         data = res.get("data")
-        if int(res.get("httpStatus") or 0) != 200 or not isinstance(data, dict):
+        status = int(res.get("httpStatus") or 0)
+        if status == 400 and isinstance(data, dict) and data.get("code") == "INVALID_DEPARTMENT":
+            raise _DepartmentNotOffered()
+        if status != 200 or not isinstance(data, dict):
             return None
         slots = [str(s).strip() for s in data.get("availableSlots") or [] if str(s).strip()]
         taken = (booked or {}).get(date_text, set())
@@ -201,7 +223,12 @@ class ReservationOrchestrator(ReservationFlowMixin):
 
         반환 (날짜, 슬롯). 요청 날짜 조회 자체가 실패하면 (None, [])로 기존 흐름(시간 직접 입력)에 맡긴다."""
         booked = self._booked_times(api_key)
-        slots = self._slots_on(hospital_id, requested_date, api_key, booked, department)
+        try:
+            slots = self._slots_on(hospital_id, requested_date, api_key, booked, department)
+        except _DepartmentNotOffered:
+            _trace(meta, "slot_department_not_offered", hospital_id=hospital_id, department=department)
+            meta[DEPARTMENT_NOT_OFFERED_FLAG] = True
+            return None, []
         _trace(meta, "slot_lookup", hospital_id=hospital_id, slot_count=None if slots is None else len(slots))
         if slots is None:
             return None, []
@@ -1072,6 +1099,11 @@ class ReservationOrchestrator(ReservationFlowMixin):
         if draft.hospital_id is not None and not draft.reservation_time:
             requested_date = draft.reservation_date
             slot_date, slots = self._find_slots(draft.hospital_id, requested_date, reservation_api_key, meta, draft.department)
+            if meta.pop(DEPARTMENT_NOT_OFFERED_FLAG, False):
+                # 그 병원에 없는 진료과 - 시간 직접 입력으로 넘기지 않고 병원의 진료과 목록에서 다시 고르게 한다(점검 L-1)
+                draft.department = None
+                draft.reservation_time = None
+                return self._advance(req, meta, draft, reservation_api_key, replaces)
             if slot_date is not None:
                 # 자동으로 넘긴 날짜는 서버에 저장되지 않으므로 시간 버튼 값("YYYY-MM-DD HH:mm")에 담아 다음 턴에 받는다.
                 draft.reservation_date = slot_date

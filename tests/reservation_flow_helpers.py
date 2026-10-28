@@ -40,6 +40,8 @@ class FakeReservation:
         self.cancel_result: dict[str, Any] | None = None
         self.slots: list[str] = ["09:00", "10:00", "14:00"]
         self.slot_departments: list[str | None] = []  # 빈 시간 조회에 넘긴 진료과(시간 칸은 진료과별)
+        # 병원 id -> 진료과. 정해 두면 진짜 예약 서비스처럼 병원에 없는 진료과의 빈 시간 조회를 400 INVALID_DEPARTMENT 로 답한다
+        self.departments_by_hospital: dict[int, list[str]] | None = None
 
     def names(self) -> list[str]:
         return [c[0] for c in self.calls]
@@ -51,10 +53,14 @@ class FakeReservation:
         return {"success": True, "rows": [{"hospital": "강남메디내과"}, {"hospital": "서초내과"}]}
 
     def list_departments(self, hospital_id: int, *, api_key_override=None):  # noqa: ARG002
-        return {"httpStatus": 200, "data": {"departments": [{"name": "내과"}]}}
+        names = (self.departments_by_hospital or {}).get(hospital_id, ["내과"])
+        return {"httpStatus": 200, "data": {"departments": [{"name": n} for n in names]}}
 
     def get_available_slots(self, hospital_id: int, day: str, *, api_key_override=None, department=None):  # noqa: ARG002
         self.slot_departments.append(department)
+        offered = (self.departments_by_hospital or {}).get(hospital_id)
+        if offered is not None and department and department not in offered:
+            return {"httpStatus": 400, "data": {"success": False, "code": "INVALID_DEPARTMENT", "message": "선택한 진료과가 병원에 없습니다."}}
         return {"httpStatus": 200, "data": {"availableSlots": list(self.slots)}}
 
     def list_my_appointments(self, api_key_override=None):  # noqa: ARG002
