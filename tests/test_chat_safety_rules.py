@@ -337,6 +337,41 @@ def test_drug_alcohol_rules_not_applied_on_emergency() -> None:
     assert SEDATIVE not in out["reply"]
 
 
+# ---- 2026-10-27 약 임의 조절·중단 표현 ---------------------------------------------------------------------
+
+SELF_ADJUST = "약을 줄이거나 끊거나 거르는 것은 꼭 의사·약사와 상의한 뒤에 하세요."
+
+
+@pytest.mark.parametrize(("message", "advice"), [
+    ("당뇨 있는데 술 마셔도 돼요", "필요하면 당뇨 약을 조절하세요. 혈당을 자주 확인하세요."),
+    ("당뇨약 먹는데 수술 전에 금식해야 하나요", "금식 시 당뇨약을 복용하지 않거나 시간을 바꿔야 할 수 있어요."),
+    ("혈압약 먹고 어지러워요", "어지러우면 혈압약을 잠시 끊어 보세요."),
+])
+def test_self_adjust_sentence_added(message: str, advice: str, caplog) -> None:
+    with caplog.at_level(logging.INFO):
+        out = _generate(message, advice)
+    assert out["reply"].count(SELF_ADJUST) == 1
+    assert advice.split(".")[0] in out["reply"]  # 모델 문장은 지우지 않는다
+    assert "[CHAT-SAFETY] self_adjust_sentence=added" in "\n".join(r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("advice", [
+    "용량 조절은 의사와 상의해 주세요.",
+    "약을 끊기 전에 꼭 약사와 상담하세요.",
+    "약을 꼭 챙겨 드시고 물을 충분히 드세요.",
+    "술을 줄이고 규칙적으로 운동하세요.",
+])
+def test_self_adjust_sentence_not_added(advice: str) -> None:
+    out = _generate("혈압약 먹는데 괜찮을까요", advice)
+    assert SELF_ADJUST not in out["reply"]
+
+
+def test_self_adjust_sentence_not_added_on_emergency() -> None:
+    out = MedicalLlmService(Settings(), _Loader("약을 끊으세요.")).generate(
+        "약을 먹고 의식이 흐려요", {}, [], intent="emergency_guidance")
+    assert SELF_ADJUST not in out["reply"]
+
+
 # ---- C-4 진료과 키워드 --------------------------------------------------------------------------------
 
 

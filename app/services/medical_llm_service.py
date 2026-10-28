@@ -102,6 +102,11 @@ _DRUG_ALCOHOL_RULES = (
 )
 # 약 + 술 문의에서 술을 조금은 괜찮다고 허용하는 문장(2026-10-27 측정 "한 잔 정도는 괜찮을 수"). 부정형("괜찮지 않아요")은 남긴다.
 _ALCOHOL_ALLOWANCE = re.compile(r"(한두 ?잔|한 ?잔|두 ?잔|조금|적당히|소량|가볍게)[^.!?。]{0,15}(괜찮|마셔도 (돼|됩|괜)|드셔도 (돼|됩|괜)|문제(가)? ?없|무방)")
+# 약을 스스로 줄이거나 끊으라고 읽히는 문장(2026-10-27 측정: "필요하면 당뇨약을 조절" / 금식 때 "당뇨약을 복용하지 않거나").
+# 같은 문장에 의사·약사 상의가 없으면 고정 문장을 덧붙인다 - 모델 문장은 지우지 않는다(맞는 내용일 수 있어 덧붙이기만).
+_SELF_ADJUST = re.compile(r"(약|복용량|용량)[^.!?。]{0,20}(조절|줄이|줄여|늘리|늘려|끊|중단|건너뛰|복용하지 않|드시지 않|먹지 않)")
+_SELF_ADJUST_CONSULTED = re.compile(r"의사|약사|병원|진료|처방|상의|상담")
+_SELF_ADJUST_SENTENCE = "약을 줄이거나 끊거나 거르는 것은 꼭 의사·약사와 상의한 뒤에 하세요."
 _ALLOWANCE_NEGATED = re.compile(r"괜찮지 않|괜찮은 (것|게) 아니|안 괜찮|되지 않|안 ?돼")
 _HOSPITAL_WORDS = re.compile(r"병원|진료|응급실|119")
 _MEDICATION_WORD = re.compile(r"약|항생제|진통제|수면제|소화제|해열제|아스피린")
@@ -254,6 +259,18 @@ class MedicalLlmService:
                 out = f"{out}\n{rule.sentence}"
                 added.append(rule.name)
         return out, dropped, added
+
+    @staticmethod
+    def needs_self_adjust_sentence(reply: str) -> bool:
+        """약을 스스로 조절·중단하라고 읽히는 문장이 있는데 그 문장에 의사·약사 상의가 없고, 고정 문장도 아직 없으면 True."""
+        text = reply or ""
+        if _SELF_ADJUST_SENTENCE in text:
+            return False
+        for line in text.split("\n"):
+            for sentence in _SENTENCE_SPLIT.split(line):
+                if _SELF_ADJUST.search(sentence) and not _SELF_ADJUST_CONSULTED.search(sentence):
+                    return True
+        return False
 
     @staticmethod
     def needs_clinic_sentence(message: str, reply: str) -> bool:
@@ -483,6 +500,9 @@ class MedicalLlmService:
             if dropped or added:
                 # 상담 내용은 남기지 않는다 - 규칙 이름·뺀 문장 수만.
                 _LOG.info("[CHAT-SAFETY] drug_alcohol dropped=%s added=%s", dropped or {}, ",".join(added) or "-")
+            if self.needs_self_adjust_sentence(reply):
+                reply = f"{reply}\n{_SELF_ADJUST_SENTENCE}"
+                _LOG.info("[CHAT-SAFETY] self_adjust_sentence=added")
         if not emergency_warning and self.needs_clinic_sentence(message, reply):
             # 모델이 "의사·약사에게 물어보세요"로만 끝내도 진료 권유가 빠지지 않게 한 줄 덧붙인다(모델 출력에 기대지 않는다).
             reply = f"{reply}\n{_CLINIC_SENTENCE}"
