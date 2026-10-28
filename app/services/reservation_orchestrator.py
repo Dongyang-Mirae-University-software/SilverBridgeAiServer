@@ -519,7 +519,8 @@ class ReservationOrchestrator(ReservationFlowMixin):
             facts = {
                 k: v for k, v in {
                     "department": draft_state.department, "hospital_name": draft_state.hospital_name,
-                    "location": draft_state.location, "reservation_date": draft_state.reservation_date,
+                    # 초안의 지역은 검색용 전체 값이라 Claude 에는 시·구까지만 보낸다(2026-10-28 점검 M-1).
+                    "location": coarse_region(draft_state.location or ""), "reservation_date": draft_state.reservation_date,
                     "reservation_time": draft_state.reservation_time,
                 }.items() if v
             }

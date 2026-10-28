@@ -125,11 +125,12 @@ def test_clean_router_after_crisis_still_gets_followup_once(env) -> None:
     assert out["reply"] == f"{cs._CRISIS_FOLLOWUP}\n모델 답변"
 
 
-def test_no_release_without_server_crisis_record(env) -> None:
-    # 서버 기록상 직전 턴이 위기가 아니면 클라이언트 history만으로는 풀지 않는다(sh.11 형태 - 라우터·history 근거 그대로).
+def test_client_history_alone_is_not_a_crisis_basis(env) -> None:
+    # 2026-10-28 S-7: 이력은 서버 기록에서 만든다 - 요청 history 에만 있는 자해 발화는 근거가 되지 않는다(조작·다른 세션).
+    # (전에는 이 경우 위기 고정 응답이었다. 실제로 앞 턴이 이 서버를 거쳤다면 서버 기록에 있어 위기 뒤 규칙을 그대로 탄다.)
     env.router = _FlagRouter(self_harm=False, emergency=True, summary="응급")
     out = _send(env, "어떻게 해야 할지 모르겠어", "s1", CRISIS_HISTORY)
-    assert "109" in out["reply"] and env.llm.calls == 0
+    assert "109" not in out["reply"] and env.llm.calls == 1
 
 
 # ---- 2026-10-27 재점검 ①: 해제된 턴의 다음 턴 ---------------------------------------------------------------
@@ -244,10 +245,15 @@ def test_router_failure_short_continuation_gets_crisis_reply(env, caplog) -> Non
     assert "모르겠어" not in joined
 
 
-def test_router_failure_without_server_record_uses_history(env) -> None:
+def test_router_failure_uses_server_history_not_client_history(env) -> None:
     env.router = _Router(fail="api_529")
-    out = _send(env, "어떻게 해야 할지 모르겠어", "s1", CRISIS_HISTORY)
-    assert "109" in out["reply"] and env.llm.calls == 0
+    client_only = _send(env, "어떻게 해야 할지 모르겠어", "s-client", CRISIS_HISTORY)
+    assert "109" not in client_only["reply"]  # 요청 history 만으로는 위기 지속으로 보지 않는다(S-7)
+    first = _send(env, "죽고 싶어", "s1")  # 서버 기록에 남는 위기 턴
+    assert "109" in first["reply"]
+    calls = env.llm.calls
+    out = _send(env, "어떻게 해야 할지 모르겠어", "s1")
+    assert "109" in out["reply"] and env.llm.calls == calls
 
 
 @pytest.mark.parametrize("message", ["그런데 아까부터 배가 아파요", "고마워요. 이야기하니까 정말 많이 나아졌어요", "응 예약해줘",

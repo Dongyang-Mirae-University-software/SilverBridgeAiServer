@@ -189,17 +189,20 @@ def test_no_resume_when_symptom_emergency_selfharm_or_no_reservation_intent(env,
 
 
 def test_no_resume_when_previous_turn_was_not_crisis(env) -> None:
+    # 서버 기록상 직전 턴이 위기가 아니면 예약으로 재개하지 않는다. 요청 history 의 자해 발화는 근거가 아니다(S-7) -
+    # 라우터가 응급이라 했으니 예약이 아니라 일반 응급 상담으로 간다.
     _send(env, "어제부터 기침이 나요")
     env.router = _Router(emergency=True, summary="자살 위기 표현")
     out = _send(env, "응 예약해줘", "s1", CRISIS_HISTORY)
-    assert env.orch.calls == 0 and "109" in out["reply"]
+    assert env.orch.calls == 0 and "109" not in out["reply"] and env.llm.calls == 2
 
 
 def test_no_resume_across_sessions(env) -> None:
+    # 다른 세션의 위기는 이 세션의 근거가 아니다(서버 이력은 같은 세션만) - 예약 재개도 위기 응답도 아닌 일반 응급 상담.
     _send(env, "죽고 싶어", "other-session")
     env.router = _Router(emergency=True, summary="자살 위기 이후 대화")
     out = _send(env, "응 예약해줘", "s1", CRISIS_HISTORY)
-    assert env.orch.calls == 0 and "109" in out["reply"]
+    assert env.orch.calls == 0 and "109" not in out["reply"] and env.llm.calls == 1
 
 
 # ---- I-1 예약 로그 원문 ------------------------------------------------------------------------------------
