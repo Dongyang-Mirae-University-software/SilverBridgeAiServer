@@ -84,3 +84,13 @@ def test_other_invalid_request_is_still_an_error() -> None:
     card = _confirm_card(orch, fake)  # 날짜는 미래 그대로
     out = _turn(orch, card, ui=("reservation_confirm", _value(card, "confirm:")))
     assert out["type"] == "tool_error" and out["error"]["code"] == "INVALID_REQUEST"
+
+
+def test_hospital_day_off_on_create_asks_date_again() -> None:
+    fake = FakeReservation()
+    fake.create_result = {"httpStatus": 400, "data": {"success": False, "code": "HOSPITAL_DAY_OFF", "message": "그날은 병원이 쉬는 날이에요."}}
+    orch = make_orchestrator(fake, FULL)
+    card = _confirm_card(orch, fake)
+    out = _turn(orch, card, ui=("reservation_confirm", _value(card, "confirm:")))
+    assert out["ui"].field == "date", out["reply"]
+    assert out["reply"].startswith("그날은 병원이 쉬는 날이에요. 다른 날짜를 골라 주세요.")
