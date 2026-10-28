@@ -1,6 +1,8 @@
 # 챗 대화 이력 서버화 설계 (S-7) - 2026-10-28
 
-> 설계만 한다. 이 문서 시점에 코드는 바뀌지 않았다. 근거는 main `c2b273b` 기준 코드(`chat_service.py`·`reservation_orchestrator.py`·`medical_llm_service.py`·`chat_router_service.py`)와 FE `ChatbotContent.tsx`(`b1f8ab6`)다.
+> **구현 상태(2026-10-28)**: A안을 바로 전환으로 구현·배포했다 - PR #91, gosky `cac0384`. 결정: 이력 24개, 버튼 턴은 선택값만, 위기 근거는 사용자 원문 키워드(출처만 서버), 관찰 로그 `[CHAT-HISTORY-DIFF]` 2주. 결과 `docs/eval-results/2026-10-28-history-server-side.md`.
+>
+> (작성 당시) 설계만 한다. 이 문서 시점에 코드는 바뀌지 않았다. 근거는 main `c2b273b` 기준 코드(`chat_service.py`·`reservation_orchestrator.py`·`medical_llm_service.py`·`chat_router_service.py`)와 FE `ChatbotContent.tsx`(`b1f8ab6`)다.
 
 ## 1. 문제
 
