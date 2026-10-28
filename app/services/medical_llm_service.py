@@ -8,6 +8,7 @@ from typing import Any, NamedTuple
 from app.core.config import Settings, get_settings
 from app.models.medgemma_loader import MedGemmaLoader
 from app.prompts.medical_chat_prompts import SYSTEM_PROMPT, build_user_prompt
+from app.services.chat_deadline import call_timeout, gen_min_sec
 from app.services.reservation_orchestrator import _symptom_department
 from app.utils.conversation import format_recent_history, normalize_history
 from app.utils.json_extract import extract_json_fields_lenient, extract_json_object
@@ -513,6 +514,9 @@ class MedicalLlmService:
             if emergency_hint
             else self._settings.medgemma_gen_wait_timeout_sec
         )
+        # 생성은 중간에 끊을 수 없다 - 챗 전체 마감 안에서는 생성할 시간(CHAT_GEN_MIN_REMAINING_SEC)이 남을 만큼만 줄을 선다(O-3).
+        # 모자라면 ChatDeadlineExceeded -> chat_service가 고정 문구(응급이면 119 안내)로 답한다. 응급 3초 상한은 그대로다.
+        wait_timeout_sec = call_timeout("medgemma_wait", float(wait_timeout_sec), reserve=gen_min_sec(), minimum=0.5)
         raw = self._loader.generate_structured_text(
             SYSTEM_PROMPT, user_prompt, prefill="{", wait_timeout_sec=wait_timeout_sec
         )

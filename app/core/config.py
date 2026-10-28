@@ -171,6 +171,13 @@ class Settings(BaseModel):
     # 응급 턴은 줄을 오래 서지 않는다 - 넘기면 바로 119 안내 고정 문구로 답한다.
     medgemma_gen_wait_timeout_emergency_sec: int = _as_int_in_range("MEDGEMMA_GEN_WAIT_TIMEOUT_EMERGENCY_SEC", 3, 1, 30)
     chat_history_keep_turns: int = _as_int("CHAT_HISTORY_KEEP_TURNS", 8)
+    # 챗 요청 하나의 전체 마감(초, 2026-10-28 O-3). BE 중계 전체 제한 130초에 응답 전송 여유 20초를 둔 값.
+    # 각 호출(Claude·예약 API·생성 대기)은 남은 시간만큼만 기다리고, 모자라면 새 호출을 시작하지 않는다.
+    chat_deadline_sec: int = _as_int_in_range("CHAT_DEADLINE_SEC", 110, 30, 125)
+    # 되돌릴 수 없는 호출(예약 생성·취소)을 시작하는 최소 남은 시간(초). 모자라면 확인 카드를 다시 보여 준다.
+    chat_irreversible_min_remaining_sec: int = _as_int_in_range("CHAT_IRREVERSIBLE_MIN_REMAINING_SEC", 25, 5, 60)
+    # MedGemma 생성을 시작하는 최소 남은 시간(초). 생성은 중간에 끊을 수 없어 이만큼 남았을 때만 슬롯을 잡는다.
+    chat_gen_min_remaining_sec: int = _as_int_in_range("CHAT_GEN_MIN_REMAINING_SEC", 30, 5, 60)
 
     def resolved_chat_model_id(self) -> str:
         path = (self.chat_model_path or "").strip()

@@ -11,7 +11,7 @@ class _FakeGpt:
         self._reply = reply
         self.state = type("S", (), {"model_name": "fake-gpt"})()
 
-    def generate_structured_text(self, system_prompt: str, user_prompt: str, schema: dict | None = None) -> str:
+    def generate_structured_text(self, system_prompt: str, user_prompt: str, schema: dict | None = None, **kwargs) -> str:  # noqa: ARG002
         assert "[사용자 문장]" in user_prompt
         return json.dumps(self._reply, ensure_ascii=False)
 

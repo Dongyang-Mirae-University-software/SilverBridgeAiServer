@@ -1,22 +1,28 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 
 import anthropic
 
 from app.core.config import Settings
+from app.services.chat_deadline import ChatDeadlineExceeded, call_timeout
 
 _LOG = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "claude-opus-5-5"
 # 서버 측 거절 대체(server-side fallback)가 없는 모델. 보내지 말라는 것이 공식 안내다(haiku 5.5).
 _NO_SERVER_FALLBACK_MARKERS = ("haiku",)
+# 재시도는 우리가 한 번만 한다(SDK 자동 재시도 2회는 챗 전체 마감을 몰라 호출 1건이 60초 × 3까지 늘었다 - 2026-10-28 O-3).
+_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504, 529})
+_RETRY_BACKOFF_SEC = 0.5
+_MIN_CALL_SEC = 3.0
 
 
 class StructuredCallError(RuntimeError):
     """라우터·예약 추출 호출 실패. cause는 고정 코드(max_tokens·parse·unknown_route·api_<상태>·rate_limited·refusal·connection·
-    not_ready·empty)라 로그에 그대로 남겨도 된다 - 입력·모델 출력·API 오류 본문은 담지 않는다."""
+    not_ready·empty·deadline)라 로그에 그대로 남겨도 된다 - 입력·모델 출력·API 오류 본문은 담지 않는다."""
 
     def __init__(self, cause: str) -> None:
         super().__init__(cause)
@@ -55,7 +61,9 @@ class ClaudeStructuredClient:
             model_name=chosen or DEFAULT_MODEL,
             load_error=None if api_key else "ANTHROPIC_API_KEY가 설정되지 않았습니다.",
         )
-        self._client = anthropic.Anthropic(api_key=api_key, timeout=float(settings.claude_timeout_sec)) if api_key else None
+        self._client = (
+            anthropic.Anthropic(api_key=api_key, timeout=float(settings.claude_timeout_sec), max_retries=0) if api_key else None
+        )
 
     @property
     def state(self) -> ClaudeClientState:
@@ -65,22 +73,43 @@ class ClaudeStructuredClient:
         if not self._state.loaded:
             self._state.load_error = self._state.load_error or "ANTHROPIC_API_KEY가 설정되지 않았습니다."
 
-    def generate_structured_text(self, system_prompt: str, user_prompt: str, schema: dict | None = None) -> str:
-        """schema를 주면 output_config.format으로 그 JSON 스키마에 맞는 출력을 강제한다(파싱 실패 방지)."""
+    def generate_structured_text(
+        self, system_prompt: str, user_prompt: str, schema: dict | None = None, *, stage: str = "claude", reserve_sec: float = 0.0
+    ) -> str:
+        """schema를 주면 output_config.format으로 그 JSON 스키마에 맞는 출력을 강제한다(파싱 실패 방지).
+        챗 전체 마감 안에서는 호출마다 min(CLAUDE_TIMEOUT_SEC, 남은 시간 - reserve_sec)만 기다린다(reserve_sec = 뒤 단계 몫).
+        남은 시간이 모자라면 호출하지 않고 StructuredCallError("deadline")."""
         self.ensure_loaded()
         if not self._state.loaded or self._client is None:
             raise StructuredCallError("not_ready")
 
-        try:
-            response = self._client.beta.messages.create(**self._request_kwargs(system_prompt, user_prompt, schema))
-        except anthropic.RateLimitError as exc:
-            raise StructuredCallError("rate_limited") from exc
-        except anthropic.APIStatusError as exc:
-            # 오류 본문(exc.message)에는 입력이 섞일 수 있어 상태 코드·모델 이름만 남긴다.
-            _LOG.warning("Claude structured call failed: status=%s model=%s", exc.status_code, self._state.model_name)
-            raise StructuredCallError(f"api_{exc.status_code}") from exc
-        except anthropic.APIConnectionError as exc:
-            raise StructuredCallError("connection") from exc
+        kwargs = self._request_kwargs(system_prompt, user_prompt, schema)
+        cap = float(self._settings.claude_timeout_sec)
+        for attempt in (1, 2):
+            try:
+                timeout = call_timeout(stage, cap, reserve=reserve_sec, minimum=_MIN_CALL_SEC)
+            except ChatDeadlineExceeded as exc:
+                raise StructuredCallError("deadline") from exc
+            try:
+                response = self._client.beta.messages.create(**kwargs, timeout=timeout)
+                break
+            except anthropic.RateLimitError as exc:
+                if attempt == 1:
+                    time.sleep(_RETRY_BACKOFF_SEC)
+                    continue
+                raise StructuredCallError("rate_limited") from exc
+            except anthropic.APIStatusError as exc:
+                # 오류 본문(exc.message)에는 입력이 섞일 수 있어 상태 코드·모델 이름만 남긴다.
+                _LOG.warning("Claude structured call failed: status=%s model=%s attempt=%s", exc.status_code, self._state.model_name, attempt)
+                if attempt == 1 and exc.status_code in _RETRY_STATUSES:
+                    time.sleep(_RETRY_BACKOFF_SEC)
+                    continue
+                raise StructuredCallError(f"api_{exc.status_code}") from exc
+            except anthropic.APIConnectionError as exc:  # 시간 초과(APITimeoutError)도 여기
+                if attempt == 1:
+                    time.sleep(_RETRY_BACKOFF_SEC)
+                    continue
+                raise StructuredCallError("connection") from exc
 
         if response.stop_reason == "refusal":
             raise StructuredCallError("refusal")

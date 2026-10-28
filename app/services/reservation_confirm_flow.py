@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.database.session import SessionLocal
 from app.models.reservation_token_claim import ReservationTokenClaim
+from app.services.chat_deadline import has_time, irreversible_min_sec
 from app.services.reservation_common import DEMO_NOTICE, _SEOUL_TZ, _date_label, _digits, _phone_last4, _trace, with_demo_notice
 from app.services.reservation_intake import ReservationDraft, build_reservation_draft
 
@@ -91,6 +92,8 @@ class _TokenClaims:
 _LOG = logging.getLogger(__name__)
 _CLAIMS = _TokenClaims()
 _BUSY_REPLY = "이미 처리 중이에요. 잠시 뒤 예약 목록에서 확인해 주세요."
+# 챗 전체 마감이 가까워 예약 생성·취소를 시작하지 않았을 때 앞에 붙이는 한 줄(O-3). 초안은 그대로 두고 버튼을 새 토큰으로 다시 준다.
+_DEADLINE_RETRY = "처리가 늦어져 아직 진행하지 못했어요. 아래 버튼을 다시 눌러 주세요."
 
 
 def draft_to_dict(draft: ReservationDraft) -> dict[str, Any]:
@@ -316,6 +319,16 @@ class ReservationFlowMixin:
             ),
         )
 
+    def _confirm_again(
+        self, req: ChatRequest, meta: dict[str, Any], draft: ReservationDraft, replaces: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """마감이 가까워 예약을 만들지 않았다 - 같은 초안의 확인 카드를 새 토큰으로 다시 보여 준다(O-3)."""
+        _trace(meta, "reservation_deadline_confirm_again")
+        out = self._confirm_reply(req, meta, draft, replaces)
+        if isinstance(out.get("reply"), str):
+            out["reply"] = f"{_DEADLINE_RETRY}\n{out['reply']}"
+        return out
+
     # ---- 예약 생성 (확인 뒤에만) -------------------------------------------------
 
     def _create_from_draft(
@@ -340,6 +353,9 @@ class ReservationFlowMixin:
             reselect = self._reselect_time(meta, draft, key, replaces, self._ward_id(req), req=req)
             if reselect is not None:
                 return reselect
+        if not has_time("reservation_create", irreversible_min_sec()):
+            # 앞 조회가 늦어 생성할 시간이 모자라다 - 이 토큰은 이미 선점됐으므로 새 토큰으로 확인 카드를 다시 준다.
+            return self._confirm_again(req, meta, draft, replaces)
         args = draft.to_make_appointment_args()
         if draft.hospital_id is not None:
             args["hospital_id"] = draft.hospital_id
@@ -420,7 +436,12 @@ class ReservationFlowMixin:
         ui: UiPayload | None = self._followup_ui()
         if replaces:
             # 새 예약이 확정된 뒤에만 기존 예약을 취소한다. 새 예약이 실패했다면 여기까지 오지 않는다.
-            cancelled = self._reservation.cancel_reservation(int(replaces["id"]), api_key_override=key)  # type: ignore[attr-defined]
+            # 시간이 모자라면 부르지 않고 아래 "취소에 실패했어요, 취소할까요?" 경로로 넘긴다(O-3).
+            cancelled = (
+                self._reservation.cancel_reservation(int(replaces["id"]), api_key_override=key)  # type: ignore[attr-defined]
+                if has_time("reservation_cancel_old", irreversible_min_sec())
+                else {"httpStatus": 0}
+            )
             if 200 <= int(cancelled.get("httpStatus") or 0) < 300:
                 _trace(meta, "reservation_change_old_cancelled", old_id=replaces.get("id"))
                 reply = f"예약이 완료되었습니다. 기존 예약({replaces.get('label')})은 취소했어요."
@@ -536,6 +557,12 @@ class ReservationFlowMixin:
                 return self._stale(meta, "cancel")
             if action == "no":
                 return self._flow_message(meta, "알겠습니다. 예약은 그대로 둘게요.")
+            if not has_time("reservation_cancel", irreversible_min_sec()):
+                new_token = uuid.uuid4().hex[:12]
+                meta["pendingAction"] = {**pending, "token": new_token, "createdAt": int(time.time())}
+                return self._flow_message(
+                    meta, f"{_DEADLINE_RETRY}\n{pending.get('label')} 예약을 취소할까요?", self._cancel_confirm_ui(new_token)
+                )
             if not _CLAIMS.claim(req.userId, token):
                 _trace(meta, "reservation_token_busy", kind="cancel")
                 return self._flow_message(meta, _BUSY_REPLY)
@@ -594,6 +621,8 @@ class ReservationFlowMixin:
                 )
             if draft.required_gap() is not None:
                 return self._stale(meta, "create")
+            if not has_time("reservation_create", irreversible_min_sec()):
+                return self._confirm_again(req, meta, draft, replaces)
             if not _CLAIMS.claim(req.userId, token):
                 _trace(meta, "reservation_token_busy", kind="create")
                 return self._flow_message(meta, _BUSY_REPLY)

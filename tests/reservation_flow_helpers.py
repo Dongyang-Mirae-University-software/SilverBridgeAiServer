@@ -21,7 +21,7 @@ class FakeLoader:
     def ensure_loaded(self) -> None:
         return None
 
-    def generate_structured_text(self, system: str, prompt: str, schema: Any = None) -> str:  # noqa: ARG002
+    def generate_structured_text(self, system: str, prompt: str, schema: Any = None, **kwargs) -> str:  # noqa: ARG002
         base = {
             "intent": "hospital_reservation", "hospital_name": "", "department": "", "location": "", "reservation_date": "",
             "reservation_time": "", "patient_name": "", "phone": "", "birth_date": "", "symptom_summary": "", "memo": "",

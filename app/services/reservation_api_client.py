@@ -13,6 +13,7 @@ from typing import Any
 from functools import lru_cache
 
 from app.core.config import Settings
+from app.services.chat_deadline import call_timeout
 from app.services.reservation_common import log_len
 
 _LOG = logging.getLogger(__name__)
@@ -99,6 +100,16 @@ def _filter_future_slot_times(slot_date: str | None, slots: list[str]) -> list[s
         if slot_time > now_hm:
             filtered.append(slot_text)
     return filtered
+
+
+# 예약 API 호출이 남겨 둘 시간(응답 정리·챗 기록 저장 몫)과 이보다 짧으면 시작하지 않는 최소 시간(초).
+_API_RESERVE_SEC = 2.0
+_API_MIN_SEC = 3.0
+
+
+def _stage_path(path: str) -> str:
+    """로그용 경로 - 숫자 ID 는 {id}로 바꾼다."""
+    return re.sub(r"/\d+", "/{id}", path)
 
 
 class ReservationApiClient:
@@ -222,6 +233,12 @@ class ReservationApiClient:
                 return 401, {"code": "SERVER_CONFIG", "message": "RESERVATION_ADMIN_JWT 또는 access_token(관리자)이 필요합니다."}
             headers["Authorization"] = f"Bearer {token}"
 
+        # 챗 전체 마감 안에서는 남은 시간만큼만 기다린다(O-3). 모자라면 호출하지 않고 ChatDeadlineExceeded -
+        # 경로·숫자 ID 만 단계 이름에 남긴다(쿼리의 지역·병원명은 넣지 않는다).
+        timeout = call_timeout(
+            f"reservation_api:{method.upper()}:{_stage_path(path)}", float(self._timeout),
+            reserve=_API_RESERVE_SEC, minimum=_API_MIN_SEC,
+        )
         req = urllib.request.Request(
             url,
             data=json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None,
@@ -229,7 +246,7 @@ class ReservationApiClient:
             method=method.upper(),
         )
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as response:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
                 text = response.read().decode("utf-8")
                 data = json.loads(text) if text.strip() else None
                 return response.status, data
@@ -242,6 +259,9 @@ class ReservationApiClient:
             return exc.code, data
         except urllib.error.URLError as exc:
             return 0, {"message": str(exc.reason), "code": "UPSTREAM_UNREACHABLE"}
+        except (TimeoutError, OSError):
+            # 응답 본문을 읽다 시간이 다 된 경우(urlopen 밖에서 나는 소켓 시간 초과). 마감을 줄인 뒤 더 자주 날 수 있어 실패로 돌려준다.
+            return 0, {"message": "timeout", "code": "UPSTREAM_TIMEOUT"}
 
     def search_hospitals(
         self,

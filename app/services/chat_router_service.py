@@ -6,12 +6,14 @@ from typing import Any
 
 from app.core.config import get_settings
 from app.services.claude_structured_client import ClaudeStructuredClient, StructuredCallError
-from app.utils.conversation import format_recent_history, normalize_history
+from app.utils.conversation import format_recent_history, mask_personal_info, normalize_history
 from app.utils.json_extract import extract_json_object
 
 _LOG = logging.getLogger(__name__)
 
 ROUTES = ("reservation", "symptom", "general")
+# 라우터 호출이 남겨 둘 시간(초) - 그 뒤 MedGemma 생성(CHAT_GEN_MIN_REMAINING_SEC 30)이나 예약 호출이 돌 몫.
+ROUTER_RESERVE_SEC = 30.0
 
 SYSTEM_PROMPT = """너는 노인 돌봄 챗봇의 1차 분류기다. 사용자 문장과 최근 대화를 읽고 JSON 하나만 출력한다.
 
@@ -71,11 +73,16 @@ class ChatRouterService:
         history_text = format_recent_history(recent)
         if summary:
             history_text = f"(이전 요약) {summary}\n{history_text}"
+        # Claude로 나가는 이력의 전화·주민번호·이메일 형태는 가린다(S-6). 턴 수는 안전 판단 근거라 그대로 둔다.
+        history_text = mask_personal_info(history_text)
         user_prompt = (
             f"[사용자 문장]\n{message}\n\n[현재 예약 상태(직전 턴의 규격화 문장)]\n{prev_reservation or '(없음)'}\n\n"
             f"[최근 대화]\n{history_text or '(없음)'}"
         )
-        raw = self._loader.generate_structured_text(SYSTEM_PROMPT, user_prompt, schema=ROUTE_SCHEMA)
+        # 라우터 뒤 단계(생성·예약 호출)가 쓸 시간을 남긴다(O-3).
+        raw = self._loader.generate_structured_text(
+            SYSTEM_PROMPT, user_prompt, schema=ROUTE_SCHEMA, stage="router", reserve_sec=ROUTER_RESERVE_SEC
+        )
         parsed = extract_json_object(raw)
         if not isinstance(parsed, dict):
             raise StructuredCallError("parse")
