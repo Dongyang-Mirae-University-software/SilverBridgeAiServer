@@ -42,3 +42,15 @@ def upgrade_member_id_columns(engine: Engine) -> list[str]:
     if changed:
         _LOG.info("회원 ID 컬럼을 문자열로 변경: %s", ", ".join(changed))
     return changed
+
+
+# create_all 은 이미 있는 테이블에 인덱스를 더하지 않는다. 모델의 index=True 와 같은 이름이라 새 DB 에선 아무것도 하지 않는다.
+_INDEXES = (("ix_chat_logs_created_at", "chat_logs", "created_at"),)
+
+
+def ensure_indexes(engine: Engine) -> None:
+    """기간 조회용 인덱스를 멱등으로 만든다(PostgreSQL·SQLite 모두 IF NOT EXISTS 지원)."""
+    with engine.begin() as conn:
+        for name, table, column in _INDEXES:
+            # 식별자는 위 상수에서만 온다(사용자 입력 아님).
+            conn.execute(text(f'CREATE INDEX IF NOT EXISTS "{name}" ON "{table}" ("{column}")'))

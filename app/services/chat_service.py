@@ -56,6 +56,14 @@ def _persistable_meta(meta: Any) -> dict:
     return {k: v for k, v in meta.items() if k not in _UNSTORED_META_KEYS}
 
 
+def _mark_generation_failed(result: dict) -> dict:
+    """생성 실패로 고정 안내가 나간 턴 표시(챗 기록 upstreamMeta.generationFailed). 자해 고정 응답처럼 engine 이 fallback 이
+    아니어도 집계(/chat/stats fallbackReplies)가 실패 턴으로 셀 수 있게 한다. 응답 필드는 바뀌지 않는다."""
+    meta = result.get("meta")
+    result["meta"] = {**meta, "generationFailed": True} if isinstance(meta, dict) else {"generationFailed": True}
+    return result
+
+
 def _json_safe(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         return _json_safe(value.model_dump())
@@ -317,13 +325,13 @@ class ChatService:
                     timing["llmMs"] = _elapsed_ms(llm_started)
                     # 옛 챗 서버로 넘기던 폴백은 없앴다(2026-10-22) - 고정 문구로 끝낸다. 로그는 예외 클래스명만(상담 내용 금지).
                     _LOG.warning("[CHAT-LLM-FAILED] %s", type(exc).__name__)
-                    result = self._fallback_reply(
+                    result = _mark_generation_failed(self._fallback_reply(
                         message, history, emergency=bool(route_info.get("emergency")), history_basis=not crisis_released
-                    )
+                    ))
         except Exception as exc:
             # 예외 문구·스택에는 SQL 파라미터·요청 값이 섞일 수 있어 클래스명과 발생 위치만 남긴다.
             _LOG.error("chat process_message fallback: %s at %s", type(exc).__name__, _origin(exc))
-            result = self._fallback_reply(message or log_message, history)
+            result = _mark_generation_failed(self._fallback_reply(message or log_message, history))
             route_info = {}
         if crisis_followup and route_info and isinstance(result.get("reply"), str):
             result["reply"] = f"{_CRISIS_FOLLOWUP}\n{result['reply']}"
