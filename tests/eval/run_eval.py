@@ -168,7 +168,9 @@ def run_item(api: Api, args, item: dict, run_no: int, forbidden: list[re.Pattern
     history = [{"role": h["role"], "content": h["content"]} for h in (item.get("history") or [])]
     pre = None
     pre_turns = None
-    if item.get("replay") and history:
+    # --replay-history: history 가 있는 문항은 모두 재생한다(2026-10-28 S-7 - 서버가 이력을 클라이언트 history 가 아니라
+    # 같은 세션의 챗 기록에서 만들므로, 보내기만 한 history 는 맥락이 되지 못한다).
+    if (item.get("replay") or getattr(args, "replay_history", False)) and history:
         replayed: list[dict] = []
         pre_turns = []
         for turn in history:
@@ -368,6 +370,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out-dir", default=str(REPO_ROOT / "docs" / "eval-results"))
     ap.add_argument("--only", default="", help="쉼표로 구분한 문항 id 만 실행(스모크용)")
     ap.add_argument("--bodies-out", default="", help="답변 본문 jsonl 경로(저장소 밖만, 판정자 채점용)")
+    ap.add_argument("--replay-history", action="store_true",
+                    help="history 가 있는 모든 문항의 사용자 턴을 같은 sessionId 로 먼저 보낸다(서버 이력 기준 측정)")
     args = ap.parse_args(argv)
 
     api_key = os.getenv("AI_EVAL_API_KEY", "")
@@ -416,6 +420,7 @@ def main(argv: list[str] | None = None) -> int:
             "intervalSec": args.interval,
             "userId": args.user_id,
             "replayHistoryItems": sorted(REPLAY_HISTORY_ITEMS & {i["id"] for i in items}),
+            "replayHistory": bool(args.replay_history),
             "note": "답변 본문·사용자 문장 미포함. 경로·구간 시간은 챗 기록 upstreamMeta(router·timing)에서 읽음.",
         },
         "cleanup": cleaned,

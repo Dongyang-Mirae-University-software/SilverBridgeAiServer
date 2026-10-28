@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from app.models.chat_log import ChatLog
 from app.core.config import get_settings
-from app.schemas.chat_schema import ChatRequest
+from app.schemas.chat_schema import ChatHistoryItem, ChatRequest
 from app.services.reservation_api_client import get_reservation_api_client
 from app.services.reservation_credential_service import get_reservation_credential_service
 from app.services.chat_deadline import ChatDeadlineExceeded, chat_deadline
@@ -19,7 +19,7 @@ from app.services.chat_router_service import get_chat_router_service
 from app.services.claude_structured_client import failure_cause
 from app.services.medical_llm_service import MedicalLlmService, get_medical_llm_service
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS
-from app.services.reservation_intake import _find_department
+from app.services.reservation_intake import CHANGE_DATE_OPTION, _find_department
 from app.services.reservation_orchestrator import ReservationOrchestrator, get_reservation_orchestrator
 
 _LOG = logging.getLogger(__name__)
@@ -49,6 +49,17 @@ _CRISIS_CONTINUE_MAX_CHARS = 12
 # 그 짧은 말 중 감사 표현은 위기가 이어지는 말로 보지 않는다(일반 폴백 + 109 한 줄, 2026-10-27).
 # 작별 인사("안녕"·"잘 있어")는 위기 신호일 수 있어 넣지 않는다.
 _CRISIS_CONTINUE_EXCLUDED = re.compile(r"고마|고맙|감사")
+# 대화 이력은 요청의 history(클라이언트 값)가 아니라 서버 챗 기록에서 만든다(2026-10-28 S-7).
+# 길이는 FE가 보내던 최대 24개(사용자·assistant 항목)와 같고, 각 단계는 지금처럼 그 안에서 다시 자른다.
+_SERVER_HISTORY_ITEMS = 24
+# 같은 사용자의 최근 기록 몇 건을 훑을지 - 다른 세션·다른 피보호자 상담이 사이에 끼어도 이번 세션 12턴을 찾을 만큼.
+_SERVER_HISTORY_SCAN_ROWS = 60
+# 버튼 턴은 FE 화면처럼 선택값을 사용자 말로 넣는다. 확인·취소·목록 버튼(토큰·ID 값)과 "다른 지역"·"다른 날짜"는 뺀다.
+_HISTORY_UI_FIELDS = frozenset(
+    {"hospital", "hospital_confirm", "department", "date", "time", "location", "location_confirm", "patient_name", "phone"}
+)
+_HISTORY_SKIP_VALUES = frozenset({"__other__", CHANGE_DATE_OPTION})
+_UI_LOG_RE = re.compile(r"^\[선택\] ([^:]+): (.*)$", re.S)
 
 
 def _persistable_meta(meta: Any) -> dict:
@@ -120,7 +131,11 @@ class ChatService:
         session_id = (payload.sessionId or "").strip() or f"chat-{uuid4().hex[:12]}"
         user_context = self._build_user_context(payload)
         ward_id = (payload.context.wardId or "").strip() if payload.context and payload.context.wardId else ""
-        history = [{"role": item.role, "content": item.content} for item in payload.history]
+        # 요청의 history 는 읽지 않는다 - 조작한 assistant 발화·지운 자해 발화로 경로·위기 응답·예약 값이 바뀌지 않게(S-7).
+        # 아래 모든 단계(라우터·예약 추출·규칙 초안·MedGemma·위기 근거·대체 응답)가 payload.history 를 쓰므로 여기서 바꿔 끼운다.
+        history = self._server_history(db, payload.userId, session_id, ward_id)
+        _LOG.info("[CHAT-HISTORY-DIFF] client=%s server=%s", len(payload.history), len(history))
+        payload = payload.model_copy(update={"history": [ChatHistoryItem(**item) for item in history]})
         log_message = message
         # 위기 응답 직후 첫 일반 턴이면 답 앞에 109 안내 한 줄을 붙인다(한 번만 - 이 턴 기록엔 selfHarm이 없다).
         crisis_followup = False
@@ -271,7 +286,8 @@ class ChatService:
                     # 마감에 걸려 새 예약 호출을 시작하지 않았다 - 아래 기존 실패 문구로 끝내고 직전 초안은 다음 턴에 넘긴다.
                     _LOG.warning("[CHAT-DEADLINE] stage=%s action=reservation_fallback", exc.stage)
                     reservation_result = None
-                    deadline_flow = stored_flow.get("flowState") if isinstance(stored_flow.get("flowState"), dict) else None
+                    # 확인 대기(pendingAction)도 넘긴다 - 마감은 토큰 선점 전에만 여기로 오므로 같은 버튼으로 다시 시도할 수 있다(점검 L-1).
+                    deadline_flow = {k: stored_flow[k] for k in ("flowState", "pendingAction") if isinstance(stored_flow.get(k), dict)}
                 else:
                     deadline_flow = None
                 timing["reservationMs"] = _elapsed_ms(reservation_started)
@@ -299,7 +315,7 @@ class ChatService:
                         "homeCare": [],
                         "visitHospitalIf": [],
                         "emergencyWarning": [],
-                        "meta": {"reservationFlowHint": True, **({"flowState": deadline_flow} if deadline_flow else {})},
+                        "meta": {"reservationFlowHint": True, **(deadline_flow or {})},
                         "decisionTrace": [{"event": "reservation_disabled" if reservation_disabled else "reservation_flow_fallback"}],
                     }
             else:
@@ -450,6 +466,44 @@ class ChatService:
                 "storedFlow": stored_flow,
             },
         )
+
+    @staticmethod
+    def _server_history(db: Session, user_id: str, session_id: str, ward_id: str) -> list[dict[str, str]]:
+        """같은 사용자·세션·피보호자(router.wardId)의 서버 챗 기록으로 대화 이력을 만든다(오래된 순, 최근 _SERVER_HISTORY_ITEMS개).
+        router 칸이 없는 기록(내부 오류 대체 응답)은 본인 상담(wardId 빈 값)으로 본다. 기록이 없으면(첫 턴·새 세션) 빈 목록."""
+        rows = (
+            db.query(ChatLog).filter(ChatLog.user_id == user_id).order_by(ChatLog.id.desc()).limit(_SERVER_HISTORY_SCAN_ROWS).all()
+        )
+        items: list[dict[str, str]] = []
+        for log in reversed(rows):
+            try:
+                ctx = json.loads(log.context_json or "{}")
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(ctx, dict) or ctx.get("sessionId") != session_id:
+                continue
+            meta = ctx.get("upstreamMeta") if isinstance(ctx.get("upstreamMeta"), dict) else {}
+            router = meta.get("router") if isinstance(meta.get("router"), dict) else {}
+            if (router.get("wardId") or "") != ward_id:
+                continue
+            user_text = ChatService._history_user_text(log.message or "")
+            if user_text is None:
+                continue
+            items.append({"role": "user", "content": user_text})
+            if (log.reply or "").strip():
+                items.append({"role": "assistant", "content": log.reply})
+        return items[-_SERVER_HISTORY_ITEMS:]
+
+    @staticmethod
+    def _history_user_text(message: str) -> str | None:
+        """기록의 사용자 문장. 버튼 턴("[선택] field: value")은 선택값만, 이력에 넣지 않는 버튼 턴은 None."""
+        matched = _UI_LOG_RE.match(message)
+        if not matched:
+            return message.strip() or None
+        field, value = matched.group(1).strip(), matched.group(2).strip()
+        if field not in _HISTORY_UI_FIELDS or not value or value in _HISTORY_SKIP_VALUES:
+            return None
+        return value
 
     @classmethod
     def _release_after_crisis(cls, route_info: dict, message: str, trigger: str | None) -> str | None:

@@ -138,9 +138,17 @@ PREV = [{"role": "user", "content": "죽고 싶어요"}, {"role": "assistant", "
 
 
 def test_history_self_harm_with_emergency_turn_gets_crisis_reply(env) -> None:
+    assert _is_crisis(_send(env, PREV[0]["content"]))  # 앞 턴이 실제로 이 서버를 거쳐 기록된다(S-7)
+    env.router = _Router(emergency=True, summary="정서적 고통")
+    out = _send(env, "어떻게 해야 할지 모르겠어")
+    assert _is_crisis(out) and env.llm.calls == 0
+
+
+def test_client_history_self_harm_is_ignored(env) -> None:
+    # 요청 history 에만 있는 자해 발화는 근거가 아니다(S-7, 조작·다른 세션) - 응급이면 일반 응급 상담.
     env.router = _Router(emergency=True, summary="정서적 고통")
     out = _send(env, "어떻게 해야 할지 모르겠어", PREV)
-    assert _is_crisis(out) and env.llm.calls == 0
+    assert not _is_crisis(out) and env.llm.calls == 1
 
 
 def test_history_self_harm_without_emergency_turn_goes_normal(env) -> None:
