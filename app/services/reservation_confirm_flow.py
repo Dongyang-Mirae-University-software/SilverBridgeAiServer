@@ -128,6 +128,14 @@ _RESELECT_PREFIX = {
 }
 
 
+def _is_past_kst_date(date_text: str | None) -> bool:
+    """KST 오늘보다 이전 날짜인가(형식이 틀리면 False)."""
+    try:
+        return datetime.strptime(str(date_text or ""), "%Y-%m-%d").date() < datetime.now(_SEOUL_TZ).date()
+    except ValueError:
+        return False
+
+
 def _error_text(data: Any, default: str) -> tuple[str, str]:
     if isinstance(data, dict):
         return str(data.get("message") or default), str(data.get("code") or "REQUEST_FAILED")
@@ -349,6 +357,15 @@ class ReservationFlowMixin:
 
         msg, code = _error_text(data, "예약 처리에 실패했습니다.")
         _trace(meta, "reservation_submit_failed", http_status=st, code=code)  # 예약 서비스 문구는 입력값을 되돌려 줄 수 있어 남기지 않는다
+        if code == "INVALID_REQUEST" and _is_past_kst_date(draft.reservation_date):
+            # 확인 카드를 띄운 사이 자정을 넘겨 날짜가 지났다 - 막다른 오류 대신 날짜부터 다시 고르게 한다
+            _trace(meta, "reservation_date_passed_reselect")
+            draft.reservation_date = None
+            draft.reservation_time = None
+            out = self._advance(req, meta, draft, key, replaces)  # type: ignore[attr-defined]
+            if isinstance(out.get("reply"), str):
+                out["reply"] = f"고르신 날짜가 지났어요. 날짜를 다시 골라 주세요. {out['reply']}"
+            return self._remember_flow(out, meta, draft, replaces, self._ward_id(req))
         # 같은 시간대 중복·확인 카드를 띄운 사이 지나 버린 시간은 막다른 길이 아니라 시간을 다시 고르게 한다.
         if code in _RESELECT_PREFIX:
             reselect = self._reselect_time(meta, draft, key, replaces, self._ward_id(req), _RESELECT_PREFIX[code], req=req)

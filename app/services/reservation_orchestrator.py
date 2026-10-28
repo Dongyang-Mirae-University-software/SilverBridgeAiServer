@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import logging
 from functools import lru_cache
@@ -482,13 +483,27 @@ class ReservationOrchestrator(ReservationFlowMixin):
         history_text: str,
         location: str,
         meta: dict[str, Any],
+        draft_state: ReservationDraft | None = None,
     ) -> dict[str, Any] | None:
+        # 저장 초안을 이어 쓰는 턴은 최근 대화 대신 그 초안을 [현재 상태 JSON]으로 준다 - 이력 속 지난 요청의 병원·시간이
+        # 추출로 되살아나지 않게 한다(R-8 남은 것). 처음부터 다시 만드는 턴은 예전처럼 이력을 본다.
+        state_json = '{"facts":{},"intent":null,"history":[],"resolved":[]}'
+        if draft_state is not None:
+            facts = {
+                k: v for k, v in {
+                    "department": draft_state.department, "hospital_name": draft_state.hospital_name,
+                    "location": draft_state.location, "reservation_date": draft_state.reservation_date,
+                    "reservation_time": draft_state.reservation_time,
+                }.items() if v
+            }
+            state_json = json.dumps({"facts": facts, "intent": "hospital_reservation", "history": [], "resolved": list(facts)}, ensure_ascii=False)
+            history_text = "(생략 - 이 예약에서 지금까지 정해진 값은 [현재 상태 JSON]에 있다)"
         try:
             self._loader.ensure_loaded()
             prompt = build_user_prompt(
                 message=req.message,
                 history_text=history_text,
-                state_json='{"facts":{},"intent":null,"history":[],"resolved":[]}',
+                state_json=state_json,
                 location=location,
                 profile_text=self._user_profile_text(req),
             )
@@ -849,7 +864,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
             before = _linked_fields(draft)
             replaces = flow.get("replaces") if isinstance(flow.get("replaces"), dict) else None  # type: ignore[union-attr]
             if raw_message and not req.uiSelection:
-                extracted = self._extract_reservation_fields(req, history_text, normalized_loc or loc, meta)
+                extracted = self._extract_reservation_fields(req, history_text, normalized_loc or loc, meta, draft_state=draft)
                 if extracted:
                     self._apply_extracted(draft, extracted)
                 draft.reservation_date = _find_date(raw_message) or draft.reservation_date
