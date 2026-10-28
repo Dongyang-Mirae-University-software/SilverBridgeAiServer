@@ -95,3 +95,20 @@ def test_llm_failure_log_has_exception_class_only(env, caplog) -> None:
     failed = [r.getMessage() for r in caplog.records if "[CHAT-LLM-FAILED]" in r.getMessage()]
     assert failed == ["[CHAT-LLM-FAILED] RuntimeError"]
     assert all("기침" not in r.getMessage() and "예외 원문" not in r.getMessage() for r in caplog.records)
+
+
+def test_llm_failure_is_marked_in_log_only(env) -> None:
+    # 집계(/chat/stats)가 생성 실패 턴을 셀 수 있게 기록에만 표시한다 - 응답 필드는 그대로다(2026-10-28 점검 L-3).
+    import json
+
+    out = _send(env, "어제부터 기침이 계속 나요")
+    assert "meta" not in out and "generationFailed" not in json.dumps(out, ensure_ascii=False)
+    log = env.db.query(ChatLog).one()
+    assert json.loads(log.context_json)["upstreamMeta"]["generationFailed"] is True
+
+
+def test_generation_failed_mark_keeps_existing_meta() -> None:
+    # 생성 실패 뒤 자해 고정 응답(engine=rule)도 표시가 붙고, 위기 응답 meta 는 지워지지 않는다.
+    out = cs._mark_generation_failed({"engine": "rule", "meta": {"selfHarm": True}})
+    assert out["meta"] == {"selfHarm": True, "generationFailed": True}
+    assert cs._mark_generation_failed({"engine": "fallback"})["meta"] == {"generationFailed": True}

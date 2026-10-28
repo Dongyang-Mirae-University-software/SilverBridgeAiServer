@@ -17,6 +17,8 @@ KST = timezone(timedelta(hours=9))
 MAX_RANGE_DAYS = 31
 _ROLES = ("guardian", "ward")
 _ROUTES = ("reservation", "symptom", "general")
+# 기간 행을 한 번에 올리지 않고 이 크기로 나눠 읽는다(context_json 은 예약 턴이면 수십 KB).
+_FETCH_BATCH = 500
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
@@ -38,6 +40,12 @@ def parse_range(raw_from: str | None, raw_to: str | None) -> tuple[date, date]:
         raise ChatStatsRangeError("from 이 to 보다 늦습니다.")
     if (end - start).days + 1 > MAX_RANGE_DAYS:
         raise ChatStatsRangeError(f"기간은 최대 {MAX_RANGE_DAYS}일입니다.")
+    try:
+        # 0001-01-01 의 UTC 변환·9999-12-31 의 다음 날은 날짜 범위를 벗어난다 - 500 대신 400.
+        _kst_day_start_as_utc(start)
+        _kst_day_start_as_utc(end + timedelta(days=1))
+    except OverflowError as exc:
+        raise ChatStatsRangeError("지원하지 않는 날짜입니다.") from exc
     return start, end
 
 
@@ -52,8 +60,12 @@ def _kst_date(created_at: datetime) -> date:
 
 def _is_fallback(context: dict) -> bool:
     """모델·예약 흐름이 답을 만들지 못해 고정 안내로 대신 답한 턴.
+    생성 실패 뒤 자해 고정 응답(engine=rule)은 upstreamMeta.generationFailed 로 센다(2026-10-28 이후 기록).
     예약 기능을 꺼 둔 안내(reservation_disabled)는 설정이라 세지 않는다."""
     if context.get("engine") == "fallback":
+        return True
+    meta = context.get("upstreamMeta")
+    if isinstance(meta, dict) and meta.get("generationFailed") is True:
         return True
     trace = context.get("decisionTrace")
     return isinstance(trace, list) and any(
@@ -76,17 +88,18 @@ class ChatStatsService:
             ).where(
                 ChatLog.created_at >= _kst_day_start_as_utc(start),
                 ChatLog.created_at < _kst_day_start_as_utc(end + timedelta(days=1)),
-            )
-        ).all()
+            ).execution_options(yield_per=_FETCH_BATCH)
+        )
 
         days = (end - start).days + 1
         daily = {start + timedelta(days=i): 0 for i in range(days)}
         by_role = {key: 0 for key in (*_ROLES, "unknown")}
         by_route = {key: 0 for key in (*_ROUTES, "unknown")}
         users: set[str] = set()
-        emergency = completed = fallback = 0
+        total = emergency = completed = fallback = 0
 
         for user_id, created_at, risk_level, context_json in rows:
+            total += 1
             users.add(user_id)
             day = _kst_date(created_at)
             if day in daily:
@@ -119,7 +132,7 @@ class ChatStatsService:
         result = {
             "from": start.isoformat(),
             "to": end.isoformat(),
-            "totalChats": len(rows),
+            "totalChats": total,
             "users": len(users),
             "byRole": by_role,
             "byRoute": by_route,
@@ -131,6 +144,6 @@ class ChatStatsService:
         }
         _LOG.info(
             "[CHAT-STATS] from=%s to=%s rows=%s ms=%s",
-            result["from"], result["to"], len(rows), int((time.perf_counter() - started) * 1000),
+            result["from"], result["to"], total, int((time.perf_counter() - started) * 1000),
         )
         return result

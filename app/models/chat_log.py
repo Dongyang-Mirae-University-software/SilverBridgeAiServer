@@ -21,4 +21,5 @@ class ChatLog(Base):
     risk_level: Mapped[str] = mapped_column(String(32), default="low")
     recommended_action: Mapped[str] = mapped_column(String(64), default="home_monitoring")
     reservation_required: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # 기간 집계(/chat/stats)가 이 컬럼으로 자른다. 기존 DB 에는 schema_upgrades 가 같은 이름으로 만든다.
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

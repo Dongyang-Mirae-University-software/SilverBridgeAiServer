@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
+from pathlib import Path
 from datetime import datetime
 from types import SimpleNamespace
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.config import get_settings
+from app.core.response import error_response
 from app.core.security import require_api_key
 from app.database.base import Base
+from app.database.schema_upgrades import ensure_indexes
 from app.database.session import get_db
 from app.models.chat_log import ChatLog
 from app.routers import chat_router
@@ -23,12 +27,15 @@ SECRET_MESSAGE = "가슴이 답답해요-원문"
 SECRET_REPLY = "119에 연락하세요-원문"
 
 
-def _ctx(role=None, route=None, engine="medgemma", type_="message", tool=None, trace=None) -> str:
+def _ctx(role=None, route=None, engine="medgemma", type_="message", tool=None, trace=None, meta=None) -> str:
     ctx: dict = {"engine": engine, "type": type_, "tool": tool, "decisionTrace": trace or []}
     if role is not None:
         ctx["userContext"] = {"role": role, "name": "홍길동"}
+    upstream = dict(meta or {})
     if route is not None:
-        ctx["upstreamMeta"] = {"router": {"route": route}}
+        upstream["router"] = {"route": route}
+    if upstream:
+        ctx["upstreamMeta"] = upstream
     return json.dumps(ctx, ensure_ascii=False)
 
 
@@ -47,6 +54,14 @@ def _client(rows: list[ChatLog]):
     session.add_all(rows)
     session.commit()
     app = FastAPI()
+
+    # app/main.py 의 예외 핸들러와 같은 규칙(app.main 은 모델 로딩까지 끌고 와서 직접 붙인다) - 오류는 최상위 errorCode.
+    @app.exception_handler(HTTPException)
+    async def _handler(_: Request, exc: HTTPException) -> JSONResponse:
+        if isinstance(exc.detail, dict) and "success" in exc.detail:
+            return JSONResponse(status_code=exc.status_code, content=exc.detail)
+        return JSONResponse(status_code=exc.status_code, content=error_response(str(exc.detail), "HTTP_ERROR", None))
+
     app.include_router(chat_router.router, dependencies=[Depends(require_api_key)])
     app.dependency_overrides[get_db] = lambda: session
     app.dependency_overrides[get_settings] = lambda: SimpleNamespace(api_key=KEY)
@@ -126,7 +141,7 @@ def test_31_days_ok_32_days_400() -> None:
         assert _get(client, {"from": "2026-10-01", "to": "2026-10-31"}).status_code == 200
         res = _get(client, {"from": "2026-10-01", "to": "2026-11-01"})
     assert res.status_code == 400
-    assert res.json()["detail"]["errorCode"] == "CHAT_STATS_INVALID_RANGE"
+    assert res.json()["errorCode"] == "CHAT_STATS_INVALID_RANGE"
 
 
 def test_invalid_ranges_are_400() -> None:
@@ -139,12 +154,14 @@ def test_invalid_ranges_are_400() -> None:
         {"from": "2026-02-30", "to": "2026-03-01"},
         {"from": "2026-10-02", "to": "2026-10-01"},
         {"from": "2026-10-01" * 100, "to": "2026-10-02"},
+        {"from": "0001-01-01", "to": "0001-01-02"},  # UTC 변환 범위 밖(점검 L-1)
+        {"from": "9999-12-30", "to": "9999-12-31"},  # 다음 날 범위 밖
     ]
     with _client([]) as client:
         for params in bad:
             res = _get(client, params)
             assert res.status_code == 400, params
-            assert res.json()["detail"]["errorCode"] == "CHAT_STATS_INVALID_RANGE"
+            assert res.json()["errorCode"] == "CHAT_STATS_INVALID_RANGE"
 
 
 def test_missing_or_wrong_key_is_401() -> None:
@@ -161,3 +178,53 @@ def test_response_has_no_content_or_user_ids(caplog) -> None:
         assert secret not in body
         assert secret not in caplog.text
     assert "[CHAT-STATS]" in caplog.text
+
+
+def test_main_wires_chat_router_behind_api_key() -> None:
+    # 위 테스트는 키 검사를 직접 붙인 앱이라, 운영 연결(main.py)에서 빠지면 못 잡는다(점검 L-4). 연결 줄을 고정한다.
+    main_src = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
+    assert "app.include_router(chat_router, dependencies=[Depends(require_api_key)])" in main_src
+    assert "ensure_indexes(engine)" in main_src
+
+
+def test_malformed_contexts_and_role_spacing_are_counted_safely() -> None:
+    day = datetime(2026, 10, 28, 3, 0)
+    rows = [
+        _log("m-1", "u1", day, "[]"),  # dict 가 아닌 JSON
+        _log("m-2", "u1", day, json.dumps({"userContext": "GUARDIAN", "upstreamMeta": "x"})),  # 하위 칸이 dict 아님
+        _log("m-3", "u2", day, _ctx(" Guardian ", "general")),  # 앞뒤 공백·대소문자
+        _log("m-4", "u2", day, json.dumps({"upstreamMeta": {"router": {"route": "other"}}})),  # 모르는 경로
+    ]
+    with _client(rows) as client:
+        data = _get(client, {"from": "2026-10-28", "to": "2026-10-28"}).json()["data"]
+    assert data["totalChats"] == 4
+    assert data["byRole"] == {"guardian": 1, "ward": 0, "unknown": 3}
+    assert data["byRoute"] == {"reservation": 0, "symptom": 0, "general": 1, "unknown": 3}
+    assert data["fallbackReplies"] == 0
+
+
+def test_self_harm_reply_is_emergency_and_fallback_only_when_generation_failed() -> None:
+    day = datetime(2026, 10, 28, 3, 0)
+    rows = [
+        # 라우터·키워드로 바로 낸 자해 고정 응답 = 응급 안내, 대체 응답 아님
+        _log("s-1", "u1", day, _ctx("WARD", "symptom", engine="rule", meta={"selfHarm": True}), risk="high"),
+        # 생성 실패 뒤 낸 자해 고정 응답 = 응급 안내이면서 대체 응답(점검 L-3)
+        _log("s-2", "u1", day, _ctx("WARD", "symptom", engine="rule", meta={"selfHarm": True, "generationFailed": True}),
+             risk="high"),
+    ]
+    with _client(rows) as client:
+        data = _get(client, {"from": "2026-10-28", "to": "2026-10-28"}).json()["data"]
+    assert data["emergencyGuidance"] == 2
+    assert data["fallbackReplies"] == 1
+
+
+def test_ensure_indexes_adds_created_at_index_to_existing_table() -> None:
+    # 운영 DB 처럼 인덱스 없이 만들어진 기존 테이블에도 붙고, 다시 불러도 그대로다(점검 M-1).
+    engine = create_engine("sqlite+pysqlite://", poolclass=StaticPool)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE chat_logs (id INTEGER PRIMARY KEY, created_at DATETIME)")
+    ensure_indexes(engine)
+    ensure_indexes(engine)
+    names = {ix["name"] for ix in inspect(engine).get_indexes("chat_logs")}
+    assert "ix_chat_logs_created_at" in names
+    assert ChatLog.__table__.c.created_at.index is True  # 새 DB 는 create_all 이 같은 이름으로 만든다

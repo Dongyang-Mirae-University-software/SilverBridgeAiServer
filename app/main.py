@@ -14,7 +14,7 @@ from app.core.config import get_settings
 from app.core.response import error_response
 from app.core.security import require_api_key
 from app.database.base import Base
-from app.database.schema_upgrades import upgrade_member_id_columns
+from app.database.schema_upgrades import ensure_indexes, upgrade_member_id_columns
 from app.database.session import engine
 from app.routers.analysis_router import router as analysis_router
 from app.routers.camera_router import router as camera_router
@@ -79,6 +79,7 @@ async def lifespan(_: FastAPI):
     live_ws_manager.bind_loop(asyncio.get_running_loop())
     Base.metadata.create_all(bind=engine)
     upgrade_member_id_columns(engine)
+    ensure_indexes(engine)
     for path in (
         settings.model_base_path,
         settings.upload_base_path,
