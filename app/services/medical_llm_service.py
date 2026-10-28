@@ -107,6 +107,22 @@ _ALCOHOL_ALLOWANCE = re.compile(r"(한두 ?잔|한 ?잔|두 ?잔|조금|적당�
 _SELF_ADJUST = re.compile(r"(약|복용량|용량)[^.!?。]{0,20}(조절|줄이|줄여|늘리|늘려|끊|중단|건너뛰|복용하지 않|드시지 않|먹지 않)")
 _SELF_ADJUST_CONSULTED = re.compile(r"의사|약사|병원|진료|처방|상의|상담")
 _SELF_ADJUST_SENTENCE = "약을 줄이거나 끊거나 거르는 것은 꼭 의사·약사와 상의한 뒤에 하세요."
+# 프롬프트 예시 2의 advice 를 모델이 그대로 베낀 문장(2026-10-28 측정: 술 질문 9/27에 끼어 어색 / "술을 더 드시거나"로 꼬임).
+# 약 + 술 문의에서만 뺀다 - 상의 안내는 고정 문장이 맡는다. 약을 더 먹거나 바꾸려는 질문(예시 2 상황)에서는 맞는 말이라 건드리지 않는다.
+_EXAMPLE_COPY = re.compile(r"(약|술)을 더 드시거나 바꾸기 전에|다니시는 병원 진료 때 함께 여쭤보셔도")
+# 모델이 지어낸 진료과("당뇨 관리의학과", 2026-10-28 측정 1회). 실제 있는 "…의학과"만 남긴다.
+_REAL_MEDICINE_DEPTS = frozenset({
+    "가정의학과", "재활의학과", "응급의학과", "핵의학과", "직업환경의학과", "예방의학과",
+    "마취통증의학과", "진단검사의학과", "영상의학과", "정신건강의학과", "병리과", "방사선종양학과",
+})
+_MEDICINE_DEPT = re.compile(r"[가-힣]+의학과")
+
+
+def _is_unknown_department(name: str) -> bool:
+    """"…의학과" 덩어리가 실제 진료과 이름으로 끝나지 않으면 지어낸 이름이다(앞 글자가 붙어 와도 판정되게 끝맺음으로 본다)."""
+    return not any(name.endswith(real) for real in _REAL_MEDICINE_DEPTS)
+
+
 _ALLOWANCE_NEGATED = re.compile(r"괜찮지 않|괜찮은 (것|게) 아니|안 괜찮|되지 않|안 ?돼")
 _HOSPITAL_WORDS = re.compile(r"병원|진료|응급실|119")
 _MEDICATION_WORD = re.compile(r"약|항생제|진통제|수면제|소화제|해열제|아스피린")
@@ -222,6 +238,8 @@ class MedicalLlmService:
             return reply, {}, []
 
         def drop_reason(sentence: str) -> str | None:
+            if _EXAMPLE_COPY.search(sentence):
+                return "example_copy"
             if (
                 (_ALCOHOL_WORDS.search(sentence) or "잔" in sentence)
                 and _ALCOHOL_ALLOWANCE.search(sentence)
@@ -259,6 +277,23 @@ class MedicalLlmService:
                 out = f"{out}\n{rule.sentence}"
                 added.append(rule.name)
         return out, dropped, added
+
+    @staticmethod
+    def drop_unknown_department_sentences(reply: str) -> tuple[str, int]:
+        """실제 없는 "…의학과" 이름이 든 문장을 뺀다(모델이 진료과를 지어낸 경우). (고친 답, 뺀 문장 수)."""
+        removed = 0
+        lines: list[str] = []
+        for line in (reply or "").split("\n"):
+            sentences = _SENTENCE_SPLIT.split(line)
+            kept = [x for x in sentences if not any(_is_unknown_department(m) for m in _MEDICINE_DEPT.findall(x))]
+            if len(kept) == len(sentences):
+                lines.append(line)
+                continue
+            removed += len(sentences) - len(kept)
+            new_line = " ".join(kept).strip()
+            if new_line:
+                lines.append(new_line)
+        return "\n".join(lines), removed
 
     @staticmethod
     def needs_self_adjust_sentence(reply: str) -> bool:
@@ -500,6 +535,12 @@ class MedicalLlmService:
             if dropped or added:
                 # 상담 내용은 남기지 않는다 - 규칙 이름·뺀 문장 수만.
                 _LOG.info("[CHAT-SAFETY] drug_alcohol dropped=%s added=%s", dropped or {}, ",".join(added) or "-")
+            reply, unknown_dept = self.drop_unknown_department_sentences(reply)
+            if unknown_dept:
+                _LOG.info("[CHAT-SAFETY] unknown_department_dropped=%s", unknown_dept)
+                if not _HOSPITAL_WORDS.search(reply):
+                    # 진료과 문장을 빼서 병원 권유가 사라졌으면 일반 권유 한 줄로 채운다.
+                    reply = f"{reply}\n{_CLINIC_SENTENCE}"
             if self.needs_self_adjust_sentence(reply):
                 reply = f"{reply}\n{_SELF_ADJUST_SENTENCE}"
                 _LOG.info("[CHAT-SAFETY] self_adjust_sentence=added")
