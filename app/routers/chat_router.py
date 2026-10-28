@@ -8,6 +8,7 @@ from app.core.response import error_response, success_response
 from app.database.session import get_db
 from app.schemas.chat_schema import ChatRequest
 from app.services.chat_service import ChatService
+from app.services.chat_stats_service import ChatStatsRangeError, ChatStatsService, parse_range
 
 router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
 chat_service = ChatService()
@@ -31,6 +32,23 @@ def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> dict:
             detail=error_response(str(exc), "CHAT_INVALID_REQUEST", None),
         ) from exc
     return success_response("AI 응답 생성 완료", result)
+
+
+@router.get("/stats", summary="챗 상담 전체 집계 (관리자 통계용, 개수만)")
+def stats(
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> dict:
+    # KST 날짜(둘 다 포함, 최대 31일). 상담 원문·userId 는 응답에 싣지 않는다 - 숫자만.
+    try:
+        start, end = parse_range(from_, to)
+    except ChatStatsRangeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_response(str(exc), "CHAT_STATS_INVALID_RANGE", None),
+        ) from exc
+    return success_response("챗 집계 조회 완료", ChatStatsService.stats(db, start, end))
 
 
 @router.get("/logs", summary="챗 로그 목록 조회")
