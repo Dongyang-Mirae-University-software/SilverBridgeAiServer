@@ -29,8 +29,9 @@ from app.services.reservation_intake import (
     _find_hospital_name,
     _find_time,
     build_reservation_draft,
+    merge_symptom_summary,
 )
-from app.utils.conversation import format_recent_history, normalize_history
+from app.utils.conversation import format_recent_history, mask_personal_info, normalize_history
 from app.utils.json_extract import extract_json_object
 
 _LOG = logging.getLogger(__name__)
@@ -64,6 +65,31 @@ _SYMPTOM_DEPARTMENTS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("허리", "무릎", "관절", "어깨", "뼈", "삐"), "정형외과"),
     (("배", "속", "소화", "설사", "구토", "기침", "열", "감기"), "내과"),
 )
+
+
+# 예약 추출(Claude) 입력 줄이기(2026-10-28 S-6·O-3).
+EXTRACT_HISTORY_TURNS = 6
+EXTRACT_TURN_MAX_CHARS = 300
+# 추출 호출이 남겨 둘 시간(초) - 그 뒤 병원 검색·빈 시간 조회 몫.
+EXTRACT_RESERVE_SEC = 15.0
+_SIDO_SHORT = {
+    "서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주",
+}
+_REGION_UNIT_RE = re.compile(r"[가-힣]+(특별시|광역시|특별자치시|특별자치도|도|시|군|구)")
+
+
+def coarse_region(text: str) -> str | None:
+    """주소에서 시도·시군구까지만 남긴다("서울특별시 강남구 테헤란로 1" -> "서울특별시 강남구", "경기 성남시 분당구 …" -> 세 칸).
+    동·도로명·번지·상세주소는 버린다. 알아볼 수 없으면 None(보내지 않는다)."""
+    tokens = re.sub(r"\s+", " ", (text or "").strip()).split(" ")
+    kept: list[str] = []
+    for index, token in enumerate(tokens[:3]):
+        is_unit = token in _SIDO_SHORT or bool(_REGION_UNIT_RE.fullmatch(token))
+        # 셋째 칸은 "OO시 OO구"(일반구)일 때만 - "강남역입구" 같은 낱말이 붙지 않게.
+        if not is_unit or (index == 2 and not (kept[-1].endswith("시") and token.endswith("구"))):
+            break
+        kept.append(token)
+    return " ".join(kept) or None
 
 
 def _symptom_department(text: str) -> str | None:
@@ -327,18 +353,19 @@ class ReservationOrchestrator(ReservationFlowMixin):
 
     @staticmethod
     def _user_profile_text(req: ChatRequest) -> str:
+        """예약 추출(Claude)에 보내는 프로필 - 지역(시·구까지)만 보낸다(2026-10-28 S-6).
+        이름·전화·생년월일은 서버가 프로필로 초안을 채우고(피보호자면 _pin_ward_patient 로 고정) 이메일·성별·상세주소는 추출에 쓰지 않는다."""
         if not req.context:
             return "(없음)"
-        ctx = req.context.model_dump(exclude_none=True)
-        keys = ("name", "phone", "gender", "birthDate", "postcode", "address", "addressDetail", "location", "email", "role")
-        lines = []
-        for key in keys:
-            value = ctx.get(key)
-            if isinstance(value, str) and value.strip():
-                lines.append(f"- {key}: {value.strip()}")
-            elif isinstance(value, int):
-                lines.append(f"- {key}: {value}")
-        return "\n".join(lines) if lines else "(없음)"
+        region = coarse_region(str(req.context.location or req.context.address or ""))
+        return f"- region: {region}" if region else "(없음)"
+
+    def _claude_history_text(self, req: ChatRequest) -> str:
+        """예약 추출(Claude)에 보내는 이력 - 최근 EXTRACT_HISTORY_TURNS턴, 턴당 EXTRACT_TURN_MAX_CHARS자, 그 이전 요약은 빼고
+        전화·주민번호·이메일 형태는 가린다(S-6). 규칙 초안(서버 안)은 예전처럼 _conversation_context 의 이력을 쓴다."""
+        recent = [h.model_dump() for h in req.history][-EXTRACT_HISTORY_TURNS:]
+        trimmed = [{"role": h.get("role") or "", "content": (h.get("content") or "")[:EXTRACT_TURN_MAX_CHARS]} for h in recent]
+        return mask_personal_info(format_recent_history(trimmed))
 
     NEW_REQUEST_CUES = ("근처", "가까운", "주변", "아파", "아프", "통증", "증상")
     REQUEST_VERBS = ("예약", "잡아", "찾아", "알아봐", "접수")
@@ -502,12 +529,14 @@ class ReservationOrchestrator(ReservationFlowMixin):
             self._loader.ensure_loaded()
             prompt = build_user_prompt(
                 message=req.message,
-                history_text=history_text,
+                history_text=history_text if draft_state is not None else (self._claude_history_text(req) or "(없음)"),
                 state_json=state_json,
-                location=location,
+                location=coarse_region(location) or "",
                 profile_text=self._user_profile_text(req),
             )
-            raw = self._loader.generate_structured_text(SYSTEM_PROMPT, prompt, schema=EXTRACTION_SCHEMA)
+            raw = self._loader.generate_structured_text(
+                SYSTEM_PROMPT, prompt, schema=EXTRACTION_SCHEMA, stage="reservation_extract", reserve_sec=EXTRACT_RESERVE_SEC
+            )
         except Exception as exc:  # noqa: BLE001
             _trace(meta, "reservation_extraction_failed", error=failure_cause(exc))  # 고정 코드만 - 예외 문구에는 입력·모델 출력이 섞일 수 있다
             return None
@@ -537,9 +566,9 @@ class ReservationOrchestrator(ReservationFlowMixin):
             "patient_name",
             "phone",
             "birth_date",
-            "symptom_summary",
             "memo",
         ):
+            # symptom_summary 는 받지 않는다 - 추출 입력에 이력이 섞여 관련 없는 대화가 예약 기록에 실릴 수 있다(S-8).
             value = extracted.get(key)
             if isinstance(value, str) and value.strip():
                 cleaned = value.strip()
@@ -562,8 +591,6 @@ class ReservationOrchestrator(ReservationFlowMixin):
                     draft.phone = cleaned
                 elif key == "birth_date":
                     draft.birth_date = cleaned
-                elif key == "symptom_summary":
-                    draft.symptom_summary = cleaned
                 elif key == "memo":
                     draft.memo = cleaned
 
@@ -869,6 +896,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
                     self._apply_extracted(draft, extracted)
                 draft.reservation_date = _find_date(raw_message) or draft.reservation_date
                 draft.reservation_time = _find_time(raw_message) or draft.reservation_time
+                draft.symptom_summary = merge_symptom_summary(draft.symptom_summary, raw_message)
         else:
             draft = build_reservation_draft(
                 req.message,
@@ -877,6 +905,8 @@ class ReservationOrchestrator(ReservationFlowMixin):
                 ui_value=ui_value,
                 location=normalized_loc or loc,
                 user_context=req.context.model_dump(exclude_none=True) if req.context else None,
+                # 증상 요약은 이번 턴에 사용자가 직접 친 문장으로만 만든다(버튼 턴은 없음, S-8).
+                symptom_text="" if req.uiSelection else raw_message,
             )
             extracted = self._extract_reservation_fields(req, history_text, normalized_loc or loc, meta)
             if extracted:

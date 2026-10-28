@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Iterable
 
 
@@ -38,3 +39,23 @@ def format_recent_history(history: Iterable[dict[str, str]]) -> str:
         if content:
             lines.append(f"{role}: {content}")
     return "\n".join(lines)
+
+
+# 외부 LLM(Claude)으로 보내는 이력에서 가리는 개인정보 형태(2026-10-28 S-6). 판단에 필요 없는 값이라 자리표시로 바꾼다.
+_RRN_RE = re.compile(r"(?<!\d)\d{6}[-\s]?[1-4]\d{6}(?!\d)")
+_PHONE_RE = re.compile(r"(?<!\d)0\d{1,2}[-\s.]?\d{3,4}[-\s.]?\d{4}(?!\d)")
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+def mask_personal_info(text: str) -> str:
+    """전화번호·주민등록번호·이메일 형태를 자리표시로 바꾼다. 주민번호를 먼저 본다(전화 패턴과 겹치지 않게)."""
+    masked = _RRN_RE.sub("[주민번호]", text or "")
+    masked = _PHONE_RE.sub("[전화]", masked)
+    return _EMAIL_RE.sub("[이메일]", masked)
+
+
+def remove_personal_info(text: str) -> str:
+    """mask_personal_info 와 같은 형태를 자리표시 없이 지운다(병원에 넘기는 증상 요약용)."""
+    removed = _RRN_RE.sub("", text or "")
+    removed = _PHONE_RE.sub("", removed)
+    return _EMAIL_RE.sub("", removed)

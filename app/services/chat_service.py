@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.schemas.chat_schema import ChatRequest
 from app.services.reservation_api_client import get_reservation_api_client
 from app.services.reservation_credential_service import get_reservation_credential_service
+from app.services.chat_deadline import ChatDeadlineExceeded, chat_deadline
 from app.services.chat_router_service import get_chat_router_service
 from app.services.claude_structured_client import failure_cause
 from app.services.medical_llm_service import MedicalLlmService, get_medical_llm_service
@@ -98,6 +99,11 @@ class ChatService:
     RESERVATION_KEYWORDS = ("예약", "병원 찾아", "근처 병원", "진료 가능한", "응급실", "잡아", "접수", "병원 좀", "병원 추천", "진료 받")
 
     def process_message(self, db: Session, payload: ChatRequest) -> dict:
+        # 요청 하나의 전체 마감(CHAT_DEADLINE_SEC, O-3). 라우터·예약 추출·예약 API·생성 대기가 남은 시간만큼만 기다린다.
+        with chat_deadline():
+            return self._process_message(db, payload)
+
+    def _process_message(self, db: Session, payload: ChatRequest) -> dict:
         started = time.perf_counter()
         # 구간 시간(ms). 거치지 않은 구간은 None. 챗 기록 upstreamMeta.timing 과 [CHAT-TIMING] 로그에만 남는다(응답 필드 아님).
         timing: dict[str, int | None] = {"routerMs": None, "llmMs": None, "reservationMs": None}
@@ -240,15 +246,6 @@ class ChatService:
             reservation_started = time.perf_counter()
             # 예약 계정 비밀값이 없으면 예약 기능만 끈다(상담·이상감지 등 나머지는 그대로).
             reservation_disabled = reservation_flow_hint and not self._settings.has_reservation_account_secret
-            if reservation_flow_hint:
-                # 보호자가 피보호자 대신이면 피보호자 계정으로 예약한다(피보호자 웹·보호자 웹과 같은 목록).
-                reservation_api_key = reservation_credential_service.ensure_credential(
-                    db,
-                    user_id=ward_id or payload.userId,
-                    client=reservation_api_client,
-                    name=str(user_context.get("name") or ""),
-                    phone=str(user_context.get("phone") or ""),
-                )
             if department_answer:
                 pass  # 이미 result가 있다
             elif self_harm:
@@ -257,26 +254,26 @@ class ChatService:
                 _LOG.info("[CHAT-SAFETY] self_harm=true path=main trigger=%s family=%s", self_harm_trigger, family)
                 result = MedicalLlmService.self_harm_response(family=family, trigger=self_harm_trigger)
             elif reservation_flow_hint:
-                reservation_orchestrator = get_reservation_orchestrator()
-                # 규격화된 문장("병원 예약: 서울 강남구 / 이비인후과 / ...")을 원래 예약 로직에 넘긴다.
-                routed_context = payload.context
-                if routed_context and routed_context.wardId:
-                    # 환자는 피보호자다 - 예약 초안의 환자명·연락처를 피보호자 것으로 바꿔 넘긴다.
-                    routed_context = routed_context.model_copy(
-                        update={"name": routed_context.wardName or routed_context.name, "phone": routed_context.wardPhone or routed_context.phone}
+                stored_flow = self._last_flow_state(db, payload.userId, session_id)
+                try:
+                    # 보호자가 피보호자 대신이면 피보호자 계정으로 예약한다(피보호자 웹·보호자 웹과 같은 목록).
+                    reservation_api_key = reservation_credential_service.ensure_credential(
+                        db,
+                        user_id=ward_id or payload.userId,
+                        client=reservation_api_client,
+                        name=str(user_context.get("name") or ""),
+                        phone=str(user_context.get("phone") or ""),
                     )
-                routed_payload = payload.model_copy(update={"message": route_info["normalized_message"], "context": routed_context})
-                reservation_result = None if reservation_disabled else reservation_orchestrator.handle(
-                    routed_payload,
-                    {
-                        "rawMessage": message,
-                        "model": self._settings.claude_model_name,
-                        "schemaVersion": "ai-reservation-v1",
-                        "reservationApiKey": reservation_api_key,
-                        # 직전 턴이 남긴 확인 대기·고치기 상태. 서버 DB 값이라 클라이언트가 바꿀 수 없다.
-                        "storedFlow": self._last_flow_state(db, payload.userId, session_id),
-                    },
-                )
+                    reservation_result = self._run_reservation(
+                        payload, route_info, message, reservation_api_key, stored_flow, reservation_disabled
+                    )
+                except ChatDeadlineExceeded as exc:
+                    # 마감에 걸려 새 예약 호출을 시작하지 않았다 - 아래 기존 실패 문구로 끝내고 직전 초안은 다음 턴에 넘긴다.
+                    _LOG.warning("[CHAT-DEADLINE] stage=%s action=reservation_fallback", exc.stage)
+                    reservation_result = None
+                    deadline_flow = stored_flow.get("flowState") if isinstance(stored_flow.get("flowState"), dict) else None
+                else:
+                    deadline_flow = None
                 timing["reservationMs"] = _elapsed_ms(reservation_started)
                 if reservation_result is not None:
                     result = reservation_result
@@ -302,7 +299,7 @@ class ChatService:
                         "homeCare": [],
                         "visitHospitalIf": [],
                         "emergencyWarning": [],
-                        "meta": {"reservationFlowHint": True},
+                        "meta": {"reservationFlowHint": True, **({"flowState": deadline_flow} if deadline_flow else {})},
                         "decisionTrace": [{"event": "reservation_disabled" if reservation_disabled else "reservation_flow_fallback"}],
                     }
             else:
@@ -422,6 +419,37 @@ class ChatService:
             "chatLogId": log.id,
             "chatNo": log.chat_no,
         }
+
+    def _run_reservation(
+        self,
+        payload: ChatRequest,
+        route_info: dict,
+        message: str,
+        reservation_api_key: str | None,
+        stored_flow: dict,
+        reservation_disabled: bool,
+    ) -> dict | None:
+        """규격화된 문장("병원 예약: 서울 강남구 / 이비인후과 / ...")을 예약 오케스트레이터에 넘긴다. 처리하지 못하면 None."""
+        if reservation_disabled:
+            return None
+        routed_context = payload.context
+        if routed_context and routed_context.wardId:
+            # 환자는 피보호자다 - 예약 초안의 환자명·연락처를 피보호자 것으로 바꿔 넘긴다.
+            routed_context = routed_context.model_copy(
+                update={"name": routed_context.wardName or routed_context.name, "phone": routed_context.wardPhone or routed_context.phone}
+            )
+        routed_payload = payload.model_copy(update={"message": route_info["normalized_message"], "context": routed_context})
+        return get_reservation_orchestrator().handle(
+            routed_payload,
+            {
+                "rawMessage": message,
+                "model": self._settings.claude_model_name,
+                "schemaVersion": "ai-reservation-v1",
+                "reservationApiKey": reservation_api_key,
+                # 직전 턴이 남긴 확인 대기·고치기 상태. 서버 DB 값이라 클라이언트가 바꿀 수 없다.
+                "storedFlow": stored_flow,
+            },
+        )
 
     @classmethod
     def _release_after_crisis(cls, route_info: dict, message: str, trigger: str | None) -> str | None:

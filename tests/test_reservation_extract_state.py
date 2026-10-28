@@ -23,7 +23,7 @@ class RecordingLoader(FakeLoader):
         super().__init__(extracted)
         self.prompts: list[str] = []
 
-    def generate_structured_text(self, system: str, prompt: str, schema: Any = None) -> str:
+    def generate_structured_text(self, system: str, prompt: str, schema: Any = None, **kwargs) -> str:  # noqa: ARG002
         self.prompts.append(prompt)
         return super().generate_structured_text(system, prompt, schema)
 

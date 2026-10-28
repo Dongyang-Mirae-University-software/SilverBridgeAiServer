@@ -6,6 +6,8 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.utils.conversation import remove_personal_info
+
 # 시간 선택지에 붙는 "다른 날짜 선택" 버튼 값
 CHANGE_DATE_OPTION = "__change_date__"
 _SEOUL_TZ = ZoneInfo("Asia/Seoul")
@@ -233,11 +235,40 @@ def _find_time(text: str) -> str | None:
     return None
 
 
+# 병원에 넘기는 증상 요약(symptomSummary) 규칙(2026-10-28 S-8). 이번 예약 흐름에서 사용자가 직접 친 문장 중 증상 단어가 든 문장만 쓴다 -
+# 대화 이력·LLM 추출 값은 쓰지 않는다(이력은 클라이언트가 보내는 값이고, 관련 없는 대화가 예약 기록에 실렸다).
+SYMPTOM_SUMMARY_MAX_CHARS = 60
+# MedicalLlmService.MEDICAL_KEYWORDS 기준. 한 글자 "열"은 "열 시"와 겹쳐 "열이"·"열나"로 좁히고, 진료과 추론에 쓰는 부위 표현을 더했다.
+_SYMPTOM_WORDS = (
+    "아파", "아프", "통증", "열이", "열나", "기침", "두통", "어지럽", "어지러", "어지럼", "구토", "충혈", "메스꺼", "설사", "변비",
+    "더부룩", "속이", "소화", "체했", "무릎", "허리", "관절", "시려", "저리", "붓", "부었", "가려", "피부", "발진",
+    "당뇨", "혈압", "혈당", "콜레스테롤", "불면", "잠이", "수면", "숨이", "가슴", "심장", "기운", "피곤", "식욕", "체중",
+    "눈이", "귀가", "목이", "코가", "콧물", "편도", "두드러기", "시력", "감기", "결려", "쑤셔", "따가", "울렁",
+)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。])\s+|\n+")
+
+
 def _extract_symptom_summary(text: str) -> str | None:
-    raw = _normalized_text(text)
-    if not raw or "예약" in raw or "접수" in raw:
-        return None
-    return raw[:120]
+    """사용자 문장에서 증상 단어가 든 문장만 모아 개인정보 형태(전화·주민번호·이메일)를 지우고 60자에서 자른다. 없으면 None."""
+    kept: list[str] = []
+    for sentence in _SENTENCE_SPLIT_RE.split(text or ""):
+        cleaned = re.sub(r"\s+([.,!?])", r"\1", _normalized_text(remove_personal_info(sentence)))
+        if cleaned and any(word in cleaned for word in _SYMPTOM_WORDS):
+            kept.append(cleaned)
+    summary = " ".join(kept).strip()
+    return summary[:SYMPTOM_SUMMARY_MAX_CHARS].strip() or None
+
+
+def merge_symptom_summary(current: str | None, text: str) -> str | None:
+    """이어 쓰는 초안의 증상 요약에 이번 턴 문장의 증상을 덧붙인다(60자 상한). 이번 턴에 증상이 없으면 그대로."""
+    added = _extract_symptom_summary(text)
+    if not added:
+        return current
+    if not current:
+        return added
+    if added in current:
+        return current
+    return f"{current} {added}"[:SYMPTOM_SUMMARY_MAX_CHARS].strip()
 
 
 def build_reservation_draft(
@@ -248,7 +279,9 @@ def build_reservation_draft(
     ui_value: str | None = None,
     location: str | None = None,
     user_context: dict[str, Any] | None = None,
+    symptom_text: str | None = None,
 ) -> ReservationDraft:
+    """symptom_text = 사용자가 이번 턴에 직접 친 문장(라우터 규격화 문장 아님). 증상 요약은 이것만으로 만든다 - 이력은 쓰지 않는다."""
     merged = "\n".join(part for part in (message.strip(), history_text.strip()) if part).strip()
     ui_field = (ui_field or "").strip() or None
     ui_value = (ui_value or "").strip() or None
@@ -293,7 +326,7 @@ def build_reservation_draft(
     draft.reservation_time = draft.reservation_time or _find_time(merged)
     draft.patient_name = draft.patient_name or _find_name(merged)
     draft.phone = draft.phone or _find_phone(merged)
-    draft.symptom_summary = _extract_symptom_summary(merged)
+    draft.symptom_summary = _extract_symptom_summary(message if symptom_text is None else symptom_text)
 
     if draft.hospital_name and not draft.search_hint:
         draft.search_hint = draft.hospital_name
