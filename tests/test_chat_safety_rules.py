@@ -20,6 +20,7 @@ from app.services.medical_llm_service import MedicalLlmService
 from app.services.reservation_orchestrator import _symptom_department
 
 # 응답 계약(변경 전과 같은 키 집합)
+_HOSPITAL_RE = re.compile(r"병원|진료|응급실|119")
 RESPONSE_KEYS = {
     "sessionId", "reply", "riskLevel", "recommendedAction", "reservationRequired", "intent", "engine", "modelName",
     "type", "ui", "tool", "toolData", "summary", "possibleCauses", "homeCare", "visitHospitalIf", "emergencyWarning",
@@ -370,6 +371,49 @@ def test_self_adjust_sentence_not_added_on_emergency() -> None:
     out = MedicalLlmService(Settings(), _Loader("약을 끊으세요.")).generate(
         "약을 먹고 의식이 흐려요", {}, [], intent="emergency_guidance")
     assert SELF_ADJUST not in out["reply"]
+
+
+# ---- 2026-10-28 예시 문장 복사·지어낸 진료과 ------------------------------------------------------------
+
+EXAMPLE = "약을 더 드시거나 바꾸기 전에 꼭 의사나 약사에게 물어봐 주세요."
+
+
+@pytest.mark.parametrize("advice", [
+    "약을 더 드시거나 바꾸기 전에 꼭 의사나 약사에게 물어봐 주세요. 다니시는 병원 진료 때 함께 여쭤보셔도 좋아요.",
+    "술을 더 드시거나 바꾸기 전에 꼭 의사나 약사에게 물어봐 주세요.",  # 꼬인 형태
+])
+def test_example_copy_dropped_for_drug_alcohol(advice: str, caplog) -> None:
+    with caplog.at_level(logging.INFO):
+        out = _generate("수면제 먹고 술 한잔 해도 돼요?", advice)
+    assert "바꾸기 전에" not in out["reply"] and "여쭤보셔도" not in out["reply"]
+    assert SEDATIVE in out["reply"]
+    assert "example_copy" in "\n".join(r.getMessage() for r in caplog.records)
+
+
+def test_example_copy_kept_for_medication_change_question() -> None:
+    # 약을 더 먹거나 바꾸려는 질문(예시 2 상황)에서는 맞는 말이라 그대로 둔다(술 문의가 아니면 규칙 밖).
+    out = _generate("관절약을 오늘 깜빡했는데 내일 두 번 먹으면 돼요?", EXAMPLE)
+    assert EXAMPLE in out["reply"]
+
+
+@pytest.mark.parametrize(("advice", "kept"), [
+    ("당뇨 관리의학과 진료를 받아 보세요. 혈당을 자주 재 보세요.", "혈당을 자주 재 보세요."),
+    ("노인통증의학과에 가 보세요.", None),
+])
+def test_unknown_department_sentence_dropped(advice: str, kept: str | None, caplog) -> None:
+    with caplog.at_level(logging.INFO):
+        out = _generate("당뇨약 먹는데 수술 전에 금식해야 하나요", advice)
+    assert "관리의학과" not in out["reply"] and "노인통증의학과" not in out["reply"]
+    if kept:
+        assert kept in out["reply"]
+    assert _HOSPITAL_RE.search(out["reply"])  # 병원 권유가 사라지면 일반 권유 문장으로 채운다
+    assert "[CHAT-SAFETY] unknown_department_dropped=1" in "\n".join(r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("advice", ["가정의학과 진료를 권해드려요.", "또는정신건강의학과 상담을 받아 보세요.", "재활의학과에 가 보세요."])
+def test_real_department_kept(advice: str) -> None:
+    out = _generate("허리가 아파요", advice)
+    assert advice in out["reply"]
 
 
 # ---- C-4 진료과 키워드 --------------------------------------------------------------------------------
