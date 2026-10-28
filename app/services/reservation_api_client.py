@@ -259,9 +259,12 @@ class ReservationApiClient:
             return exc.code, data
         except urllib.error.URLError as exc:
             return 0, {"message": str(exc.reason), "code": "UPSTREAM_UNREACHABLE"}
-        except (TimeoutError, OSError):
+        except TimeoutError:
             # 응답 본문을 읽다 시간이 다 된 경우(urlopen 밖에서 나는 소켓 시간 초과). 마감을 줄인 뒤 더 자주 날 수 있어 실패로 돌려준다.
             return 0, {"message": "timeout", "code": "UPSTREAM_TIMEOUT"}
+        except OSError:
+            # 응답을 읽다 연결이 끊긴 경우 등(2026-10-29 점검 L-5 - 시간 초과와 코드를 나눈다, 호출자는 상태 0만 본다).
+            return 0, {"message": "connection", "code": "UPSTREAM_UNREACHABLE"}
 
     def search_hospitals(
         self,

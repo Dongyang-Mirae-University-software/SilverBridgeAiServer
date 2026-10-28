@@ -439,7 +439,12 @@ class ReservationOrchestrator(ReservationFlowMixin):
         _, loc = self._conversation_context(req)
         hint = self._normalize_location_hint(loc)
         profile |= {v for v in (hint,) if v}
-        if not searched_location or re.sub(r"\s+", " ", searched_location.strip()) not in profile:
+        if not searched_location:
+            return None
+        searched = re.sub(r"\s+", " ", searched_location.strip())
+        # 추출이 지역을 시·구로 줄여 돌려줘도 프로필 지역과 같은 곳으로 본다(2026-10-29 점검 L-3) - 양쪽 모두 시·구 기준으로도 맞춰 본다.
+        coarse_profile = {coarse_region(v) for v in profile} - {None}
+        if searched not in profile and (coarse_region(searched) or searched) not in coarse_profile:
             return None
         return UiPayload(
             kind="select",

@@ -44,12 +44,16 @@ def format_recent_history(history: Iterable[dict[str, str]]) -> str:
 # 외부 LLM(Claude)으로 보내는 이력에서 가리는 개인정보 형태(2026-10-28 S-6). 판단에 필요 없는 값이라 자리표시로 바꾼다.
 _RRN_RE = re.compile(r"(?<!\d)\d{6}[-\s]?[1-4]\d{6}(?!\d)")
 _PHONE_RE = re.compile(r"(?<!\d)0\d{1,2}[-\s.]?\d{3,4}[-\s.]?\d{4}(?!\d)")
+# 국제 형식(+82 10-1234-5678, +821012345678, +82 (0)10-…, +82 2-123-4567, 2026-10-29 점검 L-2).
+# "+" 없이 82로 시작하는 숫자는 다른 수와 겹쳐 가리지 않는다.
+_INTL_PHONE_RE = re.compile(r"\+82[-\s.]?(?:\(0\)[-\s.]?)?0?\d{1,2}[-\s.]?\d{3,4}[-\s.]?\d{4}(?!\d)")
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 
 def mask_personal_info(text: str) -> str:
     """전화번호·주민등록번호·이메일 형태를 자리표시로 바꾼다. 주민번호를 먼저 본다(전화 패턴과 겹치지 않게)."""
     masked = _RRN_RE.sub("[주민번호]", text or "")
+    masked = _INTL_PHONE_RE.sub("[전화]", masked)
     masked = _PHONE_RE.sub("[전화]", masked)
     return _EMAIL_RE.sub("[이메일]", masked)
 
@@ -57,5 +61,6 @@ def mask_personal_info(text: str) -> str:
 def remove_personal_info(text: str) -> str:
     """mask_personal_info 와 같은 형태를 자리표시 없이 지운다(병원에 넘기는 증상 요약용)."""
     removed = _RRN_RE.sub("", text or "")
+    removed = _INTL_PHONE_RE.sub("", removed)
     removed = _PHONE_RE.sub("", removed)
     return _EMAIL_RE.sub("", removed)
