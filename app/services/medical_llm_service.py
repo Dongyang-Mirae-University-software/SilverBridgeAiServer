@@ -580,6 +580,10 @@ class MedicalLlmService:
             return False
         if cls.emergency_signals(message) or cls.self_harm_signals(message):
             return False
+        # 응급 키워드는 아니어도 위험 신호 단어(가슴·숨이 등)가 있으면 되묻지 않는다 - 위험 신호 119 한 줄이 나가는 답으로 둔다
+        # (2026-10-29 v7 bd.02 "가슴이 답답해요"가 되묻기로 가 119 안내가 빠졌다).
+        if any(keyword in (message or "").strip().lower() for keyword in cls.HIGH_RISK_KEYWORDS):
+            return False
         if _MEDICATION_WORD.search(compact) or cls.drug_alcohol_rules(message):
             return False
         if any(rule.ask.search(compact) for rule in _DRUG_DIRECT_RULES + _LIFESTYLE_RULES):
