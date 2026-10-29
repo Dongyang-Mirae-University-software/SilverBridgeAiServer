@@ -159,7 +159,8 @@ def test_no_extra_sentence_when_clinic_present() -> None:
 
 def test_medication_question_left_to_existing_rule() -> None:
     # 약 복용 문의(증상 없음)는 C-2 규칙대로 의사·약사 안내만 - 새 문장을 붙이지 않는다.
-    out = _gen("수면제를 약국에서 그냥 살 수 있나요", symptoms="약 복용 문의", advice="의사나 약사에게 물어봐 주세요.")
+    # 수면제 구입 질문은 2026-10-29 G-1 고정 문장이 붙어 test_chat_sleeping_pill_breath_lifestyle 에서 본다.
+    out = _gen("감기약이랑 혈압약을 같이 먹어도 되나요", symptoms="약 복용 문의", advice="의사나 약사에게 물어봐 주세요.")
     assert out["reply"].endswith("의사나 약사에게 물어봐 주세요.")
 
 

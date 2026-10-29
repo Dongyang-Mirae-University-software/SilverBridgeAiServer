@@ -168,6 +168,8 @@ class _DrugDirectRule(NamedTuple):
 
 
 _DOUBLE_DOSE_SENTENCE = "놓친 약을 다음에 두 번 몫으로 한꺼번에 드시지는 마세요."
+# 수면제를 약국에서 살 수 있느냐는 질문(G-1, 공백 뺀 문장).
+_SLEEPING_PILL_PURCHASE = re.compile(r"(수면제|수면유도제|수면보조제|잠오는약)[^.!?。]{0,15}(약국|살수|사도|사야|사먹|구입|구매)")
 _DRUG_DIRECT_RULES = (
     _DrugDirectRule(
         "double_dose",
@@ -194,6 +196,38 @@ _DRUG_DIRECT_RULES = (
         "혈압약을 임의로 끊으면 혈압이 다시 오를 수 있어요.",
         re.compile(r"혈압[^.!?。]{0,15}(다시 )?(오르|오를|올라|높아|상승)"),
     ),
+    _DrugDirectRule(
+        # 2026-10-29 G-1 qa.D3: 모델이 "수면제는 약국에서 살 수 없다"고 단정했다(일반의약품 수면유도제가 있어 사실 오류, 판정자 4명).
+        "sleeping_pill_purchase",
+        _SLEEPING_PILL_PURCHASE,
+        "약국에서 살 수 있는 수면유도제(일반의약품)도 있지만, 수면제는 처방이 필요해요. 드시기 전에 약사와 상의하세요.",
+        re.compile(r"일반의약품|수면유도제|수면 ?보조제"),
+    ),
+)
+# 수면제 구입 질문에서 "약국에서 살 수 없다"고 단정한 문장(G-1) - 이 질문에서만 뺀다.
+_SLEEPING_PILL_WRONG = re.compile(
+    r"(약국|처방)[^.!?。]{0,25}(살 수 없|구입할 수 없|구매할 수 없|구입하실 수 있는 약은 아니|살 수 있는 약은 아니|사실 수 없)"
+)
+# 생활관리 질문 고정 문장(2026-10-29 G-3, 약 질문 직접 안내와 같은 방식 - 판정자가 생성 차이로 내용이 빠진다고 본 E1·E2·E4).
+_LIFESTYLE_RULES = (
+    _DrugDirectRule(
+        "diabetes_fruit",
+        re.compile(r"(당뇨|혈당)[^.!?。]{0,20}과일|과일[^.!?。]{0,20}(당뇨|혈당)"),
+        "과일은 당도가 낮은 것을 조금씩, 식후에 드시는 것이 좋아요.",
+        re.compile(r"(당도|양)[^.!?。]{0,15}(조절|낮은|적게|조금)|조금씩"),
+    ),
+    _DrugDirectRule(
+        "high_bp_exercise",
+        re.compile(r"혈압[^.!?。]{0,15}(높|올라|오른)[^.!?。]{0,15}운동|운동[^.!?。]{0,15}혈압[^.!?。]{0,10}(높|올라|오른)"),
+        "혈압이 평소보다 높게 나온 날은 운동을 쉬거나 가볍게 하시고, 가슴 통증·어지럼이 있으면 바로 멈추세요.",
+        re.compile(r"운동[^.!?。]{0,15}(쉬|멈추|중단|미루)"),
+    ),
+    _DrugDirectRule(
+        "arthritis_exercise",
+        re.compile(r"관절[^.!?。]{0,15}운동|운동[^.!?。]{0,15}관절"),
+        "걷기·수영·실내 자전거처럼 관절에 무리가 덜 가는 운동을, 통증이 생기지 않는 범위에서 해 보세요.",
+        re.compile(r"(?s)(?=.*수영)(?=.*통증)"),
+    ),
 )
 
 
@@ -212,6 +246,17 @@ _EMERGENCY_ACTIONS = (
         "직접 운전하거나 혼자 움직이지 마세요.",
     ),
     _EmergencyAction("seizure", re.compile(r"경련|발작|거품을물"), "억지로 붙잡거나 입에 물건을 넣지 마세요."),
+    # 2026-10-29 G-2. 질식·목에 걸림은 앉은 자세 안내가 맞지 않아 뺀다(신호 정규식이 "질식"·"목에걸려"를 보지 않는다).
+    _EmergencyAction(
+        "breathing",
+        re.compile(r"숨이안쉬|숨을못쉬|숨쉬기힘|숨쉬기가힘|숨이막히|호흡곤란|호흡이곤란|입술이파"),
+        "편하게 앉은 자세로 숨을 쉬게 하고, 꽉 끼는 옷은 풀어 주세요.",
+    ),
+    _EmergencyAction(
+        "vomiting_blood",
+        re.compile(r"피를토|토혈|커피색|피가섞인구토|피섞인구토"),
+        "토한 것이 목에 걸리지 않게 옆으로 눕히고, 아무것도 먹거나 마시지 마세요.",
+    ),
     _EmergencyAction(
         "collapse_fall",
         re.compile(r"쓰러|넘어져|넘어졌|못일어나|일어나지못|일어나지를못|일어날수가없|일어설수가없"),
@@ -487,7 +532,7 @@ class MedicalLlmService:
         compact = re.sub(r"\s+", "", message or "")
         overdose = bool(_OVERDOSE_TOLD.search(message or ""))
         out: list[tuple[str, str]] = []
-        for rule in _DRUG_DIRECT_RULES:
+        for rule in _DRUG_DIRECT_RULES + _LIFESTYLE_RULES:
             if not rule.ask.search(compact) or rule.covered.search(reply or "") or rule.sentence in (reply or ""):
                 continue
             if rule.name == "double_dose" and overdose:
@@ -496,6 +541,25 @@ class MedicalLlmService:
                 continue
             out.append((rule.name, rule.sentence))
         return out
+
+    @staticmethod
+    def drop_sleeping_pill_misstatement(message: str, reply: str) -> tuple[str, int]:
+        """수면제 구입 질문에서만 "약국에서 살 수 없다" 단정 문장을 뺀다(G-1). (고친 답, 뺀 문장 수)."""
+        if not _SLEEPING_PILL_PURCHASE.search(re.sub(r"\s+", "", message or "")):
+            return reply, 0
+        removed = 0
+        lines: list[str] = []
+        for line in (reply or "").split("\n"):
+            sentences = _SENTENCE_SPLIT.split(line)
+            kept = [x for x in sentences if not _SLEEPING_PILL_WRONG.search(x)]
+            if len(kept) == len(sentences):
+                lines.append(line)
+                continue
+            removed += len(sentences) - len(kept)
+            new_line = " ".join(kept).strip()
+            if new_line:
+                lines.append(new_line)
+        return "\n".join(lines), removed
 
     @staticmethod
     def emergency_action_sentences(message: str) -> list[tuple[str, str]]:
@@ -772,6 +836,9 @@ class MedicalLlmService:
                 _LOG.info("[CHAT-SAFETY] self_adjust_sentence=added")
             if not self.drug_alcohol_rules(message):
                 # 약 + 술 질문은 약 + 술 규칙만 손댄다.
+                reply, misstated = self.drop_sleeping_pill_misstatement(message, reply)
+                if misstated:
+                    _LOG.info("[CHAT-SAFETY] sleeping_pill_misstatement_dropped=%s", misstated)
                 direct = self.drug_direct_sentences(message, reply)
                 for _, sentence in direct:
                     reply = f"{reply}\n{sentence}"
