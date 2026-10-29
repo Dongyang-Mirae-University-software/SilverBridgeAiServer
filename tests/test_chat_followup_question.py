@@ -35,7 +35,8 @@ class _Llm:
 
     def generate(self, message, ctx, history, intent=None, processed_symptom=None) -> dict[str, Any]:  # noqa: ARG002
         self.calls.append({"message": message, "intent": intent, "processed_symptom": processed_symptom})
-        return {"reply": "신경과 진료를 권해드려요.", "riskLevel": "medium", "recommendedAction": "guardian_contact",
+        risk = "high" if intent == "emergency_guidance" else "medium"  # 실제 서비스처럼 응급 의도면 high
+        return {"reply": "신경과 진료를 권해드려요.", "riskLevel": risk, "recommendedAction": "guardian_contact",
                 "reservationRequired": False, "intent": intent, "engine": "medgemma", "modelName": "m",
                 "summary": "s", "possibleCauses": [], "homeCare": [], "visitHospitalIf": [], "emergencyWarning": []}
 
@@ -167,3 +168,20 @@ def test_followup_log_has_flags_only(env, caplog) -> None:
     _send(env, "머리가 아파요")
     msgs = [r.getMessage() for r in caplog.records if "followup_asked" in r.getMessage()]
     assert msgs == ["[CHAT-QUALITY] followup_asked=true proxy=False"]
+
+
+def test_no_followup_right_after_crisis_reply(env) -> None:
+    out = _send(env, "죽고 싶어요")  # 위기 고정 응답(키워드)
+    assert out["riskLevel"] == "high"
+    out = _send(env, "머리가 아파요")  # 위기 직후 첫 일반 턴 - 109 한 줄 + 상담, 되묻지 않는다
+    assert INTRO not in out["reply"] and "109" in out["reply"]
+    assert len(env.llm.calls) == 1
+
+
+def test_no_followup_right_after_emergency_reply(env) -> None:
+    env.router.emergency = True
+    _send(env, "갑자기 머리가 깨질 듯 아파요")
+    env.router.emergency = False
+    env.llm.calls.clear()
+    out = _send(env, "머리가 아파요")  # 응급 답 다음 턴은 되묻지 않는다
+    assert INTRO not in out["reply"] and len(env.llm.calls) == 1
