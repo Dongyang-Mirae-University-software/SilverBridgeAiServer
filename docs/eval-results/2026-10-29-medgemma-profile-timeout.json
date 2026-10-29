@@ -471,5 +471,15 @@
   "reservationTimeout": 0,
   "router401_400_429": 0
  },
- "reservationRoundTrip": "미실시 - 보호자 시험 계정 로그인 INVALID_CREDENTIALS(계정 updated_at 2026-10-29 11:16 KST, 재시도 안 함). v6 rs.01·rs.02(AI 직접) PASS"
+ "reservationRoundTrip": {
+  "via": "AI 직접(서버 키, 시험 계정 GRD001) - BE 로그인 INVALID_CREDENTIALS라 대체",
+  "at": "2026-10-29 19:58 KST",
+  "goskyCommit": "f4d4d4b(#107 포함)",
+  "turns": 8,
+  "http200": 8,
+  "created": true,
+  "cancelled": "CANCELED",
+  "reservationStepSec": "0.1~0.7",
+  "chatLogsCleaned": 8
+ }
 }
