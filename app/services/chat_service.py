@@ -41,8 +41,9 @@ def _origin(exc: BaseException) -> str:
 
 
 # 오케스트레이터에 넘긴 입력값이 응답 meta 로 되돌아온다. 챗 기록(context_json)에는 남기지 않는다:
-# 예약 API 키(자격 증명), 직전 턴 상태 사본(storedFlow - 같은 기록이 이미 직전 행에 있음), 사용자 원문(message 컬럼에 있음).
-_UNSTORED_META_KEYS = ("reservationApiKey", "storedFlow", "rawMessage")
+# 예약 API 키(자격 증명), 직전 턴 상태 사본(storedFlow - 같은 기록이 이미 직전 행에 있음), 사용자 원문(message 컬럼에 있음),
+# 버튼으로 입력했던 환자 이름·전화(storedContact - 원래 기록의 message 에 있음).
+_UNSTORED_META_KEYS = ("reservationApiKey", "storedFlow", "rawMessage", "storedContact")
 # 위기 고정 응답 직후 첫 일반 턴(예약 재개·증상·일반 대화) 답 맨 앞에 붙이는 한 줄(2026-10-25 예약, 2026-10-26 점검 H-1로 확장).
 _CRISIS_FOLLOWUP = "힘드시면 언제든 자살예방 상담전화 109(24시간)에 이야기해 보세요."
 # 라우터 실패 시 앞 턴 위기에 이어지는 짧은 말로 볼 최대 길이(공백 제외, 점검 M-1).
@@ -62,6 +63,7 @@ _SERVER_HISTORY_SCAN_ROWS = 60
 # 환자 이름·전화(patient_name·phone)는 넣지 않는다 - 저장 초안에 이미 있고, 이력은 라우터·추출(Claude)로 나간다(2026-10-29 점검 L-1).
 _HISTORY_UI_FIELDS = frozenset({"hospital", "hospital_confirm", "department", "date", "time", "location", "location_confirm"})
 _HISTORY_SKIP_VALUES = frozenset({"__other__", CHANGE_DATE_OPTION})
+_CONTACT_UI_FIELDS = frozenset({"patient_name", "phone"})
 _UI_LOG_RE = re.compile(r"^\[선택\] ([^:]+): (.*)$", re.S)
 # 직전 턴이 응급(high)이었는데 이번 턴은 일반 답일 때 끝에 붙이는 한 줄(2026-10-29, 시험지 mt.01 "이제 좀 괜찮아졌어요" - 사용자 결정 (b)).
 _EMERGENCY_FOLLOWUP = "증상이 다시 생기거나 심해지면 바로 119에 전화하세요."
@@ -143,6 +145,8 @@ class ChatService:
         recent_logs = self._recent_logs(db, payload.userId)
         latest_log = recent_logs[0] if recent_logs else None
         history = self._server_history(db, payload.userId, session_id, ward_id, rows=recent_logs)
+        # 버튼으로 입력했던 환자 이름·전화 - 이력(Claude)에는 넣지 않고, 저장 초안이 없을 때 예약 흐름이 빈 칸만 채운다(2026-10-29 점검 L-2).
+        stored_contact = self._stored_contact(recent_logs, session_id, ward_id)
         # 직전 턴이 같은 상담(세션·피보호자)의 응급 답(high)이었는가 - 위기 고정 응답은 109 안내가 따로 붙어 제외한다.
         after_emergency = self._previous_turn_was_emergency(latest_log, session_id, ward_id)
         payload = payload.model_copy(update={"history": [ChatHistoryItem(**item) for item in history]})
@@ -299,7 +303,7 @@ class ChatService:
                         phone=str(user_context.get("phone") or ""),
                     )
                     reservation_result = self._run_reservation(
-                        payload, route_info, message, reservation_api_key, stored_flow, reservation_disabled
+                        payload, route_info, message, reservation_api_key, stored_flow, reservation_disabled, stored_contact
                     )
                 except ChatDeadlineExceeded as exc:
                     # 마감에 걸려 새 예약 호출을 시작하지 않았다 - 아래 기존 실패 문구로 끝내고 직전 초안은 다음 턴에 넘긴다.
@@ -363,7 +367,8 @@ class ChatService:
         except Exception as exc:
             # 예외 문구·스택에는 SQL 파라미터·요청 값이 섞일 수 있어 클래스명과 발생 위치만 남긴다.
             _LOG.error("chat process_message fallback: %s at %s", type(exc).__name__, _origin(exc))
-            result = _mark_generation_failed(self._fallback_reply(message or log_message, history))
+            # 직전 턴이 응급 답이면 대체 응답도 응급 쪽(119·경고)으로 - "안정 상태로 보입니다"가 나가지 않게(2026-10-29 점검 M-1).
+            result = _mark_generation_failed(self._fallback_reply(message or log_message, history, emergency=after_emergency))
             route_info = {}
         if crisis_followup and route_info and isinstance(result.get("reply"), str):
             result["reply"] = f"{_CRISIS_FOLLOWUP}\n{result['reply']}"
@@ -380,6 +385,8 @@ class ChatService:
             and not MedicalLlmService.self_harm_signals(message)
             and result.get("riskLevel") != "high"
             and isinstance(result.get("reply"), str)
+            # 답에 이미 119 안내가 있으면 되풀이하지 않는다(2026-10-29 점검 L-1, #97 위험 신호 문장과 같은 기준).
+            and "119" not in result["reply"]
         ):
             result["reply"] = f"{result['reply']}\n{_EMERGENCY_FOLLOWUP}"
             result.setdefault("meta", {})
@@ -478,6 +485,7 @@ class ChatService:
         reservation_api_key: str | None,
         stored_flow: dict,
         reservation_disabled: bool,
+        stored_contact: dict | None = None,
     ) -> dict | None:
         """규격화된 문장("병원 예약: 서울 강남구 / 이비인후과 / ...")을 예약 오케스트레이터에 넘긴다. 처리하지 못하면 None."""
         if reservation_disabled:
@@ -498,6 +506,7 @@ class ChatService:
                 "reservationApiKey": reservation_api_key,
                 # 직전 턴이 남긴 확인 대기·고치기 상태. 서버 DB 값이라 클라이언트가 바꿀 수 없다.
                 "storedFlow": stored_flow,
+                "storedContact": stored_contact or {},
             },
         )
 
@@ -556,6 +565,27 @@ class ChatService:
             if (log.reply or "").strip():
                 items.append({"role": "assistant", "content": log.reply})
         return items[-_SERVER_HISTORY_ITEMS:]
+
+    @staticmethod
+    def _stored_contact(rows: list[ChatLog], session_id: str, ward_id: str) -> dict[str, str]:
+        """같은 세션·피보호자에서 버튼으로 마지막에 입력한 환자 이름·전화(최근 기록부터). 없으면 빈 dict.
+        이력에는 넣지 않는 값이라(Claude로 나가지 않게) 예약 흐름에 따로 넘긴다(점검 L-2)."""
+        found: dict[str, str] = {}
+        for log in rows:
+            matched = _UI_LOG_RE.match(log.message or "")
+            if not matched or matched.group(1).strip() not in _CONTACT_UI_FIELDS:
+                continue
+            field, value = matched.group(1).strip(), matched.group(2).strip()
+            if field in found or not value:
+                continue
+            try:
+                ctx = json.loads(log.context_json or "{}")
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(ctx, dict) or ctx.get("sessionId") != session_id or ChatService._row_ward_id(ctx) != ward_id:
+                continue
+            found[field] = value
+        return found
 
     @staticmethod
     def _history_user_text(message: str) -> str | None:
@@ -652,7 +682,8 @@ class ChatService:
         if ctx.get("sessionId") != session_id:
             return None
         router = (ctx.get("upstreamMeta") or {}).get("router") or {}
-        if (router.get("wardId") or "") != ward_id:
+        # 피보호자 구분은 대화 이력과 같은 기준(router.wardId, 없으면 userContext.wardId - 2026-10-29 점검 L-3).
+        if ChatService._row_ward_id(ctx) != ward_id:
             return None
         return router.get("normalized_message") if router.get("route") == "reservation" else None
 
