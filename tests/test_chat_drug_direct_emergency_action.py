@@ -70,6 +70,11 @@ def test_bp_stop_keeps_consult_sentence() -> None:
     assert "약을 줄이거나 끊거나 거르는 것은 꼭 의사·약사와 상의한 뒤에 하세요." in out["reply"]
 
 
+def test_bp_sentence_skipped_when_answer_says_bp_rises() -> None:
+    out = _gen("혈압약 이제 끊어도 될까요?", advice="임의로 끊으면 혈압이 다시 오를 수 있으니 의사와 상의해 주세요.")
+    assert BP not in out["reply"]
+
+
 def test_skipped_when_answer_already_says_it() -> None:
     out = _gen("하루치를 몰아서 먹어도 되나요?", advice="두 번 몫을 한꺼번에 드시지 마세요. 의사나 약사에게 물어봐 주세요.")
     assert DOUBLE not in out["reply"]
