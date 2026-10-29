@@ -96,8 +96,8 @@ def test_two_departments_kept() -> None:
 
 
 def test_no_hint_keeps_answer_department() -> None:
-    out = _gen("요즘 소변을 자주 봐요", symptoms="잦은 소변", advice="비뇨의학과 진료를 권해드려요.")
-    assert "비뇨의학과 진료를 권해드려요" in out["reply"]
+    out = _gen("밤에 다리에 쥐가 자주 나요", symptoms="다리 쥐", advice="재활의학과 진료를 권해드려요.")
+    assert "재활의학과 진료를 권해드려요" in out["reply"]
 
 
 # ---- D-2 질문 되풀이 ------------------------------------------------------------------------------------
@@ -137,8 +137,14 @@ def test_symptom_answer_without_clinic_gets_department_sentence() -> None:
 
 
 def test_symptom_without_hint_gets_clinic_sentence() -> None:
-    out = _gen("요즘 소변을 자주 봐요", symptoms="잦은 소변", advice="물을 너무 늦게 드시지 마세요.")
+    out = _gen("밤에 다리에 쥐가 자주 나요", symptoms="다리 쥐", advice="스트레칭을 해 보세요.")
     assert out["reply"].endswith("증상이 계속되거나 걱정되시면 병원 진료를 받아 보세요.")
+
+
+def test_urination_now_gets_internal_medicine_hint() -> None:
+    # 2026-10-29 E: "소변"이 내과 힌트가 되어 답의 다른 과(비뇨의학과 포함)를 내과로 맞춘다(예약 표준 진료과와 같은 과).
+    out = _gen("요즘 소변을 자주 봐요", symptoms="잦은 소변", advice="비뇨의학과 진료를 권해드려요.")
+    assert "내과 진료를 권해드려요" in out["reply"]
 
 
 def test_lifestyle_question_gets_consult_sentence() -> None:
@@ -212,7 +218,7 @@ def test_quality_log_has_flags_only(caplog) -> None:
     caplog.set_level(logging.INFO)
     _gen("아침에 일어나면 어지러워요", symptoms="아침에 일어나면 어지러워요", advice="정신건강의학과 진료를 권해드려요.")
     lines = [r.getMessage() for r in caplog.records if "[CHAT-QUALITY]" in r.getMessage()]
-    assert lines == ["[CHAT-QUALITY] echo_hidden=True department_aligned=True clinic_added=False red_flag_119=False"]
+    assert lines == ["[CHAT-QUALITY] echo_hidden=True department_aligned=True clinic_added=False red_flag_119=False pediatrics=False medication_119_dropped=0"]
 
 
 # ---- D-3 규칙 8 ----------------------------------------------------------------------------------------
