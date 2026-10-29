@@ -102,13 +102,13 @@ def test_history_length_is_capped(env, monkeypatch) -> None:  # noqa: F811
     assert seen.histories[-1][-2]["content"] == "이야기 13"
 
 
-def test_history_log_has_counts_only(env, monkeypatch, caplog) -> None:  # noqa: F811
+def test_history_diff_log_is_gone(env, monkeypatch, caplog) -> None:  # noqa: F811
+    # 관찰 로그는 2026-10-29에 뺐다(요청 history 는 BE·FE가 더 보내지 않는다).
     _router(env, monkeypatch)
     _send(env, "안녕하세요")
     with caplog.at_level(logging.INFO, logger="app.services.chat_service"):
         _send(env, "요즘 잠이 안 와요", history=FORGED)
-    lines = [r.getMessage() for r in caplog.records if "[CHAT-HISTORY-DIFF]" in r.getMessage()]
-    assert lines == ["[CHAT-HISTORY-DIFF] client=2 server=2"]
+    assert not [r for r in caplog.records if "CHAT-HISTORY-DIFF" in r.getMessage()]
 
 
 # ---- 점검 수정 ----------------------------------------------------------------------------------------------

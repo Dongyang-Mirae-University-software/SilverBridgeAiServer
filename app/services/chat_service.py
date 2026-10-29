@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import logging
@@ -14,8 +15,8 @@ from app.core.config import get_settings
 from app.schemas.chat_schema import ChatHistoryItem, ChatRequest
 from app.services.reservation_api_client import get_reservation_api_client
 from app.services.reservation_credential_service import get_reservation_credential_service
-from app.services.chat_deadline import ChatDeadlineExceeded, chat_deadline
-from app.services.chat_router_service import get_chat_router_service
+from app.services.chat_deadline import ChatDeadlineExceeded, chat_deadline, tighter_deadline
+from app.services.chat_router_service import ROUTER_RESERVE_SEC, get_chat_router_service
 from app.services.claude_structured_client import failure_cause
 from app.services.medical_llm_service import MedicalLlmService, get_medical_llm_service
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS
@@ -49,6 +50,9 @@ _CRISIS_CONTINUE_MAX_CHARS = 12
 # 그 짧은 말 중 감사 표현은 위기가 이어지는 말로 보지 않는다(일반 폴백 + 109 한 줄, 2026-10-27).
 # 작별 인사("안녕"·"잘 있어")는 위기 신호일 수 있어 넣지 않는다.
 _CRISIS_CONTINUE_EXCLUDED = re.compile(r"고마|고맙|감사")
+# 응급 키워드가 든 문장은 라우터를 이만큼만 기다린다(초, 2026-10-29 점검 L-4). 넘기면 라우터 실패 경로(키워드 분류 → 119 안내)로 간다.
+# 라우터를 건너뛰지 않는 이유: 응급 키워드 문장도 라우터가 자해로 판정할 수 있다(예: 과다 복용).
+_EMERGENCY_ROUTER_WAIT_SEC = 15.0
 # 대화 이력은 요청의 history(클라이언트 값)가 아니라 서버 챗 기록에서 만든다(2026-10-28 S-7).
 # 길이는 FE가 보내던 최대 24개(사용자·assistant 항목)와 같고, 각 단계는 지금처럼 그 안에서 다시 자른다.
 _SERVER_HISTORY_ITEMS = 24
@@ -134,7 +138,6 @@ class ChatService:
         # 요청의 history 는 읽지 않는다 - 조작한 assistant 발화·지운 자해 발화로 경로·위기 응답·예약 값이 바뀌지 않게(S-7).
         # 아래 모든 단계(라우터·예약 추출·규칙 초안·MedGemma·위기 근거·대체 응답)가 payload.history 를 쓰므로 여기서 바꿔 끼운다.
         history = self._server_history(db, payload.userId, session_id, ward_id)
-        _LOG.info("[CHAT-HISTORY-DIFF] client=%s server=%s", len(payload.history), len(history))
         payload = payload.model_copy(update={"history": [ChatHistoryItem(**item) for item in history]})
         log_message = message
         # 위기 응답 직후 첫 일반 턴이면 답 앞에 109 안내 한 줄을 붙인다(한 번만 - 이 턴 기록엔 selfHarm이 없다).
@@ -173,14 +176,21 @@ class ChatService:
                               "emergency": True, "reason": "self-harm-keyword"}
             elif message:
                 router_started = time.perf_counter()
+                # 응급 키워드 문장은 라우터 호출만 15초 안으로(뒤 단계 몫 ROUTER_RESERVE_SEC 는 그대로 남긴다).
+                router_wait = (
+                    tighter_deadline(_EMERGENCY_ROUTER_WAIT_SEC + ROUTER_RESERVE_SEC)
+                    if MedicalLlmService.emergency_signals(message)
+                    else contextlib.nullcontext()
+                )
                 try:
-                    route_info = get_chat_router_service().route(
-                        message, history, user_context,
-                        # 새 예약 요청이면 직전 턴의 병원·시간을 끌어오지 않는다(지난 요청이 새 요청에 붙는 것 방지).
-                        prev_reservation=None
-                        if ReservationOrchestrator._is_new_request(message)
-                        else self._last_reservation_state(db, payload.userId, session_id, ward_id),
-                    )
+                    with router_wait:
+                        route_info = get_chat_router_service().route(
+                            message, history, user_context,
+                            # 새 예약 요청이면 직전 턴의 병원·시간을 끌어오지 않는다(지난 요청이 새 요청에 붙는 것 방지).
+                            prev_reservation=None
+                            if ReservationOrchestrator._is_new_request(message)
+                            else self._last_reservation_state(db, payload.userId, session_id, ward_id),
+                        )
                 except Exception as exc:  # noqa: BLE001
                     # 원인은 고정 코드만(max_tokens·parse·api_<상태>…) - 입력·모델 출력은 남기지 않는다.
                     _LOG.warning("[CHAT-ROUTER-FAILED] cause=%s fallback=keywords", failure_cause(exc))
