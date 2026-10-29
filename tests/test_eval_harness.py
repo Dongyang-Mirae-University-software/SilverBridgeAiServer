@@ -163,3 +163,25 @@ def test_missing_key_is_refused(monkeypatch) -> None:
 @pytest.mark.parametrize("values,expected", [([1, 2, 3, 4, 100], 100), ([5], 5), ([], None)])
 def test_p95(values, expected) -> None:
     assert run_eval._p95(values) == expected
+
+
+def test_judge_followup_keys() -> None:
+    # v7 C-1 되묻기: 이 턴이 되묻기여야 하는가(followup)·재생한 앞 턴이 되묻기였어야 하는가(pre_followup).
+    assert run_eval.judge({"followup": True}, _row(followupAsked=True)) == (True, [])
+    assert run_eval.judge({"followup": True}, _row(followupAsked=False)) == (False, ["followup=False"])
+    ok, fails = run_eval.judge({"followup": False, "pre_followup": True}, _row(followupAsked=False, preTurns=[{"followupAsked": False}]))
+    assert ok is False and fails == ["pre_turn_not_followup"]
+    assert run_eval.judge({"followup": False, "pre_followup": True},
+                          _row(followupAsked=False, preTurns=[{"followupAsked": True}])) == (True, [])
+
+
+def test_v7_set_keeps_v6_items_and_adds_followup_items() -> None:
+    base = Path(__file__).parent / "eval"
+    v6 = json.loads((base / "eval_set_v6.json").read_text(encoding="utf-8"))
+    v7 = json.loads((base / "eval_set_v7.json").read_text(encoding="utf-8"))
+    assert [x["id"] for x in v7["items"][: len(v6["items"])]] == [x["id"] for x in v6["items"]]
+    fq = [x for x in v7["items"] if x["set"] == "fq"]
+    assert len(fq) == 30 and len({x["id"] for x in v7["items"]}) == len(v7["items"])
+    assert sum(x["expect"].get("followup") is True for x in fq) == 10
+    replayed = [x for x in fq if x.get("replay")]
+    assert len(replayed) == 10 and all(x["expect"].get("pre_followup") and x["history"][0]["role"] == "user" for x in replayed)
