@@ -40,6 +40,21 @@ def chat_deadline(seconds: float | None = None) -> Iterator[None]:
         _DEADLINE.reset(token)
 
 
+@contextmanager
+def tighter_deadline(seconds: float) -> Iterator[None]:
+    """이 블록 안에서만 마감을 min(지금 마감, 지금 + seconds)로 당긴다. 블록을 나가면 원래 마감으로 돌아간다(2026-10-29 L-4).
+    마감이 없으면(챗 밖) 아무것도 하지 않는다."""
+    current = _DEADLINE.get()
+    if current is None:
+        yield
+        return
+    token = _DEADLINE.set(min(current, time.perf_counter() + seconds))
+    try:
+        yield
+    finally:
+        _DEADLINE.reset(token)
+
+
 def remaining_sec() -> float | None:
     end = _DEADLINE.get()
     return None if end is None else end - time.perf_counter()
