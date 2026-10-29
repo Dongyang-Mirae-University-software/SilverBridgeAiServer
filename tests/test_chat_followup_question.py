@@ -66,7 +66,8 @@ def _send(env, message: str, session: str = "s1", ward: str | None = None) -> di
 # ---- 문장 조건 -----------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("message", ["어지러워", "기침이 나요", "머리가 아파요", "배가 아파요", "허리가 아파요", "속이 안 좋아요", "귀가 아파요"])
+@pytest.mark.parametrize("message", ["어지러워", "기침이 나요", "머리가 아파요", "배가 아파요", "허리가 아파요", "속이 안 좋아요", "귀가 아파요",
+                                     "피부가 가려워요", "가려워요"])
 def test_short_symptom_needs_followup(message: str) -> None:
     assert MedicalLlmService.needs_followup_question(message)
 
