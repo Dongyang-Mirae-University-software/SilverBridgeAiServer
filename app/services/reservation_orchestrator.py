@@ -445,9 +445,11 @@ class ReservationOrchestrator(ReservationFlowMixin):
         if not searched_location:
             return None
         searched = re.sub(r"\s+", " ", searched_location.strip())
-        # 추출이 지역을 시·구로 줄여 돌려줘도 프로필 지역과 같은 곳으로 본다(2026-10-29 점검 L-3) - 양쪽 모두 시·구 기준으로도 맞춰 본다.
+        # 추출이 지역을 시·구로 줄여 돌려줘도 프로필 지역과 같은 곳으로 본다(2026-10-29 점검 L-3).
+        # 다만 시·구보다 자세한 지역(동 등)은 사용자가 직접 말한 것이라 버튼을 붙이지 않는다(2026-10-29 재점검 L-2).
         coarse_profile = {coarse_region(v) for v in profile} - {None}
-        if searched not in profile and (coarse_region(searched) or searched) not in coarse_profile:
+        is_profile_coarse = coarse_region(searched) == searched and searched in coarse_profile
+        if searched not in profile and not is_profile_coarse:
             return None
         return UiPayload(
             kind="select",
