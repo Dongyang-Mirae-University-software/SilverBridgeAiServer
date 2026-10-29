@@ -57,13 +57,16 @@ _GAP_PROMPTS: dict[str, tuple[str, str | None]] = {
 
 
 # 증상 단어 → 진료과. 새 요청의 진료과가 직전 요청에서 이어지지 않게 하는 최소 규칙(LLM 추론보다 우선).
-_SYMPTOM_DEPARTMENTS: tuple[tuple[tuple[str, ...], str], ...] = (
-    (("머리", "두통", "어지러", "어지럼", "어지럽"), "신경과"),
-    (("눈", "충혈", "시력"), "안과"),
-    (("귀", "코", "목", "콧물", "편도"), "이비인후과"),
-    (("피부", "두드러기", "가려"), "피부과"),
-    (("허리", "무릎", "관절", "어깨", "뼈", "삐"), "정형외과"),
-    (("배", "속", "소화", "설사", "구토", "기침", "열", "감기"), "내과"),
+# 상담 진료과 힌트(medical_llm_service)도 이 표를 쓴다. 위에서부터 먼저 걸린 과를 쓴다.
+# 한 글자 단어("목"·"속"·"열"·"눈"·"배"·"코"·"귀")는 조사·증상 말이 붙을 때만 본다(2026-10-29 D-6) -
+# 부분 일치일 때 "목요일"·"약속"·"계속"·"속상"·"열심히"·"배우자"·"눈치"·"코로나"·"귀찮"·"머리카락"·"허리띠"·"가려고"에 걸렸다.
+_SYMPTOM_DEPARTMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"머리가|머리 ?(아프|아파|통증|띵)|두통|어지러|어지럼|어지럽"), "신경과"),
+    (re.compile(r"눈이|눈알|눈꺼풀|눈 ?(아프|아파|따가|가려|침침|충혈)|충혈|시력"), "안과"),
+    (re.compile(r"귀가|귀에|귓|코가|코피|콧|코 ?막|목이|목구멍|목 ?(아프|아파|따가|부었|붓)|목감기|목소리|편도"), "이비인후과"),
+    (re.compile(r"피부|두드러기|가려[워운우움]|가렵"), "피부과"),
+    (re.compile(r"허리가|허리 ?(아프|아파|통증|삐)|무릎|관절|어깨|뼈|삐었|삐끗"), "정형외과"),
+    (re.compile(r"배가|배 ?(아프|아파)|배탈|아랫배|윗배|속이|속 ?(쓰|더부룩|메스)|더부룩|소화|설사|구토|기침|열이|열나|발열|미열|고열|감기"), "내과"),
 )
 
 
@@ -93,8 +96,8 @@ def coarse_region(text: str) -> str | None:
 
 
 def _symptom_department(text: str) -> str | None:
-    for words, department in _SYMPTOM_DEPARTMENTS:
-        if any(word in text for word in words):
+    for pattern, department in _SYMPTOM_DEPARTMENTS:
+        if pattern.search(text or ""):
             return department
     return None
 

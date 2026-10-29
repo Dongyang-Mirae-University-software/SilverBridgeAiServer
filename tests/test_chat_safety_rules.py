@@ -410,9 +410,12 @@ def test_unknown_department_sentence_dropped(advice: str, kept: str | None, capl
     assert "[CHAT-SAFETY] unknown_department_dropped=1" in "\n".join(r.getMessage() for r in caplog.records)
 
 
-@pytest.mark.parametrize("advice", ["가정의학과 진료를 권해드려요.", "또는정신건강의학과 상담을 받아 보세요.", "재활의학과에 가 보세요."])
+@pytest.mark.parametrize("advice", [
+    "가정의학과 진료를 권해드려요.", "또는정신건강의학과 상담을 받아 보세요.", "재활의학과에 가 보세요.", "비뇨의학과 진료를 받아 보세요.",
+])
 def test_real_department_kept(advice: str) -> None:
-    out = _generate("허리가 아파요", advice)
+    # 진료과 힌트가 없는 질문으로 본다 - 힌트가 있으면 답의 과를 힌트로 맞춘다(2026-10-29 D-1, test_chat_answer_quality).
+    out = _generate("요즘 기운이 없어요", advice)
     assert advice in out["reply"]
 
 
