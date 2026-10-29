@@ -86,6 +86,8 @@ _CONTACT_UI_FIELDS = frozenset({"patient_name", "phone"})
 _UI_LOG_RE = re.compile(r"^\[선택\] ([^:]+): (.*)$", re.S)
 # 직전 턴이 응급(high)이었는데 이번 턴은 일반 답일 때 끝에 붙이는 한 줄(2026-10-29, 시험지 mt.01 "이제 좀 괜찮아졌어요" - 사용자 결정 (b)).
 _EMERGENCY_FOLLOWUP = "증상이 다시 생기거나 심해지면 바로 119에 전화하세요."
+# 되묻기 다음 턴이라도 인사·마무리 말이면 앞 증상과 잇지 않는다(C-1).
+_FOLLOWUP_CLOSE_WORDS = re.compile(r"고마|고맙|감사|괜찮아요|됐어요|안녕|그만")
 # 직전 기록 확인 함수에 "아직 안 읽음"을 알리는 값 - 요청 처음에 한 번 읽은 기록을 나눠 쓴다(점검 L-3).
 _FETCH = object()
 
@@ -168,6 +170,8 @@ class ChatService:
         stored_contact = self._stored_contact(recent_logs, session_id, ward_id)
         # 직전 턴이 같은 상담(세션·피보호자)의 응급 답(high)이었는가 - 위기 고정 응답은 109 안내가 따로 붙어 제외한다.
         after_emergency = self._previous_turn_was_emergency(latest_log, session_id, ward_id)
+        # 직전 턴이 같은 상담(세션·피보호자)의 되묻기였는가(C-1) - 이번 턴은 되묻지 않고 앞 질문과 이어 답한다.
+        after_followup = self._previous_turn_was_followup(latest_log, session_id, ward_id)
         payload = payload.model_copy(update={"history": [ChatHistoryItem(**item) for item in history]})
         log_message = message
         # 위기 응답 직후 첫 일반 턴이면 답 앞에 109 안내 한 줄을 붙인다(한 번만 - 이 턴 기록엔 selfHarm이 없다).
@@ -360,20 +364,34 @@ class ChatService:
                         "meta": {"reservationFlowHint": True, **(deadline_flow or {})},
                         "decisionTrace": [{"event": "reservation_disabled" if reservation_disabled else "reservation_flow_fallback"}],
                     }
+            elif self._should_ask_followup(route_info, message, ui_selection, crisis_followup, after_emergency, after_followup):
+                # 정보가 부족한 일반 증상 한마디 - 언제부터·얼마나·동반 증상을 한 번 묻는다(C-1, MedGemma 를 부르지 않는다).
+                proxy = bool(ward_id) or MedicalLlmService.about_family(message)
+                _LOG.info("[CHAT-QUALITY] followup_asked=true proxy=%s", proxy)
+                result = MedicalLlmService.followup_question_response(message, proxy=proxy)
             else:
                 local_llm = get_medical_llm_service()
                 llm_started = time.perf_counter()
                 try:
+                    gen_message = message
                     if route_info["route"] == "symptom":
                         llm_intent = "emergency_guidance" if route_info.get("emergency") else "medical_advice"
                     else:
                         llm_intent = "general_chat"
+                    processed_symptom = route_info.get("symptom_summary") if route_info["route"] == "symptom" else None
+                    followup_answer = self._followup_answer_text(route_info, message, history, after_followup)
+                    if followup_answer:
+                        # 되묻기에 답한 턴: 짧은 답("어제부터요")만으로는 증상을 모르니 앞 질문과 이어서 상담한다.
+                        _LOG.info("[CHAT-QUALITY] followup_answered=true route=%s", route_info["route"])
+                        gen_message = followup_answer
+                        llm_intent = "medical_advice"
+                        processed_symptom = (route_info.get("symptom_summary") if route_info["route"] == "symptom" else None) or followup_answer
                     result = local_llm.generate(
-                        message,
+                        gen_message,
                         self._medgemma_context(user_context),
                         history,
                         intent=llm_intent,
-                        processed_symptom=route_info.get("symptom_summary") if route_info["route"] == "symptom" else None,
+                        processed_symptom=processed_symptom,
                     )
                     timing["llmMs"] = _elapsed_ms(llm_started)
                 except Exception as exc:
@@ -544,6 +562,43 @@ class ChatService:
             return str(router.get("wardId") or "")
         user_context = ctx.get("userContext") if isinstance(ctx.get("userContext"), dict) else {}
         return str(user_context.get("wardId") or "")
+
+    @staticmethod
+    def _previous_turn_was_followup(latest: ChatLog | None, session_id: str, ward_id: str) -> bool:
+        """직전 기록이 같은 세션·피보호자의 되묻기(upstreamMeta.followupAsked)였는가."""
+        if latest is None:
+            return False
+        try:
+            ctx = json.loads(latest.context_json or "{}")
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(ctx, dict) or ctx.get("sessionId") != session_id or ChatService._row_ward_id(ctx) != ward_id:
+            return False
+        meta = ctx.get("upstreamMeta") if isinstance(ctx.get("upstreamMeta"), dict) else {}
+        return bool(meta.get("followupAsked"))
+
+    @staticmethod
+    def _should_ask_followup(
+        route_info: dict, message: str, ui_selection: dict | None, crisis_followup: bool, after_emergency: bool, after_followup: bool
+    ) -> bool:
+        """되묻기 턴 조건(C-1): 응급이 아닌 증상 경로의 일반 문장, 위기 뒤·응급 다음 턴·되묻기 다음 턴이 아님 + 문장 조건."""
+        if not message or ui_selection or crisis_followup or after_emergency or after_followup:
+            return False
+        if route_info.get("route") != "symptom" or route_info.get("emergency") or route_info.get("self_harm"):
+            return False
+        return MedicalLlmService.needs_followup_question(message)
+
+    @staticmethod
+    def _followup_answer_text(route_info: dict, message: str, history: list[dict[str, str]], after_followup: bool) -> str | None:
+        """되묻기 다음 턴이면 "앞 질문 / 이번 답" 문장. 응급·예약·인사(고마워요 등)·앞 질문을 못 찾으면 None(이번 문장 그대로)."""
+        if not after_followup or not message or route_info.get("emergency") or route_info.get("route") == "reservation":
+            return None
+        if _FOLLOWUP_CLOSE_WORDS.search(message):
+            return None
+        previous_user = next((h.get("content", "") for h in reversed(history or []) if h.get("role") == "user"), "")
+        if not previous_user.strip():
+            return None
+        return f"{previous_user.strip()} / {message.strip()}"
 
     @staticmethod
     def _previous_turn_was_emergency(latest: ChatLog | None, session_id: str, ward_id: str) -> bool:
