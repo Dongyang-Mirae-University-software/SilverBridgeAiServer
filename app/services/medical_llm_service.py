@@ -108,6 +108,10 @@ _ALCOHOL_ALLOWANCE = re.compile(r"(한두 ?잔|한 ?잔|두 ?잔|조금|적당�
 _SELF_ADJUST = re.compile(r"(약|복용량|용량)[^.!?。]{0,20}(조절|줄이|줄여|늘리|늘려|끊|중단|건너뛰|복용하지 않|드시지 않|먹지 않)")
 _SELF_ADJUST_CONSULTED = re.compile(r"의사|약사|병원|진료|처방|상의|상담")
 _SELF_ADJUST_SENTENCE = "약을 줄이거나 끊거나 거르는 것은 꼭 의사·약사와 상의한 뒤에 하세요."
+# 질문 자체가 약을 끊거나 줄이거나 거르려는 것("약 끊어도 되죠?", 공백 뺀 문장) - 답 본문과 상관없이 상의 문장을 붙인다
+# (2026-10-29 E-1: 답 본문 단어만 보면 공감 문장이 질문을 되풀이할 때만 붙어 qa.F1에서 실행마다 붙었다 빠졌다 했다).
+# "약속을 끊어도"·"혈압약 먹는데 술 끊어도"(술을 끊는 것)는 걸리지 않게 "약속"과 사이의 "술"을 뺀다.
+_SELF_ADJUST_ASK = re.compile(r"약(?!속)[^.!?。술]{0,12}(끊어도|끊으면|끊을까|중단해도|중단하면|안먹어도|안드셔도|안먹으면|줄여도|줄이면|건너뛰어도)")
 # 프롬프트 예시 2의 advice 를 모델이 그대로 베낀 문장(2026-10-28 측정: 술 질문 9/27에 끼어 어색 / "술을 더 드시거나"로 꼬임).
 # 약 + 술 문의에서만 뺀다 - 상의 안내는 고정 문장이 맡는다. 약을 더 먹거나 바꾸려는 질문(예시 2 상황)에서는 맞는 말이라 건드리지 않는다.
 _EXAMPLE_COPY = re.compile(r"(약|술)을 더 드시거나 바꾸기 전에|다니시는 병원 진료 때 함께 여쭤보셔도")
@@ -329,11 +333,14 @@ class MedicalLlmService:
         return "\n".join(lines), removed
 
     @staticmethod
-    def needs_self_adjust_sentence(reply: str) -> bool:
-        """약을 스스로 조절·중단하라고 읽히는 문장이 있는데 그 문장에 의사·약사 상의가 없고, 고정 문장도 아직 없으면 True."""
+    def needs_self_adjust_sentence(reply: str, message: str = "") -> bool:
+        """약을 스스로 조절·중단하라고 읽히는 문장이 있는데 그 문장에 의사·약사 상의가 없거나, 질문이 약을 끊거나 줄이려는 것이고,
+        고정 문장이 아직 없으면 True."""
         text = reply or ""
         if _SELF_ADJUST_SENTENCE in text:
             return False
+        if _SELF_ADJUST_ASK.search(re.sub(r"\s+", "", message or "")):
+            return True
         for line in text.split("\n"):
             for sentence in _SENTENCE_SPLIT.split(line):
                 if _SELF_ADJUST.search(sentence) and not _SELF_ADJUST_CONSULTED.search(sentence):
@@ -628,7 +635,7 @@ class MedicalLlmService:
                 if not _HOSPITAL_WORDS.search(reply):
                     # 진료과 문장을 빼서 병원 권유가 사라졌으면 일반 권유 한 줄로 채운다.
                     reply = f"{reply}\n{_CLINIC_SENTENCE}"
-            if self.needs_self_adjust_sentence(reply):
+            if self.needs_self_adjust_sentence(reply, message):
                 reply = f"{reply}\n{_SELF_ADJUST_SENTENCE}"
                 _LOG.info("[CHAT-SAFETY] self_adjust_sentence=added")
         if not emergency_warning and self.needs_clinic_sentence(message, reply):
