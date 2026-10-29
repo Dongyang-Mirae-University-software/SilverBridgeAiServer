@@ -146,6 +146,14 @@ _CLINIC_WORDS = re.compile(r"병원|진료|응급실")
 # 모델이 그 문장을 빠뜨린 경우의 바닥, 2026-10-29 DGX "계단 오르면 숨이 차요").
 _RED_FLAG_119_SENTENCE = "숨쉬기 힘들거나 가슴이 조이고 식은땀이 나는 등 갑자기 심해지면 바로 119에 연락하세요."
 _COMPACT_DROP = re.compile(r"[\s.,!?~…]+")
+# 어르신 돌봄 서비스라 답에 소아청소년과가 나오면 힌트 과(없으면 내과)로 바꾼다(2026-10-29 E: qa.A7 빈뇨에 소아청소년과).
+# 사용자가 직접 소아청소년과·소아과를 말했으면 그대로 둔다.
+_PEDIATRICS = "소아청소년과"
+_PEDIATRICS_ASKED = re.compile(r"소아청소년과|소아과")
+# 이미 약을 더·여러 번 먹었다는 말(과다 복용) - 이때는 119 문장을 남긴다(프롬프트 규칙 4 "이미 더 드셨다고 하면 119").
+_OVERDOSE_TOLD = re.compile(
+    r"(더|또|두 ?번|두 ?알|여러 ?번|여러 ?알|많이|한꺼번에|두 ?배)[^.!?。]{0,10}(먹었|드셨|복용했|먹어 ?버렸)|과다 ?복용|잘못 (먹|드)"
+)
 
 
 def _department_family(name: str) -> str:
@@ -376,6 +384,34 @@ class MedicalLlmService:
         if len(found) != 1 or _department_family(hint) in found:
             return advice, False
         return _ANSWER_DEPARTMENT.sub(hint, advice), True
+
+    @staticmethod
+    def replace_pediatrics(advice: str, message: str, hint: str | None) -> tuple[str, bool]:
+        """답의 소아청소년과를 힌트 과(없으면 내과)로 바꾼다. 사용자가 직접 소아청소년과·소아과를 말했으면 그대로. (고친 advice, 바꿨는가)."""
+        if _PEDIATRICS not in (advice or "") or _PEDIATRICS_ASKED.search(message or ""):
+            return advice, False
+        return advice.replace(_PEDIATRICS, hint or "내과"), True
+
+    @staticmethod
+    def drop_medication_119(message: str, reply: str) -> tuple[str, int]:
+        """약 복용 문의 답에서 119 문장을 뺀다(프롬프트 규칙 4를 코드로 보장 - 2026-10-29 qa.F1 "혈압이 다시 떨어지면 119" 1/3).
+        과다 복용을 말한 질문은 그대로 둔다. 응급 답은 호출하는 쪽(품질 후처리 대상 밖)에서 빠진다. (고친 답, 뺀 문장 수)."""
+        compact = re.sub(r"\s+", "", message or "")
+        if not (_MEDICATION_WORD.search(compact) and _MEDICATION_ASK.search(compact)) or _OVERDOSE_TOLD.search(message or ""):
+            return reply, 0
+        removed = 0
+        lines: list[str] = []
+        for line in (reply or "").split("\n"):
+            sentences = _SENTENCE_SPLIT.split(line)
+            kept = [x for x in sentences if "119" not in x]
+            if len(kept) == len(sentences):
+                lines.append(line)
+                continue
+            removed += len(sentences) - len(kept)
+            new_line = " ".join(kept).strip()
+            if new_line:
+                lines.append(new_line)
+        return "\n".join(lines), removed
 
     @staticmethod
     def clinic_guarantee_sentence(message: str, reply: str, hint: str | None) -> str | None:
@@ -619,10 +655,12 @@ class MedicalLlmService:
         # 답변 품질 후처리(D-1·D-2·D-4)는 응급이 아닌 증상 상담에만 쓴다 - 응급·약 + 술 답은 기존 안전 규칙만 손댄다.
         quality = intent == "medical_advice" and not emergency_warning and not self.drug_alcohol_rules(message)
         hide_symptoms = quality and self.is_echo(normalized["symptoms"], message)
-        aligned = False
+        aligned = pediatrics = False
         if quality:
             # 모델 advice 칸에서만 바꾼다 - 뒤에서 붙이는 고정 문장은 건드리지 않는다.
-            normalized["advice"], aligned = self.align_department(normalized["advice"], department_hint)
+            normalized["advice"], pediatrics = self.replace_pediatrics(normalized["advice"], message, department_hint)
+            if not _PEDIATRICS_ASKED.search(message or ""):  # 사용자가 소아과를 직접 물었으면 그 과를 힌트로 덮지 않는다
+                normalized["advice"], aligned = self.align_department(normalized["advice"], department_hint)
         reply = self.format_answer(normalized, emergency=bool(emergency_warning), show_symptoms=not hide_symptoms)
         if not emergency_warning:
             reply, dropped, added = self.apply_drug_alcohol_rules(message, reply)
@@ -643,7 +681,9 @@ class MedicalLlmService:
             reply = f"{reply}\n{_CLINIC_SENTENCE}"
             _LOG.info("[CHAT-SAFETY] clinic_sentence=added")
         clinic_added = red_flag_added = False
+        medication_119 = 0
         if quality:
+            reply, medication_119 = self.drop_medication_119(message, reply)
             extra = self.clinic_guarantee_sentence(message, reply, department_hint)
             if extra:
                 reply = f"{reply}\n{extra}"
@@ -651,11 +691,11 @@ class MedicalLlmService:
             if self.needs_red_flag_sentence(message, reply):
                 reply = f"{reply}\n{_RED_FLAG_119_SENTENCE}"
                 red_flag_added = True
-        if hide_symptoms or aligned or clinic_added or red_flag_added:
-            # 상담 내용은 남기지 않는다 - 플래그만.
+        if hide_symptoms or aligned or clinic_added or red_flag_added or pediatrics or medication_119:
+            # 상담 내용은 남기지 않는다 - 플래그·문장 수만.
             _LOG.info(
-                "[CHAT-QUALITY] echo_hidden=%s department_aligned=%s clinic_added=%s red_flag_119=%s",
-                hide_symptoms, aligned, clinic_added, red_flag_added,
+                "[CHAT-QUALITY] echo_hidden=%s department_aligned=%s clinic_added=%s red_flag_119=%s pediatrics=%s medication_119_dropped=%s",
+                hide_symptoms, aligned, clinic_added, red_flag_added, pediatrics, medication_119,
             )
 
         return {
