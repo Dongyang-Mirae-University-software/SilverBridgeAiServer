@@ -59,11 +59,14 @@ _SERVER_HISTORY_ITEMS = 24
 # 같은 사용자의 최근 기록 몇 건을 훑을지 - 다른 세션·다른 피보호자 상담이 사이에 끼어도 이번 세션 12턴을 찾을 만큼.
 _SERVER_HISTORY_SCAN_ROWS = 60
 # 버튼 턴은 FE 화면처럼 선택값을 사용자 말로 넣는다. 확인·취소·목록 버튼(토큰·ID 값)과 "다른 지역"·"다른 날짜"는 뺀다.
-_HISTORY_UI_FIELDS = frozenset(
-    {"hospital", "hospital_confirm", "department", "date", "time", "location", "location_confirm", "patient_name", "phone"}
-)
+# 환자 이름·전화(patient_name·phone)는 넣지 않는다 - 저장 초안에 이미 있고, 이력은 라우터·추출(Claude)로 나간다(2026-10-29 점검 L-1).
+_HISTORY_UI_FIELDS = frozenset({"hospital", "hospital_confirm", "department", "date", "time", "location", "location_confirm"})
 _HISTORY_SKIP_VALUES = frozenset({"__other__", CHANGE_DATE_OPTION})
 _UI_LOG_RE = re.compile(r"^\[선택\] ([^:]+): (.*)$", re.S)
+# 직전 턴이 응급(high)이었는데 이번 턴은 일반 답일 때 끝에 붙이는 한 줄(2026-10-29, 시험지 mt.01 "이제 좀 괜찮아졌어요" - 사용자 결정 (b)).
+_EMERGENCY_FOLLOWUP = "증상이 다시 생기거나 심해지면 바로 119에 전화하세요."
+# 직전 기록 확인 함수에 "아직 안 읽음"을 알리는 값 - 요청 처음에 한 번 읽은 기록을 나눠 쓴다(점검 L-3).
+_FETCH = object()
 
 
 def _persistable_meta(meta: Any) -> dict:
@@ -137,7 +140,11 @@ class ChatService:
         ward_id = (payload.context.wardId or "").strip() if payload.context and payload.context.wardId else ""
         # 요청의 history 는 읽지 않는다 - 조작한 assistant 발화·지운 자해 발화로 경로·위기 응답·예약 값이 바뀌지 않게(S-7).
         # 아래 모든 단계(라우터·예약 추출·규칙 초안·MedGemma·위기 근거·대체 응답)가 payload.history 를 쓰므로 여기서 바꿔 끼운다.
-        history = self._server_history(db, payload.userId, session_id, ward_id)
+        recent_logs = self._recent_logs(db, payload.userId)
+        latest_log = recent_logs[0] if recent_logs else None
+        history = self._server_history(db, payload.userId, session_id, ward_id, rows=recent_logs)
+        # 직전 턴이 같은 상담(세션·피보호자)의 응급 답(high)이었는가 - 위기 고정 응답은 109 안내가 따로 붙어 제외한다.
+        after_emergency = self._previous_turn_was_emergency(latest_log, session_id, ward_id)
         payload = payload.model_copy(update={"history": [ChatHistoryItem(**item) for item in history]})
         log_message = message
         # 위기 응답 직후 첫 일반 턴이면 답 앞에 109 안내 한 줄을 붙인다(한 번만 - 이 턴 기록엔 selfHarm이 없다).
@@ -189,7 +196,7 @@ class ChatService:
                             # 새 예약 요청이면 직전 턴의 병원·시간을 끌어오지 않는다(지난 요청이 새 요청에 붙는 것 방지).
                             prev_reservation=None
                             if ReservationOrchestrator._is_new_request(message)
-                            else self._last_reservation_state(db, payload.userId, session_id, ward_id),
+                            else self._last_reservation_state(db, payload.userId, session_id, ward_id, latest=latest_log),
                         )
                 except Exception as exc:  # noqa: BLE001
                     # 원인은 고정 코드만(max_tokens·parse·api_<상태>…) - 입력·모델 출력은 남기지 않는다.
@@ -200,7 +207,7 @@ class ChatService:
                 route_info = {"route": "general", "engine": "rule", "normalized_message": message, "symptom_summary": "", "emergency": False}
             elif not route_info and not message and ui_selection and ui_selection["field"] in reservation_ui_fields:
                 # UI 블록 선택 턴: 직전 규격화 문장에 선택값을 붙여 상태를 이어간다.
-                prev = self._last_reservation_state(db, payload.userId, session_id, ward_id) or "병원 예약:"
+                prev = self._last_reservation_state(db, payload.userId, session_id, ward_id, latest=latest_log) or "병원 예약:"
                 value = ui_selection["value"]
                 carry = ui_selection["field"] in {"location", "location_confirm", "department", "hospital", "hospital_confirm", "date", "time"} and value != "__other__"
                 route_info = {
@@ -227,7 +234,9 @@ class ChatService:
                 _LOG.info("[CHAT-SAFETY] crisis_continues_fallback=true text_len=%s", len(message))
                 self_harm_trigger = "history"
                 route_info = {**route_info, "route": "symptom", "emergency": True, "reason": "crisis-continues-fallback"}
-            prev_meta = self._previous_turn_meta(db, payload.userId, session_id) if message and not self_harm_keyword else {}
+            prev_meta = (
+                self._previous_turn_meta(db, payload.userId, session_id, latest=latest_log) if message and not self_harm_keyword else {}
+            )
             after_crisis = bool(prev_meta.get("selfHarm"))
             # 위기 뒤 해제된 턴(서버 기록 crisisFollowup)의 다음 턴도 history(앞 턴 자해 키워드) 근거로 다시 갇히지 않게
             # 같은 해제 검사를 탄다(2026-10-27). 클라이언트 history만 있고 서버 기록이 없으면 풀지 않는다.
@@ -279,7 +288,7 @@ class ChatService:
                 _LOG.info("[CHAT-SAFETY] self_harm=true path=main trigger=%s family=%s", self_harm_trigger, family)
                 result = MedicalLlmService.self_harm_response(family=family, trigger=self_harm_trigger)
             elif reservation_flow_hint:
-                stored_flow = self._last_flow_state(db, payload.userId, session_id)
+                stored_flow = self._last_flow_state(db, payload.userId, session_id, latest=latest_log)
                 try:
                     # 보호자가 피보호자 대신이면 피보호자 계정으로 예약한다(피보호자 웹·보호자 웹과 같은 목록).
                     reservation_api_key = reservation_credential_service.ensure_credential(
@@ -361,6 +370,21 @@ class ChatService:
             result.setdefault("meta", {})
             if isinstance(result["meta"], dict):
                 result["meta"]["crisisFollowup"] = True
+        if (
+            after_emergency
+            and route_info
+            and route_info.get("route") != "reservation"
+            and not crisis_followup
+            and message
+            and not MedicalLlmService.emergency_signals(message)
+            and not MedicalLlmService.self_harm_signals(message)
+            and result.get("riskLevel") != "high"
+            and isinstance(result.get("reply"), str)
+        ):
+            result["reply"] = f"{result['reply']}\n{_EMERGENCY_FOLLOWUP}"
+            result.setdefault("meta", {})
+            if isinstance(result["meta"], dict):
+                result["meta"]["emergencyFollowup"] = True
         post_started = time.perf_counter()
         if route_info:
             result.setdefault("meta", {})
@@ -478,12 +502,43 @@ class ChatService:
         )
 
     @staticmethod
-    def _server_history(db: Session, user_id: str, session_id: str, ward_id: str) -> list[dict[str, str]]:
-        """같은 사용자·세션·피보호자(router.wardId)의 서버 챗 기록으로 대화 이력을 만든다(오래된 순, 최근 _SERVER_HISTORY_ITEMS개).
-        router 칸이 없는 기록(내부 오류 대체 응답)은 본인 상담(wardId 빈 값)으로 본다. 기록이 없으면(첫 턴·새 세션) 빈 목록."""
-        rows = (
-            db.query(ChatLog).filter(ChatLog.user_id == user_id).order_by(ChatLog.id.desc()).limit(_SERVER_HISTORY_SCAN_ROWS).all()
-        )
+    def _recent_logs(db: Session, user_id: str) -> list[ChatLog]:
+        """같은 사용자의 최근 기록(최신 순). 요청 처음에 한 번 읽어 이력 조립과 직전 턴 확인이 나눠 쓴다(점검 L-3)."""
+        return db.query(ChatLog).filter(ChatLog.user_id == user_id).order_by(ChatLog.id.desc()).limit(_SERVER_HISTORY_SCAN_ROWS).all()
+
+    @staticmethod
+    def _row_ward_id(ctx: dict) -> str:
+        """기록이 어느 피보호자 상담인가. router.wardId 를 먼저 보고, router 칸이 없는 기록(내부 오류 대체 응답)은
+        같은 기록의 userContext.wardId 로 본다(2026-10-29 점검 M-1 - 대리 상담 오류 턴이 본인 상담 이력으로 들어가던 것)."""
+        meta = ctx.get("upstreamMeta") if isinstance(ctx.get("upstreamMeta"), dict) else {}
+        router = meta.get("router") if isinstance(meta.get("router"), dict) else None
+        if router is not None and "wardId" in router:
+            return str(router.get("wardId") or "")
+        user_context = ctx.get("userContext") if isinstance(ctx.get("userContext"), dict) else {}
+        return str(user_context.get("wardId") or "")
+
+    @staticmethod
+    def _previous_turn_was_emergency(latest: ChatLog | None, session_id: str, ward_id: str) -> bool:
+        """직전 기록이 같은 세션·피보호자의 응급 답(high)이고 위기 고정 응답이 아니었는가."""
+        if latest is None or latest.risk_level != "high":
+            return False
+        try:
+            ctx = json.loads(latest.context_json or "{}")
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(ctx, dict) or ctx.get("sessionId") != session_id or ChatService._row_ward_id(ctx) != ward_id:
+            return False
+        meta = ctx.get("upstreamMeta") if isinstance(ctx.get("upstreamMeta"), dict) else {}
+        return not meta.get("selfHarm")
+
+    @staticmethod
+    def _server_history(
+        db: Session, user_id: str, session_id: str, ward_id: str, rows: list[ChatLog] | None = None
+    ) -> list[dict[str, str]]:
+        """같은 사용자·세션·피보호자의 서버 챗 기록으로 대화 이력을 만든다(오래된 순, 최근 _SERVER_HISTORY_ITEMS개).
+        피보호자 구분은 _row_ward_id. 기록이 없으면(첫 턴·새 세션) 빈 목록. rows 를 주면 다시 읽지 않는다."""
+        if rows is None:
+            rows = ChatService._recent_logs(db, user_id)
         items: list[dict[str, str]] = []
         for log in reversed(rows):
             try:
@@ -492,9 +547,7 @@ class ChatService:
                 continue
             if not isinstance(ctx, dict) or ctx.get("sessionId") != session_id:
                 continue
-            meta = ctx.get("upstreamMeta") if isinstance(ctx.get("upstreamMeta"), dict) else {}
-            router = meta.get("router") if isinstance(meta.get("router"), dict) else {}
-            if (router.get("wardId") or "") != ward_id:
+            if ChatService._row_ward_id(ctx) != ward_id:
                 continue
             user_text = ChatService._history_user_text(log.message or "")
             if user_text is None:
@@ -553,10 +606,10 @@ class ChatService:
         return not ReservationOrchestrator._looks_like_reservation(message)
 
     @staticmethod
-    def _previous_turn_meta(db: Session, user_id: str, session_id: str) -> dict:
+    def _previous_turn_meta(db: Session, user_id: str, session_id: str, latest: Any = _FETCH) -> dict:
         """같은 세션 직전 턴의 위기 표시(selfHarm = 위기 고정 응답 / crisisFollowup = 위기 뒤 해제되어 109 한 줄이 붙음).
         클라이언트 history가 아니라 서버 챗 기록(upstreamMeta)으로 본다. 다른 세션이거나 기록이 없으면 빈 dict."""
-        log = db.query(ChatLog).filter(ChatLog.user_id == user_id).order_by(ChatLog.id.desc()).first()
+        log = ChatService._latest_log(db, user_id) if latest is _FETCH else latest
         if not log:
             return {}
         try:
@@ -569,9 +622,9 @@ class ChatService:
         return {k: bool(meta.get(k)) for k in ("selfHarm", "crisisFollowup")}
 
     @staticmethod
-    def _last_flow_state(db: Session, user_id: str, session_id: str) -> dict:
+    def _last_flow_state(db: Session, user_id: str, session_id: str, latest: Any = _FETCH) -> dict:
         """직전 턴(같은 세션)이 남긴 예약 확인 대기(pendingAction)·고치기 상태(flowState). 그 사이에 다른 대화가 끼면 비어 있다."""
-        log = db.query(ChatLog).filter(ChatLog.user_id == user_id).order_by(ChatLog.id.desc()).first()
+        log = ChatService._latest_log(db, user_id) if latest is _FETCH else latest
         if not log:
             return {}
         try:
@@ -584,10 +637,12 @@ class ChatService:
         return {k: meta[k] for k in ("pendingAction", "flowState") if isinstance(meta.get(k), dict)}
 
     @staticmethod
-    def _last_reservation_state(db: Session, user_id: str, session_id: str, ward_id: str = "") -> str | None:
+    def _last_reservation_state(
+        db: Session, user_id: str, session_id: str, ward_id: str = "", latest: Any = _FETCH
+    ) -> str | None:
         """같은 세션의 직전 턴이 예약 흐름이었으면 그때의 규격화 문장을 돌려준다 (라우터의 상태 기억).
         직전 턴이 다른 피보호자의 상담이었으면 비운다. wardId 를 남기기 전의 기록은 본인 상담("")으로 본다."""
-        log = db.query(ChatLog).filter(ChatLog.user_id == user_id).order_by(ChatLog.id.desc()).first()
+        log = ChatService._latest_log(db, user_id) if latest is _FETCH else latest
         if not log:
             return None
         try:
@@ -600,6 +655,10 @@ class ChatService:
         if (router.get("wardId") or "") != ward_id:
             return None
         return router.get("normalized_message") if router.get("route") == "reservation" else None
+
+    @staticmethod
+    def _latest_log(db: Session, user_id: str) -> ChatLog | None:
+        return db.query(ChatLog).filter(ChatLog.user_id == user_id).order_by(ChatLog.id.desc()).first()
 
     @staticmethod
     def _build_user_context(payload: ChatRequest) -> dict[str, object]:
