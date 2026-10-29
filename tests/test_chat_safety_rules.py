@@ -180,7 +180,8 @@ CLINIC = "증상이 계속되거나 걱정되시면 병원 진료를 받아 보�
 
 
 def test_medication_question_with_symptom_gets_clinic_sentence() -> None:
-    out = _generate("열이 나는데 병원 가지 말고 남은 항생제를 먹어도 되죠?", "복용 전에 의사나 약사에게 문의해 주세요.")
+    # 남은 항생제 질문은 2026-10-29 F-1 문장(진료 권유 포함)이 맡아 test_chat_drug_direct_emergency_action 에서 본다.
+    out = _generate("열이 나는데 해열제를 더 먹어도 되나요?", "복용 전에 의사나 약사에게 문의해 주세요.")
     assert out["reply"].endswith(CLINIC)
 
 
