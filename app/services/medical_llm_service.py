@@ -156,6 +156,74 @@ _OVERDOSE_TOLD = re.compile(
 )
 
 
+
+class _DrugDirectRule(NamedTuple):
+    """약 질문 유형별 직접 안내(2026-10-29 F-1: 판정자 12회 모두 "의사·약사에게 물어보세요"만 있고 핵심 거절이 없다고 지적).
+    ask = 질문(공백 뺀 문장)이 이 유형인가 / sentence = 답에 덧붙일 고정 문장 / covered = 답에 이미 같은 뜻이 있으면 생략."""
+
+    name: str
+    ask: re.Pattern[str]
+    sentence: str
+    covered: re.Pattern[str]
+
+
+_DOUBLE_DOSE_SENTENCE = "놓친 약을 다음에 두 번 몫으로 한꺼번에 드시지는 마세요."
+_DRUG_DIRECT_RULES = (
+    _DrugDirectRule(
+        "double_dose",
+        # 놓친 약(깜빡·잊어·안 먹었) 또는 몰아서·두 번 몫으로 먹으려는 질문. 이미 더 먹었다는 말(과다 복용)은 아래에서 뺀다.
+        re.compile(r"약(?!속)[^.!?。]{0,12}(깜빡|잊어|잊고|못먹|안먹었|빠뜨|걸렀|놓쳤)|(몰아서|한꺼번에|한번에|두알|두번|2알|2회분|하루치)[^.!?。]{0,12}(먹어도|드셔도|복용해도|먹으면|먹을까)"),
+        _DOUBLE_DOSE_SENTENCE,
+        re.compile(r"(한꺼번에|두 ?번 ?몫|두 배|2회분|몰아서)[^.!?。]{0,20}(마세요|마시|않)"),
+    ),
+    _DrugDirectRule(
+        "painkiller_limit",
+        re.compile(r"진통제[^.!?。]{0,15}(많이|아무때나|여러|몇알|더)|(많이|아무때나|몇알)[^.!?。]{0,10}진통제"),
+        "진통제는 정해진 양과 간격을 넘겨 드시지 마세요.",
+        re.compile(r"정해진 (양|용량)|권장 (용량|양)|넘겨 드시지|과다 ?복용"),
+    ),
+    _DrugDirectRule(
+        "leftover_antibiotic",
+        re.compile(r"(남은|예전|전에받은|먹다남은|남아있는)[^.!?。]{0,6}항생제"),
+        "남은 항생제를 임의로 드시지 마세요. 열이 나면 진료를 받아 보세요.",
+        re.compile(r"항생제[^.!?。]{0,20}(드시지 마|먹지 마|임의로)"),
+    ),
+    _DrugDirectRule(
+        "bp_med_stop",
+        re.compile(r"혈압[^.!?。]{0,20}약[^.!?。]{0,8}(끊|중단|안먹어도|줄여)|혈압약[^.!?。]{0,8}(끊|중단|안먹어도|줄여)"),
+        "혈압약을 임의로 끊으면 혈압이 다시 오를 수 있어요.",
+        re.compile(r"혈압[^.!?。]{0,15}(다시 )?(오르|올라|높아)"),
+    ),
+)
+
+
+class _EmergencyAction(NamedTuple):
+    """응급 유형별 행동 한 줄(2026-10-29 F-2). 119 안내 뒤에 붙인다 - 119 문장은 지우거나 바꾸지 않는다."""
+
+    name: str
+    signal: re.Pattern[str]  # 질문(공백 뺀 문장)에 이 유형의 응급 신호가 있는가
+    sentence: str
+
+
+_EMERGENCY_ACTIONS = (
+    _EmergencyAction(
+        "chest_stroke",
+        re.compile(r"가슴이?(아|조|쪼|통증|찢)|가심이|심장이아|말이어눌|발음이(이상|꼬|자꾸)|혀가꼬|한쪽(팔|다리|얼굴|이)|얼굴이한쪽|입이돌아|팔다리에힘|갑자기앞이안보|벼락|갑자기심한두통|망치로맞은"),
+        "직접 운전하거나 혼자 움직이지 마세요.",
+    ),
+    _EmergencyAction("seizure", re.compile(r"경련|발작|거품을물"), "억지로 붙잡거나 입에 물건을 넣지 마세요."),
+    _EmergencyAction(
+        "collapse_fall",
+        re.compile(r"쓰러|넘어져|넘어졌|못일어나|일어나지못|일어나지를못|일어날수가없|일어설수가없"),
+        "무리하게 일으키지 말고 편한 자세로 눕혀 두세요.",
+    ),
+)
+# 저혈당은 "저혈당"이라는 말 또는 혈당 수치 70 미만일 때만 - "혈당이 300"에 단 음식을 권하면 반대가 된다.
+_HYPOGLYCEMIA_WORD = re.compile(r"저혈당")
+_GLUCOSE_VALUE = re.compile(r"혈당(?:이|은|가|수치가?)?(\d{2,3})")
+_HYPOGLYCEMIA_SENTENCE = "의식이 있으면 사탕이나 단 음료를 드시고, 의식이 흐리면 억지로 먹이지 마세요."
+
+
 def _department_family(name: str) -> str:
     return "내과" if name.endswith("내과") else name
 
@@ -412,6 +480,32 @@ class MedicalLlmService:
             if new_line:
                 lines.append(new_line)
         return "\n".join(lines), removed
+
+    @staticmethod
+    def drug_direct_sentences(message: str, reply: str) -> list[tuple[str, str]]:
+        """약 질문 유형별로 덧붙일 (규칙 이름, 문장). 과다 복용을 말한 질문의 "두 번 몫" 안내는 빼고, 답에 같은 뜻이 있으면 생략한다."""
+        compact = re.sub(r"\s+", "", message or "")
+        overdose = bool(_OVERDOSE_TOLD.search(message or ""))
+        out: list[tuple[str, str]] = []
+        for rule in _DRUG_DIRECT_RULES:
+            if not rule.ask.search(compact) or rule.covered.search(reply or "") or rule.sentence in (reply or ""):
+                continue
+            if rule.name == "double_dose" and overdose:
+                continue
+            if any(sentence == rule.sentence for _, sentence in out):
+                continue
+            out.append((rule.name, rule.sentence))
+        return out
+
+    @staticmethod
+    def emergency_action_sentences(message: str) -> list[tuple[str, str]]:
+        """응급 답에 덧붙일 유형별 행동 (이름, 문장). 질문에 그 유형의 신호가 없으면 빈 목록(지금 응급 답 그대로)."""
+        compact = re.sub(r"\s+", "", message or "")
+        out = [(a.name, a.sentence) for a in _EMERGENCY_ACTIONS if a.signal.search(compact)]
+        values = [int(v) for v in _GLUCOSE_VALUE.findall(compact)]
+        if _HYPOGLYCEMIA_WORD.search(compact) or any(v < 70 for v in values):
+            out.append(("hypoglycemia", _HYPOGLYCEMIA_SENTENCE))
+        return out
 
     @staticmethod
     def clinic_guarantee_sentence(message: str, reply: str, hint: str | None) -> str | None:
@@ -676,6 +770,20 @@ class MedicalLlmService:
             if self.needs_self_adjust_sentence(reply, message):
                 reply = f"{reply}\n{_SELF_ADJUST_SENTENCE}"
                 _LOG.info("[CHAT-SAFETY] self_adjust_sentence=added")
+            if not self.drug_alcohol_rules(message):
+                # 약 + 술 질문은 약 + 술 규칙만 손댄다.
+                direct = self.drug_direct_sentences(message, reply)
+                for _, sentence in direct:
+                    reply = f"{reply}\n{sentence}"
+                if direct:
+                    _LOG.info("[CHAT-SAFETY] drug_direct=%s", ",".join(name for name, _ in direct))
+        else:
+            # 응급 답: 119 안내(advice 줄)는 그대로 두고 그 뒤에 유형별 행동 한 줄. 경고 박스(emergencyWarning)는 바꾸지 않는다.
+            actions = self.emergency_action_sentences(message)
+            for _, sentence in actions:
+                reply = f"{reply}\n{sentence}"
+            if actions:
+                _LOG.info("[CHAT-SAFETY] emergency_action=%s", ",".join(name for name, _ in actions))
         if not emergency_warning and self.needs_clinic_sentence(message, reply):
             # 모델이 "의사·약사에게 물어보세요"로만 끝내도 진료 권유가 빠지지 않게 한 줄 덧붙인다(모델 출력에 기대지 않는다).
             reply = f"{reply}\n{_CLINIC_SENTENCE}"

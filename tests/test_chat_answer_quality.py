@@ -199,7 +199,8 @@ def test_emergency_answer_untouched(message: str, intent: str) -> None:
     out = _gen(message, intent=intent, symptoms=message, advice="정신건강의학과 진료를 권해드려요.")
     assert out["emergencyWarning"]
     assert f"· 증상: {message}" in out["reply"]  # 되풀이여도 증상 줄을 빼지 않는다
-    assert out["reply"].endswith("지금은 병원 예약보다 119 연락이 먼저예요. 바로 119에 전화해 주세요.")
+    # 119 안내 줄은 그대로다(2026-10-29 F-2부터 그 뒤에 응급 유형별 행동 한 줄이 붙을 수 있다).
+    assert "지금은 병원 예약보다 119 연락이 먼저예요. 바로 119에 전화해 주세요." in out["reply"].split("\n")
     assert "신경과" not in out["reply"]
     assert out["riskLevel"] == "high"
 
