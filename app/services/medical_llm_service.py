@@ -268,6 +268,33 @@ _HYPOGLYCEMIA_WORD = re.compile(r"저혈당")
 _GLUCOSE_VALUE = re.compile(r"혈당(?:이|은|가|수치가?)?(\d{2,3})")
 _HYPOGLYCEMIA_SENTENCE = "의식이 있으면 사탕이나 단 음료를 드시고, 의식이 흐리면 억지로 먹이지 마세요."
 
+# 증상 상담 되묻기(2026-10-29 C-1, 설계 docs/design/2026-10-29-chat-followup-question.md A안).
+# 기간·상황·정도를 말한 문장(공백 뺀 문장)이면 되묻지 않는다 - 이미 답할 재료가 있다.
+_FOLLOWUP_CONTEXT = re.compile(
+    r"어제|그제|그저께|오늘|아침|점심|저녁|밤|새벽|며칠|일주일|이주|한주|주일|한달|개월|년|째|부터|동안|요즘|최근|매일|자주|가끔|"
+    r"계속|자꾸|항상|늘|식후|식사|먹고나|먹으면|계단|걸을|걷|일어날|일어나면|누우|누워|앉|운동|너무|심하|심해|많이|조금|약간|살짝|"
+    r"좀|못참|견디|참을|[0-9]|번|때마다|할때|하면|무슨과|어느과|병원|예약|진료"
+)
+# 증상 이름 - 서로 다른 것이 둘 이상이면 동반 증상을 이미 말한 것으로 본다.
+_FOLLOWUP_SYMPTOM_NOUN = re.compile(
+    r"기침|열|두통|머리|어지|배|속|구토|토할|설사|허리|무릎|어깨|관절|눈|귀|코|목|피부|가려|저리|저려|소변|변비|가슴|숨|콧물|피곤|잠|이가|이빨|손|발|다리|팔"
+)
+# 감정·괴로움 표현이 섞이면 되묻지 않는다 - 위기 신호일 수 있는 말("다 그만두고 싶어")에 고정 질문으로 답하지 않게.
+_FOLLOWUP_DISTRESS = re.compile(r"그만두|그만하|힘들|힘드|싫어|싫다|우울|죽겠|못살|외로|불안|무서|괴로")
+_FOLLOWUP_INTRO = "말씀해 주셔서 고마워요. 더 정확히 안내해 드리려고 몇 가지 여쭤볼게요."
+_FOLLOWUP_QUESTIONS = (
+    "· 언제부터 그러셨나요?",
+    "· 얼마나 심하신가요? (참을 만한지, 점점 심해지는지)",
+    "· 같이 나타나는 증상(열·통증 등)이 있나요?",
+)
+# 보호자가 어르신 대신 상담할 때(대리 상담 wardId 또는 가족이 주어인 문장) 묻는 대상만 바꾼다(Q4).
+_FOLLOWUP_QUESTIONS_PROXY = (
+    "· 어르신께서 언제부터 그러셨나요?",
+    "· 얼마나 심해 보이시나요? (참으실 만한지, 점점 심해지는지)",
+    "· 같이 나타나는 증상(열·통증 등)이 있나요?",
+)
+_FOLLOWUP_CLOSING = "갑자기 심해지면 바로 진료를 받으세요."
+
 
 def _department_family(name: str) -> str:
     return "내과" if name.endswith("내과") else name
@@ -541,6 +568,50 @@ class MedicalLlmService:
                 continue
             out.append((rule.name, rule.sentence))
         return out
+
+    @classmethod
+    def needs_followup_question(cls, message: str) -> bool:
+        """정보가 부족한 일반 증상 한마디("어지러워", "기침이 나요")인가 - 되묻기 대상(C-1). 문장만 본다:
+        응급·자해 신호, 약·약 + 술·약 직접 안내·생활관리 질문, 기간·상황·정도 표현, 서로 다른 증상 둘 이상이면 False.
+        턴 조건(응급 경로·위기 뒤·직전 턴 되묻기·버튼)은 chat_service 가 본다."""
+        compact = re.sub(r"\s+", "", message or "")
+        if not compact or len(compact) > 25:
+            return False
+        if cls.emergency_signals(message) or cls.self_harm_signals(message):
+            return False
+        if _MEDICATION_WORD.search(compact) or cls.drug_alcohol_rules(message):
+            return False
+        if any(rule.ask.search(compact) for rule in _DRUG_DIRECT_RULES + _LIFESTYLE_RULES):
+            return False
+        if _FOLLOWUP_CONTEXT.search(compact) or _FOLLOWUP_DISTRESS.search(compact):
+            return False
+        nouns = set(_FOLLOWUP_SYMPTOM_NOUN.findall(compact))
+        if len(nouns) >= 2:
+            return False
+        return bool(nouns) or bool(_symptom_department(message or ""))
+
+    @staticmethod
+    def followup_question_response(message: str, proxy: bool = False) -> dict[str, Any]:
+        """되묻기 답(MedGemma 를 부르지 않는다). 진료과 한 줄을 함께 둔다 - 답하지 않고 떠나는 분도 갈 곳은 알도록(Q2)."""
+        department = _symptom_department(message or "")
+        lines = [_FOLLOWUP_INTRO, *(_FOLLOWUP_QUESTIONS_PROXY if proxy else _FOLLOWUP_QUESTIONS)]
+        lines.append(f"{department} 진료를 생각해 보셔도 좋아요." if department else "가까운 병원 진료를 생각해 보셔도 좋아요.")
+        lines.append(_FOLLOWUP_CLOSING)
+        return {
+            "reply": "\n".join(lines),
+            "riskLevel": "medium",
+            "recommendedAction": "guardian_contact",
+            "reservationRequired": False,
+            "intent": "medical_advice",
+            "engine": "rule",
+            "modelName": None,
+            "summary": None,
+            "possibleCauses": [],
+            "homeCare": [],
+            "visitHospitalIf": [],
+            "emergencyWarning": [],
+            "meta": {"followupAsked": True, "followupProxy": proxy},
+        }
 
     @staticmethod
     def drop_sleeping_pill_misstatement(message: str, reply: str) -> tuple[str, int]:
