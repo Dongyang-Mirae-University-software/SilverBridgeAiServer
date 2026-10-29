@@ -115,6 +115,7 @@ _EXAMPLE_COPY = re.compile(r"(약|술)을 더 드시거나 바꾸기 전에|다�
 _REAL_MEDICINE_DEPTS = frozenset({
     "가정의학과", "재활의학과", "응급의학과", "핵의학과", "직업환경의학과", "예방의학과",
     "마취통증의학과", "진단검사의학과", "영상의학과", "정신건강의학과", "병리과", "방사선종양학과",
+    "비뇨의학과",  # 2026-10-29: 빠져 있어 빈뇨 답의 맞는 진료과 문장이 지워졌다
 })
 _MEDICINE_DEPT = re.compile(r"[가-힣]+의학과")
 
@@ -124,6 +125,33 @@ def _is_unknown_department(name: str) -> bool:
     return not any(name.endswith(real) for real in _REAL_MEDICINE_DEPTS)
 
 
+# ---- 답변 품질 후처리(2026-10-29 D-1·D-2·D-4) - 응급·약 + 술 답에는 쓰지 않는다 ----
+# 답에 나온 진료과 이름(긴 이름부터 - "정형외과"를 "외과"로 자르지 않게). 세부 내과는 내과 계열로 본다.
+_ANSWER_DEPARTMENTS = (
+    "정신건강의학과", "마취통증의학과", "가정의학과", "재활의학과", "응급의학과", "소아청소년과", "순환기내과", "소화기내과",
+    "내분비내과", "호흡기내과", "류마티스내과", "신장내과", "이비인후과", "비뇨의학과", "비뇨기과", "산부인과", "정형외과",
+    "신경외과", "흉부외과", "성형외과", "신경과", "피부과", "안과", "내과", "외과",
+)
+_ANSWER_DEPARTMENT = re.compile("|".join(_ANSWER_DEPARTMENTS))
+# 일반 증상 답에 병원·진료 권유가 없을 때 붙이는 문장(D-4). 진료과 힌트가 있으면 그 과를 넣는다.
+_CLINIC_SENTENCE_WITH_DEPT = "증상이 계속되거나 걱정되시면 {department} 진료를 받아 보세요."
+# 증상 없이 생활관리·복약 상황을 말한 상담("혈압이 높은 날 운동해도 되나요", "혈압약 먹었어요")에 붙이는 문장.
+_CONSULT_SENTENCE = "궁금하신 점은 병원 진료 때 의사와 상의해 보세요."
+_CLINIC_WORDS = re.compile(r"병원|진료|응급실")
+# 응급은 아니지만 질문에 위험 신호 단어(가슴·숨이 등)가 있는데 답에 119가 없을 때 붙인다(D-3 - 규칙 8이 119를 위험 신호 때만 쓰게 하면서
+# 모델이 그 문장을 빠뜨린 경우의 바닥, 2026-10-29 DGX "계단 오르면 숨이 차요").
+_RED_FLAG_119_SENTENCE = "숨쉬기 힘들거나 가슴이 조이고 식은땀이 나는 등 갑자기 심해지면 바로 119에 연락하세요."
+_COMPACT_DROP = re.compile(r"[\s.,!?~…]+")
+
+
+def _department_family(name: str) -> str:
+    return "내과" if name.endswith("내과") else name
+
+
+def _compact(text: str) -> str:
+    return _COMPACT_DROP.sub("", text or "")
+
+
 _ALLOWANCE_NEGATED = re.compile(r"괜찮지 않|괜찮은 (것|게) 아니|안 괜찮|되지 않|안 ?돼")
 _HOSPITAL_WORDS = re.compile(r"병원|진료|응급실|119")
 _MEDICATION_WORD = re.compile(r"약|항생제|진통제|수면제|소화제|해열제|아스피린")
@@ -131,6 +159,10 @@ _MEDICATION_ASK = re.compile(r"먹어도|드셔도|복용해도|끊어도|중단
 _SYMPTOM_WORDS = (
     "열이", "열나", "발열", "아파", "아프", "통증", "기침", "어지", "두통", "구토", "설사", "저리", "저려", "가려",
     "붓", "부었", "숨이", "가슴", "메스꺼", "콧물",
+)
+# D-4 에서 "증상을 말한 상담"으로 볼 단어. 위 목록(약 문의 C-2 판정)은 넓히지 않는다.
+_GENERAL_SYMPTOM_WORDS = _SYMPTOM_WORDS + (
+    "소변", "쥐가", "피곤", "잠이안", "잠을못", "변비", "변을", "침침", "부어", "쑤시", "결리", "쓰려", "답답", "더부룩", "시려",
 )
 
 
@@ -319,6 +351,46 @@ class MedicalLlmService:
             return False
         return not _HOSPITAL_WORDS.search(reply or "")
 
+    @staticmethod
+    def is_echo(symptoms: str, message: str) -> bool:
+        """증상 칸이 질문을 그대로 옮긴 것인가(D-2). 모델이 증상을 비워 서버가 질문 앞 60자로 채운 경우도 여기에 든다."""
+        s, q = _compact(symptoms), _compact(message)
+        if not s or not q:
+            return False
+        return s == q or q in s or (len(s) >= 15 and q.startswith(s))
+
+    @staticmethod
+    def align_department(advice: str, hint: str | None) -> tuple[str, bool]:
+        """advice 의 진료과가 서버 힌트와 다르면 힌트로 바꾼다(D-1, 예약 안내와 같은 과). (고친 advice, 바꿨는가).
+        과가 둘 이상이면 모델이 고른 이유가 있을 수 있어 그대로 둔다. 같은 계열(소화기내과 / 내과)이면 그대로 둔다."""
+        if not hint or not advice:
+            return advice, False
+        found = {_department_family(x) for x in _ANSWER_DEPARTMENT.findall(advice)}
+        if len(found) != 1 or _department_family(hint) in found:
+            return advice, False
+        return _ANSWER_DEPARTMENT.sub(hint, advice), True
+
+    @staticmethod
+    def clinic_guarantee_sentence(message: str, reply: str, hint: str | None) -> str | None:
+        """증상 상담 답에 병원·진료 권유가 없으면 덧붙일 문장(D-4). 약 복용 문의는 C-2 규칙(needs_clinic_sentence)이 맡는다."""
+        if _CLINIC_WORDS.search(reply or ""):
+            return None
+        compact = re.sub(r"\s+", "", message or "")
+        has_symptom = any(word in compact for word in _GENERAL_SYMPTOM_WORDS)
+        if _MEDICATION_WORD.search(compact) and (_MEDICATION_ASK.search(compact) or not has_symptom):
+            return None
+        if hint:
+            return _CLINIC_SENTENCE_WITH_DEPT.format(department=hint)
+        if has_symptom:
+            return _CLINIC_SENTENCE
+        return _CONSULT_SENTENCE
+
+    @classmethod
+    def needs_red_flag_sentence(cls, message: str, reply: str) -> bool:
+        """질문에 위험 신호 단어가 있는데 답에 119 안내가 없으면 True(응급 판정은 바꾸지 않는다 - 안내 한 줄만)."""
+        text = (message or "").strip().lower()
+        return "119" not in (reply or "") and any(keyword in text for keyword in cls.HIGH_RISK_KEYWORDS)
+
     @classmethod
     def classify_intent(cls, message: str) -> str:
         text = (message or "").strip().lower()
@@ -346,13 +418,16 @@ class MedicalLlmService:
         return "low", "home_monitoring", False
 
     @staticmethod
-    def format_answer(data: dict[str, Any], emergency: bool = False) -> str:
-        """말풍선 문장. 모델이 쓴 공감·증상·특징·권고를 줄바꿈으로 잇는다. 비어 있는 값만 기본 문장으로 메운다."""
+    def format_answer(data: dict[str, Any], emergency: bool = False, show_symptoms: bool = True) -> str:
+        """말풍선 문장. 모델이 쓴 공감·증상·특징·권고를 줄바꿈으로 잇는다. 비어 있는 값만 기본 문장으로 메운다.
+        show_symptoms=False 면 증상 줄만 뺀다(질문을 그대로 옮긴 경우, D-2) - 상담 틀은 그대로다."""
         symptoms = str(data.get("symptoms") or "").strip()
         if not symptoms:
             return str(data.get("reply") or "").strip() or "증상을 조금 더 구체적으로 말씀해 주시면 도와드릴게요."
 
-        lines = [str(data.get("empathy") or "").strip() or "말씀해 주신 내용을 정리했어요.", f"· 증상: {symptoms}"]
+        lines = [str(data.get("empathy") or "").strip() or "말씀해 주신 내용을 정리했어요."]
+        if show_symptoms:
+            lines.append(f"· 증상: {symptoms}")
         features = str(data.get("features") or "").strip()
         if features and not re.search(r"없음|없습니다|불명확|모름|알 수 없|언급되지|말씀하지|제공되지", features):  # "유발 요인 불명확" 같은 빈말은 줄을 빼는 게 낫다
             lines.append(f"· 특징: {features}")
@@ -493,6 +568,8 @@ class MedicalLlmService:
         if summary:
             history_lines = f"(이전 요약) {summary}\n{history_lines}".strip()
 
+        # 예약 흐름과 같은 증상→진료과 규칙을 힌트로 준다. 상담에서 권한 과와 예약에서 찾는 과가 어긋나지 않게.
+        department_hint = _symptom_department(message or "")
         user_prompt = build_user_prompt(
             message=message,
             user_context=user_context,
@@ -500,8 +577,7 @@ class MedicalLlmService:
             intent=intent,
             emergency_hint=emergency_hint,
             processed_symptom=processed_symptom,
-            # 예약 흐름과 같은 증상→진료과 규칙을 힌트로 준다. 상담에서 권한 과와 예약에서 찾는 과가 어긋나지 않게.
-            department_hint=_symptom_department(message or ""),
+            department_hint=department_hint,
         )
 
         if not self._settings.chat_enable_llm:
@@ -533,7 +609,14 @@ class MedicalLlmService:
         # 응급이면 상단에 경고 박스 한 줄만. 그 외 목록(원인·자가관리·방문기준)은 더 이상 내지 않는다 - 말풍선 한 개로 끝낸다.
         emergency_warning = [_EMERGENCY_REPLY] if emergency_hint or intent == "emergency_guidance" else []
         risk_level, recommended_action, reservation_required = self.infer_risk(message, intent, emergency_warning)
-        reply = self.format_answer(normalized, emergency=bool(emergency_warning))
+        # 답변 품질 후처리(D-1·D-2·D-4)는 응급이 아닌 증상 상담에만 쓴다 - 응급·약 + 술 답은 기존 안전 규칙만 손댄다.
+        quality = intent == "medical_advice" and not emergency_warning and not self.drug_alcohol_rules(message)
+        hide_symptoms = quality and self.is_echo(normalized["symptoms"], message)
+        aligned = False
+        if quality:
+            # 모델 advice 칸에서만 바꾼다 - 뒤에서 붙이는 고정 문장은 건드리지 않는다.
+            normalized["advice"], aligned = self.align_department(normalized["advice"], department_hint)
+        reply = self.format_answer(normalized, emergency=bool(emergency_warning), show_symptoms=not hide_symptoms)
         if not emergency_warning:
             reply, dropped, added = self.apply_drug_alcohol_rules(message, reply)
             if dropped or added:
@@ -552,6 +635,21 @@ class MedicalLlmService:
             # 모델이 "의사·약사에게 물어보세요"로만 끝내도 진료 권유가 빠지지 않게 한 줄 덧붙인다(모델 출력에 기대지 않는다).
             reply = f"{reply}\n{_CLINIC_SENTENCE}"
             _LOG.info("[CHAT-SAFETY] clinic_sentence=added")
+        clinic_added = red_flag_added = False
+        if quality:
+            extra = self.clinic_guarantee_sentence(message, reply, department_hint)
+            if extra:
+                reply = f"{reply}\n{extra}"
+                clinic_added = True
+            if self.needs_red_flag_sentence(message, reply):
+                reply = f"{reply}\n{_RED_FLAG_119_SENTENCE}"
+                red_flag_added = True
+        if hide_symptoms or aligned or clinic_added or red_flag_added:
+            # 상담 내용은 남기지 않는다 - 플래그만.
+            _LOG.info(
+                "[CHAT-QUALITY] echo_hidden=%s department_aligned=%s clinic_added=%s red_flag_119=%s",
+                hide_symptoms, aligned, clinic_added, red_flag_added,
+            )
 
         return {
             "reply": reply,
@@ -561,7 +659,7 @@ class MedicalLlmService:
             "intent": intent,
             "engine": "medgemma",
             "modelName": self._loader.state.model_name,
-            "summary": normalized.get("symptoms") or None,
+            "summary": None if hide_symptoms else (normalized.get("symptoms") or None),
             "possibleCauses": [],
             "homeCare": [],
             "visitHospitalIf": [],
