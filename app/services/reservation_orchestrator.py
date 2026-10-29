@@ -942,6 +942,12 @@ class ReservationOrchestrator(ReservationFlowMixin):
                     draft.department = dept_in_message
                 _trace(meta, "new_request_reset", hospital=draft.hospital_name, time=draft.reservation_time, date=draft.reservation_date, department=draft.department)
 
+        if not in_flow:
+            # 저장 초안 없이 다시 만든 초안: 이 상담에서 버튼으로 입력했던 환자 이름·전화로 빈 칸만 채운다(2026-10-29 점검 L-2).
+            # 대화 이력에는 넣지 않는 값이라(Claude로 나가지 않게) chat_service 가 서버 기록에서 꺼내 넘긴다. 프로필·이번 문장 값이 먼저다.
+            contact = meta.get("storedContact") if isinstance(meta.get("storedContact"), dict) else {}
+            draft.patient_name = draft.patient_name or (str(contact.get("patient_name") or "").strip() or None)
+            draft.phone = draft.phone or (str(contact.get("phone") or "").strip() or None)
         ward_id = self._ward_id(req)
         if req.uiSelection and self._apply_ui_selection(draft, req.uiSelection.field, req.uiSelection.value.strip()):
             return self._remember_flow(self._ask_location(meta, draft.department), meta, draft, replaces, ward_id)
