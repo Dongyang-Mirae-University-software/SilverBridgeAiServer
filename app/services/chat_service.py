@@ -5,6 +5,8 @@ import json
 import re
 import logging
 import time
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from uuid import uuid4
 from typing import Any
 
@@ -22,6 +24,23 @@ from app.services.medical_llm_service import MedicalLlmService, get_medical_llm_
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS
 from app.services.reservation_intake import CHANGE_DATE_OPTION, _find_department
 from app.services.reservation_orchestrator import ReservationOrchestrator, get_reservation_orchestrator
+
+_KST = ZoneInfo("Asia/Seoul")
+
+
+def _age_from_birth_date(birth_date: str) -> int | None:
+    """YYYY-MM-DD(또는 YYYYMMDD) 생년월일 -> KST 오늘 기준 만 나이. 형식이 다르거나 범위 밖이면 None."""
+    digits = re.sub(r"\D", "", birth_date or "")
+    if len(digits) != 8:
+        return None
+    try:
+        born = date(int(digits[:4]), int(digits[4:6]), int(digits[6:]))
+    except ValueError:
+        return None
+    today = datetime.now(_KST).date()
+    age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+    return age if 0 <= age <= 130 else None
+
 
 _LOG = logging.getLogger(__name__)
 
@@ -351,7 +370,7 @@ class ChatService:
                         llm_intent = "general_chat"
                     result = local_llm.generate(
                         message,
-                        user_context,
+                        self._medgemma_context(user_context),
                         history,
                         intent=llm_intent,
                         processed_symptom=route_info.get("symptom_summary") if route_info["route"] == "symptom" else None,
@@ -690,6 +709,20 @@ class ChatService:
     @staticmethod
     def _latest_log(db: Session, user_id: str) -> ChatLog | None:
         return db.query(ChatLog).filter(ChatLog.user_id == user_id).order_by(ChatLog.id.desc()).first()
+
+    @staticmethod
+    def _medgemma_context(user_context: dict[str, object]) -> dict[str, object]:
+        """MedGemma 프롬프트에는 나이·성별만 넘긴다 - 이름·연락처·주소·생년월일·ID 는 답에 쓸 곳이 없다.
+        원본(예약 환자 정보·챗 기록 피보호자 구분)은 그대로 둔다. 생년월일만 있으면 만 나이로 바꿔 넘긴다."""
+        ctx: dict[str, object] = {}
+        age = user_context.get("age")
+        if age is None:
+            age = _age_from_birth_date(str(user_context.get("birthDate") or ""))
+        if age is not None:
+            ctx["age"] = age
+        if user_context.get("gender"):
+            ctx["gender"] = user_context["gender"]
+        return ctx
 
     @staticmethod
     def _build_user_context(payload: ChatRequest) -> dict[str, object]:

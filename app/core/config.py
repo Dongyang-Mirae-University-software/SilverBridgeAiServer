@@ -60,6 +60,14 @@ def _as_int_in_range(name: str, default: int, low: int, high: int) -> int:
     return value if low <= value <= high else default
 
 
+def _as_int_capped(name: str, default: int, cap: int) -> int:
+    """cap 을 넘는 값은 cap 으로 자르고, 0 이하(또는 정수가 아닌) 값은 기본값으로 대체한다."""
+    value = _as_int(name, default)
+    if value <= 0:
+        return default
+    return min(value, cap)
+
+
 class Settings(BaseModel):
     app_name: str = os.getenv("APP_NAME", "SilverBridge AI Server")
     app_env: str = os.getenv("APP_ENV", "development")
@@ -137,7 +145,9 @@ class Settings(BaseModel):
         "RESERVATION_API_BASE_URL",
         "http://127.0.0.1:6015/api/v1",
     )
-    reservation_api_timeout_sec: int = _as_int("RESERVATION_API_TIMEOUT_SEC", 1200)
+    # 예약 서비스 호출 한 번의 대기 상한(초). 정상 응답은 0~1초라 기본 10초, 설정값이 커도 15초로 자른다
+    # (예전 기본 1200·서버 120이면 예약 서비스가 멈췄을 때 챗 마감 110초를 다 쓰고서야 끝났다).
+    reservation_api_timeout_sec: int = _as_int_capped("RESERVATION_API_TIMEOUT_SEC", 10, 15)
     reservation_api_key: str = (
         os.getenv("RESERVATION_API_KEY", "").strip() or os.getenv("RESERVATION_API_TOKEN", "").strip()
     )
