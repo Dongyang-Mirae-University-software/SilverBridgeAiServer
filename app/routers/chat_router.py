@@ -63,8 +63,9 @@ def list_logs(userId: str | None = Query(default=None, max_length=64), db: Sessi
 def delete_logs(userId: str | None = Query(default=None, max_length=64), db: Session = Depends(get_db)) -> dict:
     # userId 없이 부르면 전 회원 기록이 지워질 수 있으므로 반드시 필수로 한다(본문·로그에는 상담 내용을 싣지 않는다).
     _require_user_id(userId)
-    deleted = chat_service.delete_logs(db, userId.strip())
-    return success_response("챗 로그 삭제 완료", {"deleted": deleted})
+    own, proxy = chat_service.delete_logs(db, userId.strip())
+    # deleted = 본인 기록 + 이 회원을 대신한 보호자 대리 상담 기록(proxyDeleted) - 탈퇴 정리 점검 M-1.
+    return success_response("챗 로그 삭제 완료", {"deleted": own + proxy, "proxyDeleted": proxy})
 
 
 @router.get("/logs/{chat_id}", summary="챗 로그 상세 조회")

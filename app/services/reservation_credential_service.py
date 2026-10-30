@@ -4,6 +4,8 @@ import hashlib
 import hmac
 import re
 import logging
+import threading
+import time
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
@@ -15,6 +17,25 @@ from app.models.reservation_credential import ReservationCredential
 _LOG = logging.getLogger(__name__)
 # 회원 데이터 삭제 때 예약 서비스 키 폐기에 쓰는 전체 시간(초). BE 탈퇴 정리 호출 제한(15초) 안에 응답하도록.
 _REVOKE_BUDGET_SEC = 8.0
+# 회원 데이터를 지운 뒤 이 시간 동안은 그 ID의 예약 계정을 새로 만들지 않는다(2026-10-30 점검 L-2) - 탈퇴 직전에 시작된
+# 상담 요청(AI 전체 마감 110초)이 정리 뒤에 가입으로 계정을 되살리지 않게. 같은 시험 ID로 측정을 연달아 돌리면 이만큼 기다린다.
+_PURGE_HOLD_SEC = 150.0
+_PURGED: dict[str, float] = {}
+_PURGED_LOCK = threading.Lock()
+
+
+def mark_purged(user_id: str) -> None:
+    with _PURGED_LOCK:
+        now = time.monotonic()
+        for uid in [u for u, at in _PURGED.items() if now - at > _PURGE_HOLD_SEC]:
+            _PURGED.pop(uid, None)
+        _PURGED[user_id] = now
+
+
+def recently_purged(user_id: str) -> bool:
+    with _PURGED_LOCK:
+        at = _PURGED.get(user_id)
+        return at is not None and time.monotonic() - at <= _PURGE_HOLD_SEC
 
 
 @dataclass
@@ -154,6 +175,9 @@ class ReservationCredentialService:
 
         예전엔 공용 계정(RESERVATION_SERVICE_EMAIL) 하나로 모든 예약을 넣어 웹(사용자별 계정)에서 보이지 않았다.
         같은 계정 규칙을 쓰면 챗봇·보호자 웹·피보호자 웹이 같은 예약 목록을 본다."""
+        if recently_purged(user_id):
+            _LOG.info("[예약계정] 방금 회원 데이터를 지운 ID - 예약 계정을 새로 만들지 않습니다")
+            return None
         if not client._settings.has_reservation_account_secret:
             # 비밀값이 없으면 계정 비밀번호를 만들 수 없다 - 예약 기능만 끈다(다른 기능은 영향 없음). 값은 로그에 남기지 않는다.
             _LOG.warning("[예약계정] RESERVATION_ACCOUNT_SECRET 미설정 - 예약 계정 발급을 건너뜁니다")

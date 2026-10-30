@@ -428,6 +428,7 @@ class ReservationFlowMixin:
         if not (200 <= int(res.get("httpStatus") or 0) < 300) or not isinstance(rows, list):
             return None
         hospital = str(draft.hospital_name or "").strip()
+        department = str(draft.department or "").strip()
         for row in rows:
             if not isinstance(row, dict) or str(row.get("status") or "").upper() in _INACTIVE_STATUSES:
                 continue
@@ -437,6 +438,10 @@ class ReservationFlowMixin:
                 continue
             row_hospital = str(row.get("hospitalName") or "").strip()
             if hospital and row_hospital and row_hospital != hospital:
+                continue
+            # 같은 시간에 이미 있던 다른 진료과 예약을 방금 만든 예약으로 보지 않는다(탈퇴 정리 점검 L-3).
+            row_department = str(row.get("department") or "").strip()
+            if department and row_department and row_department != department:
                 continue
             return row
         return None

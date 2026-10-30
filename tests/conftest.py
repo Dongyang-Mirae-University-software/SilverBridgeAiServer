@@ -21,3 +21,13 @@ def _create_tables():
     from app.database.session import engine
 
     Base.metadata.create_all(bind=engine)
+
+
+@pytest.fixture(autouse=True)
+def _clear_purge_hold():
+    """회원 데이터 삭제 뒤 예약 계정 재생성 보류(프로세스 메모리, 점검 L-2)가 테스트 사이에 새지 않게 한다."""
+    from app.services import reservation_credential_service as rcs
+
+    rcs._PURGED.clear()
+    yield
+    rcs._PURGED.clear()
