@@ -151,4 +151,4 @@ def test_safety_log_has_rule_names_only(caplog) -> None:
     _gen("혈압약을 깜빡하고 안 먹었어요")
     msgs = [r.getMessage() for r in caplog.records if "[CHAT-SAFETY]" in r.getMessage()]
     assert "[CHAT-SAFETY] emergency_action=seizure" in msgs
-    assert "[CHAT-SAFETY] drug_direct=double_dose" in msgs
+    assert "[CHAT-SAFETY] drug_direct=missed_dose_timing,double_dose" in msgs

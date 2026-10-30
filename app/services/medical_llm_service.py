@@ -170,7 +170,15 @@ class _DrugDirectRule(NamedTuple):
 _DOUBLE_DOSE_SENTENCE = "놓친 약을 다음에 두 번 몫으로 한꺼번에 드시지는 마세요."
 # 수면제를 약국에서 살 수 있느냐는 질문(G-1, 공백 뺀 문장).
 _SLEEPING_PILL_PURCHASE = re.compile(r"(수면제|수면유도제|수면보조제|잠오는약)[^.!?。]{0,15}(약국|살수|사도|사야|사먹|구입|구매)")
+_MISSED_DOSE_ASK = re.compile(r"약(?!속)[^.!?。]{0,12}(깜빡|잊어|잊고|못먹|안먹었|빠뜨|걸렀|놓쳤)")
 _DRUG_DIRECT_RULES = (
+    _DrugDirectRule(
+        # 2026-10-30 I-4 qa.D1: 기준 R1(기억나면 바로)·R2(다음 시간이 가까우면 건너뛰기)가 답에 없었다(두 번 몫 금지만 있음).
+        "missed_dose_timing",
+        _MISSED_DOSE_ASK,
+        "놓친 약은 생각났을 때 바로 드시되, 다음 드실 시간이 가까우면 놓친 것은 건너뛰고 원래 시간에 한 번만 드세요. 약마다 다를 수 있으니 약사에게 확인해 보세요.",
+        re.compile(r"(?s)(?=.*(생각나|생각났|기억나|기억났|떠오르|떠올))(?=.*건너뛰)"),  # "생각났을"은 "생각나"와 다른 글자다
+    ),
     _DrugDirectRule(
         "double_dose",
         # 놓친 약(깜빡·잊어·안 먹었) 또는 몰아서·두 번 몫으로 먹으려는 질문. 이미 더 먹었다는 말(과다 복용)은 아래에서 뺀다.
@@ -189,6 +197,13 @@ _DRUG_DIRECT_RULES = (
         re.compile(r"(남은|예전|전에받은|먹다남은|남아있는)[^.!?。]{0,6}항생제"),
         "남은 항생제를 임의로 드시지 마세요. 열이 나면 진료를 받아 보세요.",
         re.compile(r"항생제[^.!?。]{0,20}(드시지 마|먹지 마|임의로)"),
+    ),
+    _DrugDirectRule(
+        # 2026-10-30 I-4 qa.F4: 기준 R1(본인에게 처방된 것만)·R2(바이러스에는 듣지 않음)가 답에 없었다.
+        "antibiotic_virus",
+        re.compile(r"(남은|예전|전에받은|먹다남은|남아있는)[^.!?。]{0,6}항생제|(감기|독감|열|기침|콧물)[^.!?。]{0,20}항생제|항생제[^.!?。]{0,20}(감기|독감|열|기침)"),
+        "감기·독감 같은 바이러스에는 항생제가 듣지 않고, 항생제는 그때 본인에게 처방된 것만 드셔야 해요.",
+        re.compile(r"바이러스"),
     ),
     _DrugDirectRule(
         "bp_med_stop",
@@ -228,6 +243,26 @@ _LIFESTYLE_RULES = (
         "걷기·수영·실내 자전거처럼 관절에 무리가 덜 가는 운동을, 통증이 생기지 않는 범위에서 해 보세요.",
         re.compile(r"(?s)(?=.*수영)(?=.*통증)"),
     ),
+    _DrugDirectRule(
+        # 2026-10-30 I-4 qa.E3: 기준 R1(포화·트랜스지방 줄이기)·R2(식이섬유 늘리기)가 생성마다 빠졌다.
+        "cholesterol_diet",
+        re.compile(r"(콜레스테롤|고지혈|이상지질|중성지방)[^.!?。]{0,20}(식단|음식|식사|식이|먹|드)|(식단|음식|식사)[^.!?。]{0,20}(콜레스테롤|고지혈|이상지질|중성지방)"),
+        "기름진 고기·튀김·가공식품의 포화지방·트랜스지방은 줄이고, 채소·콩·통곡물·해조류처럼 식이섬유가 많은 음식을 늘려 보세요.",
+        re.compile(r"(?s)(?=.*(포화|트랜스))(?=.*식이 ?섬유)"),
+    ),
+)
+# 2026-10-30 I-1: 이미 이어지거나 나빠지고 있다는 말(공백 뺀 문장) - 이때 "계속되거나 심해지면 진료"로만 끝나지 않게 한 줄 덧붙인다.
+# "며칠째"는 넣지 않는다(기침 3주처럼 기준 기간이 더 긴 증상이 있다). 열·분비물·고름·피 섞임은 이미 나타난 진료 신호다.
+_PERSISTING = re.compile(
+    r"(일주일|이주|보름|한달|몇주|몇달|\d+주|\d+개월|[1-9]\d+일|[7-9]일)(째|넘|이상|동안|가까이|이나|됐|되었|지났)"
+    r"|(점점|갈수록|더)심해|심해(져|졌|지고)|안낫|낫지않|안나아|나아지지않"
+    r"|물이나|고름|진물|피가섞|피섞|열(이|도|은|나|까지)|발열|미열|고열"
+)
+_URGED_VISIT = re.compile(r"미루지|되도록 ?(빨리|일찍)|빨리 진료|바로 진료|일찍 진료|진료를 받으세요(?!\S)")
+_PERSISTING_SENTENCE = "말씀하신 상태라면 미루지 말고 {department} 진료를 받아 보세요."
+# 2026-10-30 I-3: 시스템 프롬프트 문구가 답에 그대로 나온 문장(E3 1회 "…119 문장은 붙이지 않습니다"). 사용자에게 쓸 일이 없는 말만 고른다.
+_PROMPT_LEAK = re.compile(
+    r"규칙 ?\d|119 ?문장은|\[(응급 키워드|권장 진료과|현재 증상|사용자 (정보|질문)|최근 대화|의도)|advice|empathy|symptoms|features|JSON|json|예시 ?\d|형식만 보여|자리표시|키 이름|진료과 힌트"
 )
 
 
@@ -563,12 +598,42 @@ class MedicalLlmService:
         for rule in _DRUG_DIRECT_RULES + _LIFESTYLE_RULES:
             if not rule.ask.search(compact) or rule.covered.search(reply or "") or rule.sentence in (reply or ""):
                 continue
-            if rule.name == "double_dose" and overdose:
+            if rule.name in ("double_dose", "missed_dose_timing") and overdose:
                 continue
             if any(sentence == rule.sentence for _, sentence in out):
                 continue
             out.append((rule.name, rule.sentence))
         return out
+
+    @staticmethod
+    def persisting_visit_sentence(message: str, reply: str, hint: str | None) -> str | None:
+        """이미 이어지거나 나빠진 증상(I-1)인데 답이 조건부 권유로만 끝나면 덧붙일 문장. 약 복용 문의는 대상 밖."""
+        compact = re.sub(r"\s+", "", message or "")
+        if not _PERSISTING.search(compact) or _URGED_VISIT.search(reply or ""):
+            return None
+        if _MEDICATION_WORD.search(compact) and _MEDICATION_ASK.search(compact):
+            return None
+        return _PERSISTING_SENTENCE.format(department=f"{hint}" if hint else "가까운 병원")
+
+    @staticmethod
+    def drop_prompt_leak(reply: str) -> tuple[str, int]:
+        """프롬프트 규칙 문구가 든 문장을 뺀다(I-3). 다 빠지면 상의 권유 한 줄. (고친 답, 뺀 문장 수)."""
+        removed = 0
+        lines: list[str] = []
+        for line in (reply or "").split("\n"):
+            sentences = _SENTENCE_SPLIT.split(line)
+            kept = [x for x in sentences if not _PROMPT_LEAK.search(x)]
+            if len(kept) == len(sentences):
+                lines.append(line)
+                continue
+            removed += len(sentences) - len(kept)
+            new_line = " ".join(kept).strip()
+            if new_line:
+                lines.append(new_line)
+        out = "\n".join(lines).strip()
+        if removed and not out:
+            out = _CONSULT_SENTENCE
+        return (out if removed else reply), removed
 
     @classmethod
     def needs_followup_question(cls, message: str) -> bool:
@@ -897,6 +962,10 @@ class MedicalLlmService:
                 normalized["advice"], aligned = self.align_department(normalized["advice"], department_hint)
         reply = self.format_answer(normalized, emergency=bool(emergency_warning), show_symptoms=not hide_symptoms)
         if not emergency_warning:
+            # 프롬프트 문구 노출(I-3)은 다른 후처리보다 먼저 뺀다 - 뒤의 병원 권유 보장이 빈자리를 채운다. 응급 답은 건드리지 않는다.
+            reply, leaked = self.drop_prompt_leak(reply)
+            if leaked:
+                _LOG.info("[CHAT-SAFETY] prompt_leak_dropped=%s", leaked)
             reply, dropped, added = self.apply_drug_alcohol_rules(message, reply)
             if dropped or added:
                 # 상담 내용은 남기지 않는다 - 규칙 이름·뺀 문장 수만.
@@ -932,9 +1001,13 @@ class MedicalLlmService:
             reply = f"{reply}\n{_CLINIC_SENTENCE}"
             _LOG.info("[CHAT-SAFETY] clinic_sentence=added")
         clinic_added = red_flag_added = False
+        persisting = None
         medication_119 = 0
         if quality:
             reply, medication_119 = self.drop_medication_119(message, reply)
+            persisting = self.persisting_visit_sentence(message, reply, department_hint)
+            if persisting:
+                reply = f"{reply}\n{persisting}"
             extra = self.clinic_guarantee_sentence(message, reply, department_hint)
             if extra:
                 reply = f"{reply}\n{extra}"
@@ -942,11 +1015,11 @@ class MedicalLlmService:
             if self.needs_red_flag_sentence(message, reply):
                 reply = f"{reply}\n{_RED_FLAG_119_SENTENCE}"
                 red_flag_added = True
-        if hide_symptoms or aligned or clinic_added or red_flag_added or pediatrics or medication_119:
+        if hide_symptoms or aligned or clinic_added or red_flag_added or pediatrics or medication_119 or persisting:
             # 상담 내용은 남기지 않는다 - 플래그·문장 수만.
             _LOG.info(
-                "[CHAT-QUALITY] echo_hidden=%s department_aligned=%s clinic_added=%s red_flag_119=%s pediatrics=%s medication_119_dropped=%s",
-                hide_symptoms, aligned, clinic_added, red_flag_added, pediatrics, medication_119,
+                "[CHAT-QUALITY] echo_hidden=%s department_aligned=%s clinic_added=%s red_flag_119=%s pediatrics=%s medication_119_dropped=%s persisting_visit=%s",
+                hide_symptoms, aligned, clinic_added, red_flag_added, pediatrics, medication_119, bool(persisting),
             )
 
         return {
