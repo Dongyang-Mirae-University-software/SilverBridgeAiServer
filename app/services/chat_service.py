@@ -358,9 +358,11 @@ class ChatService:
                     result = reservation_result
                 else:
                     result = {
+                        # 회원 키를 못 받은 것(대개 예약 서비스 일시 장애)은 다시 시도하면 되는 일이라 "잠시 후" 문구 - 초안도 넘긴다
+                        # (2026-10-30 통합 점검 M-1). "사용할 수 없어요"는 정말 꺼졌을 때(비밀값 없음·탈퇴 정리 보류)만.
                         "reply": (
                             "지금은 병원 예약 기능을 사용할 수 없어요. 병원에 직접 전화해 예약해 주세요."
-                            if reservation_disabled
+                            if reservation_disabled and not credential_unavailable
                             else "예약 정보를 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."
                         ),
                         "riskLevel": "medium",
@@ -500,9 +502,14 @@ class ChatService:
             reservation_required=bool(result["reservationRequired"]),
         )
         save_started = time.perf_counter()
-        db.add(log)
-        db.commit()
-        db.refresh(log)
+        if recently_purged(payload.userId) or (ward_id and recently_purged(ward_id)):
+            # 방금 회원 데이터를 지운 ID - 탈퇴 순간 진행 중이던 턴이 끝나며 기록을 새로 남기지 않게 답만 돌려준다
+            # (2026-10-30 통합 점검 L-1). chatLogId 는 null.
+            _LOG.info("[CHAT-PURGE-HOLD] log_skipped")
+        else:
+            db.add(log)
+            db.commit()
+            db.refresh(log)
         # 경로·엔진·구간 ms 만 남긴다(상담 내용·사용자 문장 금지).
         _LOG.info(
             "[CHAT-TIMING] route=%s engine=%s router_ms=%s llm_ms=%s reservation_ms=%s post_ms=%s save_ms=%s total_ms=%s",

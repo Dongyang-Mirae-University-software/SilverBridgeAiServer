@@ -9,6 +9,7 @@ from app.database.session import get_db
 from app.schemas.chat_schema import ChatRequest
 from app.services.chat_service import ChatService
 from app.services.chat_stats_service import ChatStatsRangeError, ChatStatsService, parse_range
+from app.services.reservation_credential_service import mark_purged
 
 router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
 chat_service = ChatService()
@@ -63,6 +64,7 @@ def list_logs(userId: str | None = Query(default=None, max_length=64), db: Sessi
 def delete_logs(userId: str | None = Query(default=None, max_length=64), db: Session = Depends(get_db)) -> dict:
     # userId 없이 부르면 전 회원 기록이 지워질 수 있으므로 반드시 필수로 한다(본문·로그에는 상담 내용을 싣지 않는다).
     _require_user_id(userId)
+    mark_purged(userId.strip())  # 진행 중이던 상담 턴이 정리 뒤 기록을 새로 남기지 않게(2026-10-30 통합 점검 L-1)
     own, proxy = chat_service.delete_logs(db, userId.strip())
     # deleted = 본인 기록 + 이 회원을 대신한 보호자 대리 상담 기록(proxyDeleted) - 탈퇴 정리 점검 M-1.
     return success_response("챗 로그 삭제 완료", {"deleted": own + proxy, "proxyDeleted": proxy})

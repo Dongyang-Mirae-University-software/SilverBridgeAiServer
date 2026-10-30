@@ -418,7 +418,7 @@ class ReservationFlowMixin:
         return self._flow_error(meta, "make_appointment", msg, code, data)
 
     def _find_created(self, key: str | None, draft: ReservationDraft, date_text: str, time_text: str) -> dict[str, Any] | None:
-        """시간 초과로 끝난 생성 요청이 실제로 예약을 만들었는지 - 같은 날짜·시간(같은 병원)의 활성 예약 행. 모르면 None.
+        """시간 초과로 끝난 생성 요청이 실제로 예약을 만들었는지 - 같은 날짜·시간(같은 병원·같은 진료과)의 활성 예약 행. 모르면 None.
         예약 서비스는 한 사람의 같은 날짜·시간 활성 예약을 하나만 받으므로 그 행이 방금 만든 예약이다."""
         try:
             res = self._reservation.list_my_appointments(api_key_override=key)  # type: ignore[attr-defined]
