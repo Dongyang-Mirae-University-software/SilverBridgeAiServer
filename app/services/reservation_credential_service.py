@@ -8,10 +8,13 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.services.chat_deadline import chat_deadline
 from app.services.reservation_api_client import ReservationApiClient
 from app.models.reservation_credential import ReservationCredential
 
 _LOG = logging.getLogger(__name__)
+# 회원 데이터 삭제 때 예약 서비스 키 폐기에 쓰는 전체 시간(초). BE 탈퇴 정리 호출 제한(15초) 안에 응답하도록.
+_REVOKE_BUDGET_SEC = 8.0
 
 
 @dataclass
@@ -70,6 +73,43 @@ class ReservationCredentialService:
         )
         db.commit()
         return int(deleted)
+
+    def revoke_account_keys(self, client: ReservationApiClient, user_id: str) -> int | None:
+        """그 회원 예약 계정(sb-{userId})의 AI-{userId} 이름 활성 키를 모두 폐기한다(2026-10-30) - AI 쪽 행만 지우면
+        예약 서비스에는 쓰지 않는 키가 활성으로 남았다(탈퇴·측정 정리). 행 삭제 뒤 best-effort로 부른다.
+        폐기 건수, 계정이 없으면 0, 하지 못했으면 None. 가입하지 않는다. 다른 이름 키(웹 등)는 건드리지 않는다.
+        로그는 건수·상태 코드만(키·이메일·비밀번호 금지)."""
+        settings = client._settings
+        if not settings.has_reservation_account_secret:
+            return None
+        email, password = self.account_for(user_id, settings.reservation_account_secret)
+        name = f"AI-{user_id}"
+        try:
+            with chat_deadline(_REVOKE_BUDGET_SEC):
+                login = client.login_account(email, password)
+                status = int(login.get("httpStatus") or 0)
+                if status in {400, 401, 404}:
+                    return 0  # 예약 계정이 없다(예약을 한 번도 안 했다)
+                data = login.get("data")
+                token = str(data.get("accessToken") or data.get("access_token") or "").strip() if isinstance(data, dict) else ""
+                if not (200 <= status < 300 and token):
+                    _LOG.info("[예약계정] 키 폐기용 로그인 실패 http_status=%s", status)
+                    return None
+                listed = client.list_api_keys(token)
+                rows = (listed.get("data") or {}).get("keys") if isinstance(listed.get("data"), dict) else None
+                if not (200 <= int(listed.get("httpStatus") or 0) < 300) or not isinstance(rows, list):
+                    _LOG.info("[예약계정] 키 폐기용 목록 조회 실패 http_status=%s", listed.get("httpStatus"))
+                    return None
+                targets = [r for r in rows if isinstance(r, dict) and r.get("name") == name and r.get("isActive") and isinstance(r.get("id"), int)]
+                revoked = 0
+                for row in targets:
+                    if 200 <= int(client.revoke_api_key(token, int(row["id"])).get("httpStatus") or 0) < 300:
+                        revoked += 1
+                _LOG.info("[예약계정] 회원 데이터 삭제 - 키 폐기 %s건(대상 %s건)", revoked, len(targets))
+                return revoked if revoked == len(targets) else None
+        except Exception as exc:  # noqa: BLE001 - 마감(ChatDeadlineExceeded) 포함, 행 삭제는 이미 끝났다
+            _LOG.info("[예약계정] 회원 데이터 삭제 - 키 폐기 건너뜀 %s", type(exc).__name__)
+            return None
 
     def get_api_key(self, db: Session, user_id: str) -> str | None:
         current = db.query(ReservationCredential).filter(ReservationCredential.user_id == user_id).first()

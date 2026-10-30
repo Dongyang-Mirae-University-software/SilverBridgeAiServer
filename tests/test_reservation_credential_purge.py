@@ -38,7 +38,7 @@ def test_delete_removes_only_that_users_credential_and_never_echoes_the_key() ->
     with _client() as (client, session):
         res = client.delete("/api/v1/reservation-credentials", params={"userId": "aaaaaa"})
         assert res.status_code == 200, res.text
-        assert res.json()["data"] == {"deleted": 1}
+        assert res.json()["data"]["deleted"] == 1
         assert "secret" not in res.text
         assert [row.user_id for row in session.query(ReservationCredential).all()] == ["bbbbbb"]
 
@@ -55,7 +55,7 @@ def test_delete_unknown_user_is_idempotent() -> None:
     with _client() as (client, session):
         res = client.delete("/api/v1/reservation-credentials", params={"userId": "zzzzzz"})
         assert res.status_code == 200
-        assert res.json()["data"] == {"deleted": 0}
+        assert res.json()["data"]["deleted"] == 0
         assert session.query(ReservationCredential).count() == 2
 
 
