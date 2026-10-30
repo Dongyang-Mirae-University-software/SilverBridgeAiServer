@@ -276,8 +276,9 @@ _FOLLOWUP_CONTEXT = re.compile(
     r"좀|못참|견디|참을|[0-9]|번|때마다|할때|하면|무슨과|어느과|병원|예약|진료"
 )
 # 증상 이름 - 서로 다른 것이 둘 이상이면 동반 증상을 이미 말한 것으로 본다.
+# "가려움"은 "피부"와 같은 증상을 두 번 세게 되어 넣지 않는다(2026-10-29 v7 fq.08 "피부가 가려워요"가 동반 증상으로 잡혔다) - "가려워요"만 말해도 피부과 힌트로 되묻는다.
 _FOLLOWUP_SYMPTOM_NOUN = re.compile(
-    r"기침|열|두통|머리|어지|배|속|구토|토할|설사|허리|무릎|어깨|관절|눈|귀|코|목|피부|가려|저리|저려|소변|변비|가슴|숨|콧물|피곤|잠|이가|이빨|손|발|다리|팔"
+    r"기침|열|두통|머리|어지|배|속|구토|토할|설사|허리|무릎|어깨|관절|눈|귀|코|목|피부|저리|저려|소변|변비|가슴|숨|콧물|피곤|잠|이가|이빨|손|발|다리|팔"
 )
 # 감정·괴로움 표현이 섞이면 되묻지 않는다 - 위기 신호일 수 있는 말("다 그만두고 싶어")에 고정 질문으로 답하지 않게.
 _FOLLOWUP_DISTRESS = re.compile(r"그만두|그만하|힘들|힘드|싫어|싫다|우울|죽겠|못살|외로|불안|무서|괴로")
@@ -578,6 +579,10 @@ class MedicalLlmService:
         if not compact or len(compact) > 25:
             return False
         if cls.emergency_signals(message) or cls.self_harm_signals(message):
+            return False
+        # 응급 키워드는 아니어도 위험 신호 단어(가슴·숨이 등)가 있으면 되묻지 않는다 - 위험 신호 119 한 줄이 나가는 답으로 둔다
+        # (2026-10-29 v7 bd.02 "가슴이 답답해요"가 되묻기로 가 119 안내가 빠졌다).
+        if any(keyword in (message or "").strip().lower() for keyword in cls.HIGH_RISK_KEYWORDS):
             return False
         if _MEDICATION_WORD.search(compact) or cls.drug_alcohol_rules(message):
             return False

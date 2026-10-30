@@ -66,7 +66,8 @@ def _send(env, message: str, session: str = "s1", ward: str | None = None) -> di
 # ---- 문장 조건 -----------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("message", ["어지러워", "기침이 나요", "머리가 아파요", "배가 아파요", "허리가 아파요", "속이 안 좋아요", "귀가 아파요"])
+@pytest.mark.parametrize("message", ["어지러워", "기침이 나요", "머리가 아파요", "배가 아파요", "허리가 아파요", "속이 안 좋아요", "귀가 아파요",
+                                     "피부가 가려워요", "가려워요"])
 def test_short_symptom_needs_followup(message: str) -> None:
     assert MedicalLlmService.needs_followup_question(message)
 
@@ -79,6 +80,9 @@ def test_short_symptom_needs_followup(message: str) -> None:
     "열이 38도예요",  # 숫자
     "배가 아프고 설사해요",  # 동반 증상
     "가슴이 아파요",  # 응급 키워드
+    "가슴이 답답해요",  # 위험 신호 단어 - 119 한 줄이 나가는 상담으로 둔다(v7 bd.02)
+    "숨이 차요",
+    "식은땀이 나요",
     "죽고 싶어요",  # 자해
     "혈압약 먹었어요",  # 약
     "관절염이 있는데 어떤 운동이 좋아요",  # 생활관리
