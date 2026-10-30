@@ -1,0 +1,133 @@
+{
+ "label": "2026-10-30-remaining-risks-2",
+ "createdAt": "2026-10-30",
+ "note": "답변 본문·사용자 문장 없음.",
+ "pr": {
+  "code": 126,
+  "merge": "e2daf2a"
+ },
+ "decisions": {
+  "Q1": "6개 유형만",
+  "Q2": "약 + 술 반영",
+  "Q3": "빈뇨 내과 유지"
+ },
+ "gosky": {
+  "before": "83e4094",
+  "after": "e2daf2a",
+  "restartKst": "2026-10-30 14:09:27",
+  "beWsReconnectKst": "2026-10-30 14:09:54"
+ },
+ "pytest": {
+  "passed": 1197,
+  "failed": 1,
+  "faultInjection": {
+   "J1": 2,
+   "J2": 2,
+   "J3": 3,
+   "J4": 7,
+   "J5": 2,
+   "emergency_119_removed": 19
+  }
+ },
+ "dgx": {
+  "J_core": "0/6 -> 6/6",
+  "emergency": "26/26/26",
+  "general119": "2/54 -> 2/54",
+  "FGI": "유지",
+  "parseFail": 0,
+  "genSecAvg": [
+   6.5,
+   6.71
+  ]
+ },
+ "goskyV7": {
+  "before_3cf136a": {
+   "judged": 132,
+   "passed": 132,
+   "general119": "0/77",
+   "crisis": {
+    "keyword": 9,
+    "router": 10
+   }
+  },
+  "after_e2daf2a": {
+   "judged": 132,
+   "passed": 132,
+   "general119": "1/77",
+   "crisis": {
+    "keyword": 9,
+    "router": 9
+   },
+   "emergency119WarnHigh": "37/37/37",
+   "symptomAvgMs": 10246
+  }
+ },
+ "goskyQa": {
+  "before": [
+   "32/32",
+   "32/32",
+   "32/32"
+  ],
+  "after": [
+   "32/32",
+   "32/32",
+   "32/32"
+  ],
+  "J6": {
+   "before": "0/6 x3",
+   "after": "6/6 x3"
+  },
+  "D3wrong": {
+   "before": "1/3",
+   "after": "0/3"
+  },
+  "symptomAvgMs": {
+   "before": [
+    12619,
+    12463,
+    12470
+   ],
+   "after": [
+    12759,
+    12537,
+    12721
+   ]
+  }
+ },
+ "judge": {
+  "sonnet": {
+   "before": [
+    53,
+    58,
+    53
+   ],
+   "after": [
+    60,
+    66,
+    59
+   ],
+   "avg": [
+    54.7,
+    61.7
+   ]
+  },
+  "opus": {
+   "before": [
+    52,
+    55,
+    54
+   ],
+   "after": [
+    57,
+    63,
+    60
+   ],
+   "avg": [
+    53.7,
+    60.0
+   ]
+  },
+  "target6": "5~8 -> 12~15",
+  "violationsAfter": 0
+ }
+}
