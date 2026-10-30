@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -117,49 +116,28 @@ class ReservationApiClient:
         self._settings = settings
         self._base = settings.reservation_api_base_url.rstrip("/")
         self._timeout = settings.reservation_api_timeout_sec
-        self._service_user_jwt: str | None = settings.reservation_user_jwt.strip() or None
-        self._service_user_login_failed = False
-        self._service_user_lock = threading.Lock()
+        # 공용 예약 키·JWT·계정 설정은 더 읽지 않는다(2026-10-30). 값이 남아 있으면 알 수 있게 기동 때 한 번 알린다(값은 남기지 않음).
+        shared = [
+            name for name, value in (
+                ("RESERVATION_API_KEY", getattr(settings, "reservation_api_key", "")),
+                ("RESERVATION_USER_JWT", getattr(settings, "reservation_user_jwt", "")),
+                ("RESERVATION_ADMIN_JWT", getattr(settings, "reservation_admin_jwt", "")),
+                ("RESERVATION_SERVICE_EMAIL", getattr(settings, "reservation_service_email", "")),
+            ) if str(value or "").strip()
+        ]
+        if shared:
+            _LOG.warning("[예약계정] 공용 예약 설정은 쓰지 않습니다(회원별 계정만): %s", ",".join(shared))
 
-    def _resolve_api_key(self, api_key_override: str | None) -> str | None:
-        key = (api_key_override or "").strip() or self._settings.reservation_api_key.strip()
-        return key or None
+    @staticmethod
+    def _resolve_api_key(api_key_override: str | None) -> str | None:
+        """호출자가 넘긴 회원 예약 키만 쓴다. .env 공용 키(RESERVATION_API_KEY·_TOKEN)로 대신하지 않는다(2026-10-30) -
+        대신하면 회원 키를 못 받은 사람의 예약이 공용 계정으로 조회·생성됐다."""
+        return (api_key_override or "").strip() or None
 
-    def _resolve_user_jwt(self, token_override: str | None) -> str | None:
-        tok = (token_override or "").strip() or self._settings.reservation_user_jwt.strip()
-        if tok:
-            return tok
-        if self._service_user_jwt:
-            return self._service_user_jwt
-        with self._service_user_lock:
-            if self._service_user_jwt:
-                return self._service_user_jwt
-            if self._service_user_login_failed:
-                return None
-            token = self._login_service_user()
-            if token:
-                self._service_user_jwt = token
-                return token
-            self._service_user_login_failed = True
-            return None
-
-    def _login_service_user(self) -> str | None:
-        if not self._settings.has_reservation_service_credentials:
-            return None
-        st, data = self._request(
-            "POST",
-            "/auth/login",
-            body={
-                "email": self._settings.reservation_service_email.strip(),
-                "password": self._settings.reservation_service_password,
-            },
-            auth="none",
-        )
-        if st == 200 and isinstance(data, dict):
-            token = str(data.get("accessToken") or data.get("access_token") or "").strip()
-            if token:
-                return token
-        return None
+    @staticmethod
+    def _resolve_user_jwt(token_override: str | None) -> str | None:
+        """호출자가 넘긴 회원 JWT만 쓴다. 공용 JWT(RESERVATION_USER_JWT)·옛 공용 계정 로그인으로 대신하지 않는다(2026-10-30)."""
+        return (token_override or "").strip() or None
 
     def login_account(self, email: str, password: str) -> dict[str, Any]:
         st, data = self._request(
@@ -227,23 +205,21 @@ class ReservationApiClient:
         if body is not None or method.upper() in {"POST", "PUT", "PATCH"}:
             headers["Content-Type"] = "application/json"
         if auth == "none":
-            api_key = self._resolve_api_key(None)
-            if api_key:
-                headers["X-API-Key"] = api_key
+            pass  # 인증이 필요 없는 호출(로그인·가입·공개 조회) - 공용 키를 붙이지 않는다
         elif auth == "api_key":
             api_key = self._resolve_api_key(token_override)
             if not api_key:
-                return 401, {"code": "SERVER_CONFIG", "message": "RESERVATION_API_KEY 또는 저장된 reservation key가 필요합니다."}
+                return 401, {"code": "SERVER_CONFIG", "message": "회원 예약 키가 필요합니다."}
             headers["X-API-Key"] = api_key
         elif auth == "user":
             token = self._resolve_user_jwt(token_override)
             if not token:
-                return 401, {"code": "SERVER_CONFIG", "message": "RESERVATION_USER_JWT 또는 access_token이 필요합니다."}
+                return 401, {"code": "SERVER_CONFIG", "message": "회원 access_token이 필요합니다."}
             headers["Authorization"] = f"Bearer {token}"
         else:
-            token = (token_override or "").strip() or self._settings.reservation_admin_jwt.strip()
+            token = (token_override or "").strip()
             if not token:
-                return 401, {"code": "SERVER_CONFIG", "message": "RESERVATION_ADMIN_JWT 또는 access_token(관리자)이 필요합니다."}
+                return 401, {"code": "SERVER_CONFIG", "message": "관리자 access_token이 필요합니다."}
             headers["Authorization"] = f"Bearer {token}"
 
         # 챗 전체 마감 안에서는 남은 시간만큼만 기다린다(O-3). 모자라면 호출하지 않고 ChatDeadlineExceeded -

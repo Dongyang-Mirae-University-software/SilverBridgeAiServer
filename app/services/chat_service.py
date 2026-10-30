@@ -305,6 +305,8 @@ class ChatService:
                 route_info["route"] == "reservation" or bool(ui_selection and ui_selection["field"] in reservation_ui_fields)
             )
             reservation_api_key = None
+            credential_unavailable = False
+            deadline_flow = None
             reservation_started = time.perf_counter()
             # 예약 계정 비밀값이 없으면 예약 기능만 끈다(상담·이상감지 등 나머지는 그대로).
             reservation_disabled = reservation_flow_hint and (
@@ -330,9 +332,17 @@ class ChatService:
                         name=str(user_context.get("name") or ""),
                         phone=str(user_context.get("phone") or ""),
                     )
-                    reservation_result = self._run_reservation(
-                        payload, route_info, message, reservation_api_key, stored_flow, reservation_disabled, stored_contact
-                    )
+                    if reservation_api_key is None and not reservation_disabled:
+                        # 회원 예약 계정 키를 못 받았다(로그인·가입·발급 실패, 예약 서비스 장애) - 키 없이 예약 서비스를 부르지 않고
+                        # 예약 꺼짐 안내로 끝낸다(2026-10-30, 공용 키·공용 계정 대체 제거). 진행 중이던 초안은 다음 턴에 넘긴다.
+                        _LOG.info("[CHAT-RESERVATION] credential_unavailable")
+                        reservation_disabled = credential_unavailable = True
+                        reservation_result = None
+                        deadline_flow = {k: stored_flow[k] for k in ("flowState", "pendingAction") if isinstance(stored_flow.get(k), dict)}
+                    else:
+                        reservation_result = self._run_reservation(
+                            payload, route_info, message, reservation_api_key, stored_flow, reservation_disabled, stored_contact
+                        )
                 except ChatDeadlineExceeded as exc:
                     # 마감에 걸려 새 예약 호출을 시작하지 않았다 - 아래 기존 실패 문구로 끝내고 직전 초안은 다음 턴에 넘긴다.
                     _LOG.warning("[CHAT-DEADLINE] stage=%s action=reservation_fallback", exc.stage)
@@ -340,7 +350,8 @@ class ChatService:
                     # 확인 대기(pendingAction)도 넘긴다 - 마감은 토큰 선점 전에만 여기로 오므로 같은 버튼으로 다시 시도할 수 있다(점검 L-1).
                     deadline_flow = {k: stored_flow[k] for k in ("flowState", "pendingAction") if isinstance(stored_flow.get(k), dict)}
                 else:
-                    deadline_flow = None
+                    if not credential_unavailable:
+                        deadline_flow = None
                 timing["reservationMs"] = _elapsed_ms(reservation_started)
                 if reservation_result is not None:
                     result = reservation_result
@@ -367,7 +378,8 @@ class ChatService:
                         "visitHospitalIf": [],
                         "emergencyWarning": [],
                         "meta": {"reservationFlowHint": True, **(deadline_flow or {})},
-                        "decisionTrace": [{"event": "reservation_disabled" if reservation_disabled else "reservation_flow_fallback"}],
+                        "decisionTrace": [{"event": "reservation_credential_unavailable" if credential_unavailable
+                                           else "reservation_disabled" if reservation_disabled else "reservation_flow_fallback"}],
                     }
             elif self._should_ask_followup(route_info, message, ui_selection, crisis_followup, after_emergency, after_followup):
                 # 정보가 부족한 일반 증상 한마디 - 언제부터·얼마나·동반 증상을 한 번 묻는다(C-1, MedGemma 를 부르지 않는다).

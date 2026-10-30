@@ -136,7 +136,7 @@ def env(monkeypatch):
     db = sessionmaker(bind=engine)()
     holder = SimpleNamespace(llm=_Llm(), router=_Router(), orch=_Orchestrator())
     monkeypatch.setattr(cs, "get_chat_router_service", lambda: holder.router)
-    monkeypatch.setattr(cs, "get_reservation_credential_service", lambda: SimpleNamespace(ensure_credential=lambda *a, **k: None))
+    monkeypatch.setattr(cs, "get_reservation_credential_service", lambda: SimpleNamespace(ensure_credential=lambda *a, **k: "fake-key"))
     monkeypatch.setattr(cs, "get_reservation_api_client", lambda: object())
     monkeypatch.setattr(cs, "get_medical_llm_service", lambda: holder.llm)
     monkeypatch.setattr(cs, "get_reservation_orchestrator", lambda: holder.orch)
