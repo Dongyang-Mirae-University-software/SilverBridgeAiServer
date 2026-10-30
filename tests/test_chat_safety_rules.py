@@ -344,8 +344,16 @@ def test_drug_alcohol_rules_not_applied_on_emergency() -> None:
 SELF_ADJUST = "약을 줄이거나 끊거나 거르는 것은 꼭 의사·약사와 상의한 뒤에 하세요."
 
 
+def test_self_adjust_sentence_on_drug_alcohol_drops_model_sentence(caplog) -> None:
+    # 2026-10-30 J-5: 약 + 술 답에서는 약 조절 문장을 빼고 고정 상의 문장 한 줄로 대신한다(기준 D5 X2). 다른 상담은 아래처럼 덧붙이기만.
+    with caplog.at_level(logging.INFO):
+        out = _generate("당뇨 있는데 술 마셔도 돼요", "필요하면 당뇨 약을 조절하세요. 혈당을 자주 확인하세요.")
+    assert out["reply"].count(SELF_ADJUST) == 1
+    assert "약을 조절하세요" not in out["reply"] and "혈당을 자주 확인하세요." in out["reply"]
+    assert "'self_adjust': 1" in "\n".join(r.getMessage() for r in caplog.records)
+
+
 @pytest.mark.parametrize(("message", "advice"), [
-    ("당뇨 있는데 술 마셔도 돼요", "필요하면 당뇨 약을 조절하세요. 혈당을 자주 확인하세요."),
     ("당뇨약 먹는데 수술 전에 금식해야 하나요", "금식 시 당뇨약을 복용하지 않거나 시간을 바꿔야 할 수 있어요."),
     ("혈압약 먹고 어지러워요", "어지러우면 혈압약을 잠시 끊어 보세요."),
 ])
