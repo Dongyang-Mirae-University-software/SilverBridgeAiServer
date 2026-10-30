@@ -14,7 +14,7 @@ from tests.test_reservation_confirm_chat_service import env  # noqa: F401
 RESPONSE_KEYS = {
     "sessionId", "reply", "riskLevel", "recommendedAction", "reservationRequired", "intent", "engine", "modelName",
     "type", "ui", "tool", "toolData", "summary", "possibleCauses", "homeCare", "visitHospitalIf", "emergencyWarning",
-    "chatLogId", "chatNo",
+    "chatLogId", "chatNo", "suggestedQuestions",  # 이어서 물어볼 질문(2026-10-30)
 }
 TIMING_KEYS = {"routerMs", "llmMs", "reservationMs", "postMs", "totalMs"}
 SENSITIVE = "숨을 못 쉬겠어요 홍길순 010-5555-6666"

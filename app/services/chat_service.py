@@ -19,6 +19,7 @@ from app.services.reservation_api_client import get_reservation_api_client
 from app.services.reservation_credential_service import get_reservation_credential_service, recently_purged
 from app.services.chat_deadline import ChatDeadlineExceeded, chat_deadline, tighter_deadline
 from app.services.chat_router_service import ROUTER_RESERVE_SEC, get_chat_router_service
+from app.services import follow_up_questions
 from app.services.claude_structured_client import failure_cause
 from app.services.medical_llm_service import MedicalLlmService, get_medical_llm_service
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS
@@ -446,6 +447,12 @@ class ChatService:
             result.setdefault("meta", {})
             if isinstance(result["meta"], dict):
                 result["meta"]["emergencyFollowup"] = True
+        suggested = follow_up_questions.suggested_questions(
+            self._settings, result, route_info, message,
+            proxy=bool(ward_id) or MedicalLlmService.about_family(message),
+            emergency_text=bool(message) and bool(MedicalLlmService.emergency_signals(message)),
+            self_harm_text=bool(message) and bool(MedicalLlmService.self_harm_signals(message)),
+        )
         post_started = time.perf_counter()
         if route_info:
             result.setdefault("meta", {})
@@ -527,6 +534,7 @@ class ChatService:
             "homeCare": result.get("homeCare") or [],
             "visitHospitalIf": result.get("visitHospitalIf") or [],
             "emergencyWarning": result.get("emergencyWarning") or [],
+            "suggestedQuestions": suggested,
             "chatLogId": log.id,
             "chatNo": log.chat_no,
         }

@@ -72,6 +72,8 @@ class ChatReplyData(BaseModel):
     ui: UiPayload | None = None
     tool: str | None = None
     data: Any | None = None
+    # 이어서 물어볼 질문 0~3개(2026-10-30). 응급·자해·예약 선택지 답에는 빈 목록.
+    suggestedQuestions: list[str] = Field(default_factory=list)
 
 
 class ChatLogOut(BaseModel):
