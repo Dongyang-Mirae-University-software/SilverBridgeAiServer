@@ -131,6 +131,8 @@ def test_missed_dose_gets_timing_and_double_dose() -> None:
 def test_missed_dose_timing_skipped_when_covered_or_overdose() -> None:
     reply = _gen("약을 깜빡했어요", advice="생각나면 바로 드시고, 다음 시간이 가까우면 건너뛰세요. 의사와 상의하세요.")["reply"]
     assert MISSED not in reply
+    reply = _gen("약을 깜빡했어요", advice="생각났을 때 드시고, 다음 시간이 가까우면 건너뛰세요. 의사와 상의하세요.")["reply"]
+    assert MISSED not in reply  # 받침이 붙은 "생각났을"도 같은 뜻으로 본다
     assert MISSED not in _gen("약을 깜빡해서 두 번 먹었어요")["reply"]
 
 
