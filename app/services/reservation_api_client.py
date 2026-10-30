@@ -197,6 +197,11 @@ class ReservationApiClient:
         st, data = self._request("DELETE", f"/auth/api-keys/{int(api_key_id)}", auth="user", token_override=access_token)
         return {"httpStatus": st, "data": data}
 
+    def delete_my_account(self, access_token: str) -> dict[str, Any]:
+        """예약 서비스 DELETE /users/me - 그 계정의 예약·API 키·회원 행 삭제(회원 탈퇴 정리용)."""
+        st, data = self._request("DELETE", "/users/me", auth="user", token_override=access_token)
+        return {"httpStatus": st, "data": data}
+
     def has_valid_reservation_key(self, api_key: str | None) -> bool:
         key = (api_key or "").strip()
         if not key:
