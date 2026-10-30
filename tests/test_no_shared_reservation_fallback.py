@@ -88,4 +88,4 @@ def test_chat_stops_reservation_when_member_key_is_unavailable(env, monkeypatch)
     _router(env, monkeypatch, route="reservation")
     out = _send(env, "내과 예약해 주세요")
     assert handled == [] and env.fake.calls == []  # 예약 흐름(검색 포함)을 키 없이 시작하지 않는다
-    assert "지금은 병원 예약 기능을 사용할 수 없어요" in out["reply"]
+    assert out["reply"] == "예약 정보를 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."  # 일시 장애라 다시 시도(통합 점검 M-1)
