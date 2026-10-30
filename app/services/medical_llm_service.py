@@ -210,6 +210,13 @@ _DRUG_DIRECT_RULES = (
         re.compile(r"바이러스"),
     ),
     _DrugDirectRule(
+        # 2026-10-30 K-4 qa.D2: 기준 R2(어르신은 감기약에도 부작용)·R3(같은 성분이 겹치는지 라벨 확인)가 답에 없었다.
+        "cold_medicine_combo",
+        re.compile(r"감기약[^.!?。]{0,20}(같이|함께|먹어도|드셔도|복용해도)|(같이|함께)[^.!?。]{0,15}감기약"),
+        "어르신은 감기약에도 부작용이 생길 수 있어요. 드시는 약과 같은 성분이 겹치지 않는지 약 상자의 성분표를 약사와 함께 확인하세요.",
+        re.compile(r"성분"),
+    ),
+    _DrugDirectRule(
         "bp_med_stop",
         re.compile(r"혈압[^.!?。]{0,20}약[^.!?。]{0,8}(끊|중단|안먹어도|줄여)|혈압약[^.!?。]{0,8}(끊|중단|안먹어도|줄여)"),
         "혈압약을 임의로 끊으면 혈압이 다시 오를 수 있어요.",
@@ -229,6 +236,8 @@ _SLEEPING_PILL_WRONG = re.compile(
     # 2026-10-30 J-1: "약국에서 직접 구입할 수 있는 약은 아니에요"·"살 수 있는 약이 아니에요" 변형도 같은 단정이다.
     r"|(약국|처방)[^.!?。]{0,25}(살|사실|구입할|구입하실|구매할|구매하실) 수 있는 약(은|이) 아니"
 )
+# 2026-10-30 K-2: 같은 질문에서 "처방이 필요할 수 있어요"는 고정 문장("수면제는 처방이 필요해요")과 엇갈린다.
+_SLEEPING_PILL_HEDGE = re.compile(r"처방[^.!?。]{0,6}필요할 수 있")
 # 생활관리 질문 고정 문장(2026-10-29 G-3, 약 질문 직접 안내와 같은 방식 - 판정자가 생성 차이로 내용이 빠진다고 본 E1·E2·E4).
 _LIFESTYLE_RULES = (
     _DrugDirectRule(
@@ -241,7 +250,8 @@ _LIFESTYLE_RULES = (
         "high_bp_exercise",
         re.compile(r"혈압[^.!?。]{0,15}(높|올라|오른)[^.!?。]{0,15}운동|운동[^.!?。]{0,15}혈압[^.!?。]{0,10}(높|올라|오른)"),
         "혈압이 평소보다 높게 나온 날은 운동을 쉬거나 가볍게 하시고, 가슴 통증·어지럼이 있으면 바로 멈추세요.",
-        re.compile(r"운동[^.!?。]{0,15}(쉬|멈추|중단|미루)"),
+        # 2026-10-30 K-1: 모델의 애매한 "운동을 하신 후에도 혈압이 높으면 … 멈추세요"에 걸려 생략되던 것을 없앤다 - 늘 붙인다(같은 문장만 생략).
+        re.compile(r"(?!)"),
     ),
     _DrugDirectRule(
         "arthritis_exercise",
@@ -329,13 +339,24 @@ _SYMPTOM_RULES = (
         "갑자기 앞이 안 보이거나 시야가 가려지면 바로 응급실이나 안과로 가세요.",
         re.compile(r"갑자기[^.!?。]{0,15}(안 ?보|시력|시야)"),
     ),
+    _DrugDirectRule(
+        # 2026-10-30 K-4 qa.A6: 기준 R3(얼굴·팔·다리 저림이나 힘 빠짐). 119 낱말은 쓰지 않는다(일반 답).
+        "numbness_stroke_sign",
+        re.compile(r"저려|저리|저린|저림"),
+        "한쪽 얼굴·팔·다리가 갑자기 저리거나 힘이 빠지면 바로 응급실로 가세요.",
+        re.compile(r"한쪽[^.!?。]{0,15}(저리|저려|힘이 빠|마비)"),
+    ),
 )
+# 2026-10-30 K-3: 약 이야기가 없는 질문의 답에 붙는 모델 상투 문장("약 복용이나 (다른) 대처 방법에 대해 …") - 프롬프트 예시 2 영향.
+_MEDICATION_BOILERPLATE = re.compile(r"약 ?복용(이나|과|및)[^.!?。]{0,20}대처")
 # 2026-10-30 J-2: 증상 칸에 나온 모델의 분석 문장("복약 문의. … 언급되지 않음") - 특징 칸 거르기(format_answer)와 같은 말들.
 _ANALYSIS_NOTE = re.compile(r"언급되지|언급 ?없|언급이 없|말씀하지 않|제공되지|명시되지|정보 ?없")
 # 저혈당은 "저혈당"이라는 말 또는 혈당 수치 70 미만일 때만 - "혈당이 300"에 단 음식을 권하면 반대가 된다.
 _HYPOGLYCEMIA_WORD = re.compile(r"저혈당")
 _GLUCOSE_VALUE = re.compile(r"혈당(?:이|은|가|수치가?)?(\d{2,3})")
 _HYPOGLYCEMIA_SENTENCE = "의식이 있으면 사탕이나 단 음료를 드시고, 의식이 흐리면 억지로 먹이지 마세요."
+# 2026-10-30 K-4 qa.C6: 기준 R2(다시 재고, 계속 낮으면 의사에게 연락)
+_HYPOGLYCEMIA_RECHECK = "15분쯤 뒤 혈당을 다시 재 보고, 계속 낮거나 증상이 이어지면 의사에게 알리세요."
 
 # 증상 상담 되묻기(2026-10-29 C-1, 설계 docs/design/2026-10-29-chat-followup-question.md A안).
 # 기간·상황·정도를 말한 문장(공백 뺀 문장)이면 되묻지 않는다 - 이미 답할 재료가 있다.
@@ -656,6 +677,26 @@ class MedicalLlmService:
         return _PERSISTING_SENTENCE.format(department=f"{hint}" if hint else "가까운 병원")
 
     @staticmethod
+    def drop_medication_boilerplate(message: str, reply: str) -> tuple[str, int]:
+        """질문에 약 이야기가 없으면 "약 복용이나 … 대처" 상투 문장을 뺀다(K-3). 약 + 술 질문은 대상 밖. (고친 답, 뺀 문장 수)."""
+        compact = re.sub(r"\s+", "", message or "")
+        if _MEDICATION_WORD.search(compact) or MedicalLlmService.drug_alcohol_rules(message):
+            return reply, 0
+        removed = 0
+        lines: list[str] = []
+        for line in (reply or "").split("\n"):
+            sentences = _SENTENCE_SPLIT.split(line)
+            kept = [x for x in sentences if not _MEDICATION_BOILERPLATE.search(x)]
+            if len(kept) == len(sentences):
+                lines.append(line)
+                continue
+            removed += len(sentences) - len(kept)
+            new_line = " ".join(kept).strip()
+            if new_line:
+                lines.append(new_line)
+        return ("\n".join(lines) if removed else reply), removed
+
+    @staticmethod
     def drop_prompt_leak(reply: str) -> tuple[str, int]:
         """프롬프트 규칙 문구가 든 문장을 뺀다(I-3). 다 빠지면 상의 권유 한 줄. (고친 답, 뺀 문장 수)."""
         removed = 0
@@ -732,7 +773,7 @@ class MedicalLlmService:
         lines: list[str] = []
         for line in (reply or "").split("\n"):
             sentences = _SENTENCE_SPLIT.split(line)
-            kept = [x for x in sentences if not _SLEEPING_PILL_WRONG.search(x)]
+            kept = [x for x in sentences if not (_SLEEPING_PILL_WRONG.search(x) or _SLEEPING_PILL_HEDGE.search(x))]
             if len(kept) == len(sentences):
                 lines.append(line)
                 continue
@@ -757,6 +798,7 @@ class MedicalLlmService:
         values = [int(v) for v in _GLUCOSE_VALUE.findall(compact)]
         if _HYPOGLYCEMIA_WORD.search(compact) or any(v < 70 for v in values):
             out.append(("hypoglycemia", _HYPOGLYCEMIA_SENTENCE))
+            out.append(("hypoglycemia_recheck", _HYPOGLYCEMIA_RECHECK))
         return out
 
     @staticmethod
@@ -1017,6 +1059,9 @@ class MedicalLlmService:
             reply, leaked = self.drop_prompt_leak(reply)
             if leaked:
                 _LOG.info("[CHAT-SAFETY] prompt_leak_dropped=%s", leaked)
+            reply, boilerplate = self.drop_medication_boilerplate(message, reply)
+            if boilerplate:
+                _LOG.info("[CHAT-QUALITY] medication_boilerplate_dropped=%s", boilerplate)
             reply, dropped, added = self.apply_drug_alcohol_rules(message, reply)
             if dropped or added:
                 # 상담 내용은 남기지 않는다 - 규칙 이름·뺀 문장 수만.
