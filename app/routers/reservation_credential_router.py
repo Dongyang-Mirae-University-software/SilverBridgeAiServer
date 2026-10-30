@@ -8,6 +8,7 @@ from app.database.session import get_db
 from app.schemas.reservation_credential_schema import (
     ReservationCredentialUpsertRequest,
 )
+from app.services.reservation_api_client import get_reservation_api_client
 from app.services.reservation_credential_service import get_reservation_credential_service
 
 router = APIRouter(prefix="/api/v1/reservation-credentials", tags=["Reservation Credentials"])
@@ -45,5 +46,8 @@ def delete_reservation_credential(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=error_response("userId 가 필요합니다.", "RESERVATION_CREDENTIAL_USER_ID_REQUIRED", None),
         )
-    deleted = get_reservation_credential_service().delete_credential(db, userId.strip())
-    return success_response("예약 API 키 삭제 완료", {"deleted": deleted})
+    service = get_reservation_credential_service()
+    deleted = service.delete_credential(db, userId.strip())
+    # 행을 먼저 지운 뒤 예약 서비스에 남은 그 회원의 AI 키도 폐기한다(best-effort, 8초 안). 못 했으면 revokedKeys=null.
+    revoked = service.revoke_account_keys(get_reservation_api_client(), userId.strip())
+    return success_response("예약 API 키 삭제 완료", {"deleted": deleted, "revokedKeys": revoked})
