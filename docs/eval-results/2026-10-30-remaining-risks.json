@@ -1,0 +1,132 @@
+{
+ "label": "2026-10-30-remaining-risks",
+ "createdAt": "2026-10-30",
+ "note": "답변 본문·사용자 문장 없음.",
+ "pr": {
+  "code": 120,
+  "merge": "3cf136a",
+  "commits": [
+   "0162e33",
+   "893aa1d"
+  ]
+ },
+ "gosky": {
+  "before": "dd9b128",
+  "after": "3cf136a",
+  "restartKst": "2026-10-30 11:11:32",
+  "beWsReconnectKst": "2026-10-30 11:11:57"
+ },
+ "pytest": {
+  "passed": 1158,
+  "failed": 1,
+  "faultInjection": {
+   "persisting_removed": 4,
+   "leak_filter_removed": 7,
+   "leak_filter_on_emergency": 19,
+   "fever_internal_removed": 5,
+   "missed_dose_on_overdose": 1
+  }
+ },
+ "dgx": {
+  "base": "adebaad",
+  "new": "893aa1d",
+  "I_core": "0/6 -> 6/6",
+  "emergency": "26/26/26 -> 26/26/26",
+  "general119": "2/54 -> 2/54",
+  "parseFail": "0 -> 0",
+  "FG": "유지",
+  "promptLeak": "0 -> 0",
+  "genSecAvg": [
+   6.65,
+   6.46
+  ]
+ },
+ "goskyV7": {
+  "before_c53cac0": {
+   "judged": 132,
+   "passed": 132,
+   "general119": "2/77"
+  },
+  "after_3cf136a": {
+   "judged": 132,
+   "passed": 132,
+   "general119": "0/77",
+   "emergency119WarnHigh": "37/37/37",
+   "fq11": "내과+미루지",
+   "fq13": "미루지",
+   "fq17": "미루지",
+   "bd02_119": true,
+   "symptomAvgMs": 10202
+  }
+ },
+ "goskyQa": {
+  "before": [
+   "32/32",
+   "32/32",
+   "32/32"
+  ],
+  "after": [
+   "32/32",
+   "32/32",
+   "32/32"
+  ],
+  "D1E3F4": {
+   "before": "0/3 x3",
+   "after": "3/3 x3"
+  },
+  "symptomAvgMs": {
+   "before": [
+    12932,
+    12850,
+    12744
+   ],
+   "after": [
+    12659,
+    12479,
+    12529
+   ]
+  }
+ },
+ "judge": {
+  "items": 31,
+  "mustTotal": 84,
+  "sonnet": {
+   "before": [
+    46,
+    49,
+    45
+   ],
+   "after": [
+    54,
+    54,
+    53
+   ],
+   "avg": [
+    46.7,
+    53.7
+   ]
+  },
+  "opus": {
+   "before": [
+    47,
+    47,
+    47
+   ],
+   "after": [
+    54,
+    55,
+    54
+   ],
+   "avg": [
+    47.0,
+    54.3
+   ]
+  },
+  "targetD1E3F4": "1~2 -> 7",
+  "violations": {
+   "before": 1,
+   "after": 0
+  }
+ },
+ "i5": "반영 안 함 - 변경안만"
+}
