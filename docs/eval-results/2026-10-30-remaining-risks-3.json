@@ -1,0 +1,133 @@
+{
+ "label": "2026-10-30-remaining-risks-3",
+ "createdAt": "2026-10-30",
+ "note": "답변 본문·사용자 문장 없음.",
+ "pr": {
+  "code": 132,
+  "merge": "eb92678"
+ },
+ "decisions": {
+  "Q1": "E2 늘 붙이기",
+  "Q2": "약 이야기 없는 질문만",
+  "Q3": "바로 응급실(119 낱말 없음)"
+ },
+ "gosky": {
+  "before": "9df4c39",
+  "after": "eb92678",
+  "restartKst": "2026-10-30 16:20:49",
+  "beWsReconnectKst": "2026-10-30 16:21:13"
+ },
+ "pytest": {
+  "passed": 1233,
+  "failed": 1,
+  "faultInjection": {
+   "K1": 2,
+   "K2": 2,
+   "K3": 4,
+   "K4": 3,
+   "emergency_119_removed": 21
+  }
+ },
+ "dgx": {
+  "K_core": "1/4 -> 4/4",
+  "D3hedge": "1 -> 0",
+  "boilerplate": "0 -> 0",
+  "emergency": "26/26/26",
+  "general119": "2/54 -> 2/54",
+  "genSecAvg": [
+   6.43,
+   6.57
+  ]
+ },
+ "goskyV7": {
+  "after_eb92678": {
+   "judged": 132,
+   "passed": 132,
+   "emergency119WarnHigh": "37/37/37",
+   "general119": "1/77",
+   "echoCandidate": [
+    "ax.01"
+   ],
+   "crisis": {
+    "keyword": 9,
+    "router": 10
+   },
+   "symptomAvgMs": 10058
+  }
+ },
+ "goskyQa": {
+  "before": [
+   "32/32",
+   "32/32",
+   "32/32"
+  ],
+  "after": [
+   "32/32",
+   "32/32",
+   "32/32"
+  ],
+  "K4": {
+   "before": "0~1/4 x3",
+   "after": "4/4 x3"
+  },
+  "D3hedge": {
+   "before": "2/3",
+   "after": "0/3"
+  },
+  "boilerplate": {
+   "before": 4,
+   "after": 0
+  },
+  "symptomAvgMs": {
+   "before": [
+    12859,
+    13051,
+    12824
+   ],
+   "after": [
+    12760,
+    12717,
+    12706
+   ]
+  }
+ },
+ "judge": {
+  "sonnet": {
+   "before": [
+    60,
+    58,
+    60
+   ],
+   "after": [
+    65,
+    64,
+    64
+   ],
+   "avg": [
+    59.3,
+    64.3
+   ]
+  },
+  "opus": {
+   "before": [
+    61,
+    60,
+    61
+   ],
+   "after": [
+    65,
+    66,
+    64
+   ],
+   "avg": [
+    60.7,
+    65.0
+   ]
+  },
+  "target4": "6~7 -> 10~11",
+  "violations": {
+   "before": 0,
+   "after": 0
+  }
+ }
+}
