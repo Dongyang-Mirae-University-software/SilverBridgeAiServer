@@ -201,12 +201,6 @@ class Settings(BaseModel):
         return self.default_chat_model
 
     @property
-    def reservation_headers(self) -> dict[str, str] | None:
-        if not self.reservation_api_key.strip():
-            return None
-        return {"Authorization": f"Bearer {self.reservation_api_key.strip()}"}
-
-    @property
     def has_reservation_account_secret(self) -> bool:
         return bool(self.reservation_account_secret.strip())
 

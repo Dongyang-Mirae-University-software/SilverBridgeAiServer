@@ -26,7 +26,8 @@ from app.services.claude_structured_client import ClaudeStructuredClient, failur
 _LOG = logging.getLogger(__name__)
 
 MAX_QUESTIONS = 3
-MAX_CHARS = 18
+# 모델 질문이 18자에 자주 걸려 전부 빠졌다(2026-10-30 발견) - 22자로 올리고 프롬프트에 "15자 안팎"을 적는다. BE 정리 상한 30자 이하.
+MAX_CHARS = 22
 _MIN_CHARS = 2
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 # 전화번호·날짜 같은 숫자 덩어리는 개인정보일 수 있어 버린다.
@@ -43,7 +44,7 @@ _SYSTEM_PROMPT = """
 너는 시니어 건강 상담 챗봇 화면의 '이어서 물어볼 질문' 버튼 문구를 만든다.
 사용자의 질문과 챗봇의 답을 보고, 사용자가 다음에 누를 만한 질문 3개를 만든다.
 규칙:
-- 사용자가 챗봇에게 하는 말투의 짧은 질문 한 문장(18자 이내, 존댓말).
+- 사용자가 챗봇에게 하는 말투의 짧은 질문 한 문장(15자 안팎, 22자 이내, 존댓말).
 - 답에서 자연스럽게 이어지는 것: 병원에 가야 하는지, 집에서 할 일, 조심할 음식·행동, 어느 진료과인지, 예약 등.
 - 사람 이름·전화번호·날짜·약 용량 숫자를 넣지 않는다. 진단을 단정하거나 약 복용량을 묻게 하지 않는다.
 - 응급·자해 관련 문구는 만들지 않는다.
@@ -69,7 +70,12 @@ def should_suggest(result: dict, route_info: dict | None, message: str, *, emerg
     route_info = route_info or {}
     if result.get("riskLevel") == "high" or result.get("intent") in ("emergency_guidance", "hospital_reservation"):
         return False
-    if any(meta.get(flag) for flag in ("selfHarm", "crisisFollowup", "emergencyFollowup", "followupAsked", "generationFailed")):
+    # redFlag119·drugAlcohol: 위험 신호 119 답·약 + 술 답도 응급·자해와 같은 기준으로 붙이지 않는다(2026-10-31 M-2).
+    flags = ("selfHarm", "crisisFollowup", "emergencyFollowup", "followupAsked", "generationFailed", "redFlag119", "drugAlcohol")
+    if any(meta.get(flag) for flag in flags):
+        return False
+    # 답에 119 안내가 있으면 표시와 상관없이 붙이지 않는다 - 응급 다음 턴이 답의 119 유무로 갈리지 않게.
+    if isinstance(result.get("reply"), str) and "119" in result["reply"]:
         return False
     if route_info.get("emergency") or route_info.get("route") == "reservation":
         return False
@@ -82,7 +88,7 @@ def should_suggest(result: dict, route_info: dict | None, message: str, *, emerg
 
 
 def sanitize(items: Any, *, exclude: str = "") -> list[str]:
-    """문자열만, 제어문자 제거, 길이 2~18자, 숫자 덩어리 없음, 중복·사용자 문장과 같은 것 제외, 최대 3개."""
+    """문자열만, 제어문자 제거, 길이 2~22자, 숫자 덩어리 없음, 중복·사용자 문장과 같은 것 제외, 최대 3개."""
     if not isinstance(items, list):
         return []
     out: list[str] = []

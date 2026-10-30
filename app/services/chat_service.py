@@ -21,6 +21,7 @@ from app.services.chat_deadline import ChatDeadlineExceeded, chat_deadline, tigh
 from app.services.chat_router_service import ROUTER_RESERVE_SEC, get_chat_router_service
 from app.services import follow_up_questions
 from app.services.claude_structured_client import failure_cause
+from app.services import chat_keywords
 from app.services.medical_llm_service import MedicalLlmService, get_medical_llm_service
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS
 from app.services.reservation_intake import CHANGE_DATE_OPTION, _find_department
@@ -133,13 +134,8 @@ class ChatService:
         self._settings = get_settings()
 
     EMERGENCY_KEYWORDS = MedicalLlmService.EMERGENCY_KEYWORDS  # 단일 출처
-    HIGH_RISK_KEYWORDS = ("가슴", "호흡곤란", "숨이", "의식", "실신", "출혈", "마비")
-    MEDIUM_RISK_KEYWORDS = (
-        "어지럽", "어지러", "어지럼", "복통", "발열", "기침", "두통", "구토", "아파", "아프", "통증", "더부룩", "속이", "소화",
-        "무릎", "허리", "관절", "저리", "붓", "당뇨", "혈압", "혈당", "불면", "잠이", "수면", "약을", "약 먹", "복용",
-        "설사", "변비", "가려", "피부", "기운", "피곤", "식욕",
-    )
-    RESERVATION_KEYWORDS = ("예약", "병원 찾아", "근처 병원", "진료 가능한", "응급실", "잡아", "접수", "병원 좀", "병원 추천", "진료 받")
+    HIGH_RISK_KEYWORDS = chat_keywords.RED_FLAG_KEYWORDS  # 단일 출처(H-1)
+    RESERVATION_KEYWORDS = chat_keywords.RESERVATION_KEYWORDS
 
     def process_message(self, db: Session, payload: ChatRequest) -> dict:
         # 요청 하나의 전체 마감(CHAT_DEADLINE_SEC, O-3). 라우터·예약 추출·예약 API·생성 대기가 남은 시간만큼만 기다린다.
@@ -910,23 +906,18 @@ class ChatService:
             return "history"
         return None
 
-    @classmethod
-    def classify_intent(cls, message: str) -> str:
-        text = (message or "").strip().lower()
-        if MedicalLlmService.emergency_signals(text):
-            return "emergency_guidance"
-        if any(keyword in text for keyword in cls.RESERVATION_KEYWORDS):
-            return "hospital_reservation"
-        if any(keyword in text for keyword in cls.MEDIUM_RISK_KEYWORDS):
-            return "medical_advice"
-        return "general_chat"
+    @staticmethod
+    def classify_intent(message: str) -> str:
+        # 라우터 실패 때 키워드 분류 - 생성 경로와 같은 함수(2026-10-31 M-3, 목록이 갈라지지 않게).
+        return MedicalLlmService.classify_intent(message)
 
-    @classmethod
-    def infer_risk(cls, message: str, intent: str) -> tuple[str, str, bool]:
-        text = (message or "").strip().lower()
-        if intent == "emergency_guidance" or any(keyword in text for keyword in cls.HIGH_RISK_KEYWORDS):
+    @staticmethod
+    def infer_risk(message: str, intent: str) -> tuple[str, str, bool]:
+        """생성 실패 대체 응답의 위험도. 위험 신호 단어는 생성 경로와 같은 목록·공백 뺀 문장으로 본다(H-1) -
+        위험 신호면 high(119 문구), 증상 단어가 하나라도 있으면 medium, "안정 상태" 문구(low)는 증상 단어가 없는 문장에만."""
+        if intent == "emergency_guidance" or chat_keywords.has_red_flag(message):
             return "high", "hospital_visit", True
-        if intent in {"hospital_reservation", "medical_advice"} or any(keyword in text for keyword in cls.MEDIUM_RISK_KEYWORDS):
+        if intent in {"hospital_reservation", "medical_advice"} or chat_keywords.has_symptom_word(message):
             return "medium", "guardian_contact", intent == "hospital_reservation"
         return "low", "home_monitoring", False
 
