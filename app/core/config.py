@@ -141,6 +141,11 @@ class Settings(BaseModel):
     # 모델은 2026-10-22 측정으로 sonnet 확정 - haiku 는 없는 약을 지어내 금지(기동 시 sonnet 으로 대체).
     medication_ocr_enabled: bool = _as_bool("MEDICATION_OCR_ENABLED", True)
     medication_ocr_model: str = os.getenv("MEDICATION_OCR_MODEL", "claude-sonnet-5-5")
+    # 답변 뒤 '이어서 물어볼 질문'(응답 suggestedQuestions, 2026-10-30). 안전 판정과 무관한 보조 값이라 가벼운 모델·짧은 대기.
+    # 대기를 넘기거나 실패하면 규칙 문장으로 대신한다. FOLLOW_UP_ENABLED=false 면 항상 빈 목록.
+    follow_up_enabled: bool = _as_bool("FOLLOW_UP_ENABLED", True)
+    follow_up_model: str = os.getenv("FOLLOW_UP_MODEL", "claude-haiku-5-5")
+    follow_up_timeout_sec: float = _as_float_in_range("FOLLOW_UP_TIMEOUT_SEC", 3.0, 0.5, 10.0)
     reservation_api_base_url: str = os.getenv(
         "RESERVATION_API_BASE_URL",
         "http://127.0.0.1:6015/api/v1",

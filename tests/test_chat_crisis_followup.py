@@ -16,7 +16,7 @@ from tests.test_chat_router_followup import CRISIS_HISTORY, _Router, _send, env 
 
 RESPONSE_KEYS = {
     "sessionId", "reply", "riskLevel", "recommendedAction", "reservationRequired", "intent", "engine", "modelName", "type",
-    "ui", "tool", "toolData", "summary", "possibleCauses", "homeCare", "visitHospitalIf", "emergencyWarning", "chatLogId", "chatNo",
+    "ui", "tool", "toolData", "summary", "possibleCauses", "homeCare", "visitHospitalIf", "emergencyWarning", "chatLogId", "chatNo", "suggestedQuestions",  # 이어서 물어볼 질문(2026-10-30)
 }
 
 
