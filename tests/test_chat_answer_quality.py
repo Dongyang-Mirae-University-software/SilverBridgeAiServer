@@ -220,7 +220,7 @@ def test_quality_log_has_flags_only(caplog) -> None:
     caplog.set_level(logging.INFO)
     _gen("아침에 일어나면 어지러워요", symptoms="아침에 일어나면 어지러워요", advice="정신건강의학과 진료를 권해드려요.")
     lines = [r.getMessage() for r in caplog.records if "[CHAT-QUALITY]" in r.getMessage()]
-    assert lines == ["[CHAT-QUALITY] echo_hidden=True department_aligned=True clinic_added=False red_flag_119=False pediatrics=False medication_119_dropped=0"]
+    assert lines == ["[CHAT-QUALITY] echo_hidden=True department_aligned=True clinic_added=False red_flag_119=False pediatrics=False medication_119_dropped=0 persisting_visit=False"]
 
 
 # ---- D-3 규칙 8 ----------------------------------------------------------------------------------------

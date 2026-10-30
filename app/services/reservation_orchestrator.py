@@ -71,6 +71,8 @@ _SYMPTOM_DEPARTMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"소변|빈뇨|배가|배 ?(아프|아파)|배탈|아랫배|윗배|속이|속 ?(쓰|더부룩|메스)|더부룩|소화|설사|구토|기침|열이|열나|발열|미열|고열|감기"), "내과"),
 )
 
+# 열이 있다는 말(I-2). "열심히"·"열어"·"열쇠"는 걸리지 않게 뒤 글자를 정한다.
+_FEVER = re.compile(r"열(이|도|은|나|까지|감)|발열|미열|고열")
 
 # 예약 추출(Claude) 입력 줄이기(2026-10-28 S-6·O-3).
 EXTRACT_HISTORY_TURNS = 6
@@ -100,6 +102,10 @@ def coarse_region(text: str) -> str | None:
 def _symptom_department(text: str) -> str | None:
     for pattern, department in _SYMPTOM_DEPARTMENTS:
         if pattern.search(text or ""):
+            # 열이 함께 있는 어지럼·두통·저림은 내과(2026-10-30 I-2: "어지러워요 / 열도 조금 있어요"에 신경과만 권했다).
+            # 귀·눈처럼 부위가 분명한 과는 앞 줄에서 이미 정해지므로 신경과일 때만 바꾼다.
+            if department == "신경과" and _FEVER.search(text or ""):
+                return "내과"
             return department
     return None
 
