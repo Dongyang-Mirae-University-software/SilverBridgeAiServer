@@ -9,7 +9,8 @@ from app.core.config import Settings, get_settings
 from app.models.medgemma_loader import MedGemmaLoader
 from app.prompts.medical_chat_prompts import SYSTEM_PROMPT, build_user_prompt
 from app.services.chat_deadline import call_timeout, gen_min_sec
-from app.services.reservation_orchestrator import _symptom_department
+from app.services import chat_keywords
+from app.services.chat_keywords import symptom_department as _symptom_department
 from app.utils.conversation import format_recent_history, normalize_history
 from app.utils.json_extract import extract_json_fields_lenient, extract_json_object
 
@@ -106,6 +107,14 @@ _ALCOHOL_ALLOWANCE = re.compile(r"(한두 ?잔|한 ?잔|두 ?잔|조금|적당�
 # 약을 스스로 줄이거나 끊으라고 읽히는 문장(2026-10-27 측정: "필요하면 당뇨약을 조절" / 금식 때 "당뇨약을 복용하지 않거나").
 # 같은 문장에 의사·약사 상의가 없으면 고정 문장을 덧붙인다 - 모델 문장은 지우지 않는다(맞는 내용일 수 있어 덧붙이기만).
 _SELF_ADJUST = re.compile(r"(약|복용량|용량)[^.!?。]{0,20}(조절|줄이|줄여|늘리|늘려|끊|중단|건너뛰|복용하지 않|드시지 않|먹지 않)")
+# 술을 끊거나 줄이라는 권고(2026-10-31 L-1) - 이 구절을 떼고 약 임의 조절을 본다("약 드시는 동안은 술을 끊으세요"가 빠졌다).
+_ALCOHOL_REDUCE = re.compile(r"(술|음주)[을를은는도]?\s*(끊|줄이|줄여|중단|삼가)")
+
+
+def _self_adjust_hit(sentence: str) -> bool:
+    return bool(_SELF_ADJUST.search(_ALCOHOL_REDUCE.sub(" ", sentence)))
+
+
 _SELF_ADJUST_CONSULTED = re.compile(r"의사|약사|병원|진료|처방|상의|상담")
 _SELF_ADJUST_SENTENCE = "약을 줄이거나 끊거나 거르는 것은 꼭 의사·약사와 상의한 뒤에 하세요."
 # 질문 자체가 약을 끊거나 줄이거나 거르려는 것("약 끊어도 되죠?", 공백 뺀 문장) - 답 본문과 상관없이 상의 문장을 붙인다
@@ -365,11 +374,7 @@ _FOLLOWUP_CONTEXT = re.compile(
     r"계속|자꾸|항상|늘|식후|식사|먹고나|먹으면|계단|걸을|걷|일어날|일어나면|누우|누워|앉|운동|너무|심하|심해|많이|조금|약간|살짝|"
     r"좀|못참|견디|참을|[0-9]|번|때마다|할때|하면|무슨과|어느과|병원|예약|진료"
 )
-# 증상 이름 - 서로 다른 것이 둘 이상이면 동반 증상을 이미 말한 것으로 본다.
-# "가려움"은 "피부"와 같은 증상을 두 번 세게 되어 넣지 않는다(2026-10-29 v7 fq.08 "피부가 가려워요"가 동반 증상으로 잡혔다) - "가려워요"만 말해도 피부과 힌트로 되묻는다.
-_FOLLOWUP_SYMPTOM_NOUN = re.compile(
-    r"기침|열|두통|머리|어지|배|속|구토|토할|설사|허리|무릎|어깨|관절|눈|귀|코|목|피부|저리|저려|소변|변비|가슴|숨|콧물|피곤|잠|이가|이빨|손|발|다리|팔"
-)
+_FOLLOWUP_SYMPTOM_NOUN = chat_keywords.FOLLOWUP_SYMPTOM_NOUN
 # 감정·괴로움 표현이 섞이면 되묻지 않는다 - 위기 신호일 수 있는 말("다 그만두고 싶어")에 고정 질문으로 답하지 않게.
 _FOLLOWUP_DISTRESS = re.compile(r"그만두|그만하|힘들|힘드|싫어|싫다|우울|죽겠|못살|외로|불안|무서|괴로")
 _FOLLOWUP_INTRO = "말씀해 주셔서 고마워요. 더 정확히 안내해 드리려고 몇 가지 여쭤볼게요."
@@ -399,56 +404,17 @@ _ALLOWANCE_NEGATED = re.compile(r"괜찮지 않|괜찮은 (것|게) 아니|안 �
 _HOSPITAL_WORDS = re.compile(r"병원|진료|응급실|119")
 _MEDICATION_WORD = re.compile(r"약|항생제|진통제|수면제|소화제|해열제|아스피린")
 _MEDICATION_ASK = re.compile(r"먹어도|드셔도|복용해도|끊어도|중단해도|먹으면|드시면|먹을까")
-_SYMPTOM_WORDS = (
-    "열이", "열나", "발열", "아파", "아프", "통증", "기침", "어지", "두통", "구토", "설사", "저리", "저려", "가려",
-    "붓", "부었", "숨이", "가슴", "메스꺼", "콧물",
-)
-# D-4 에서 "증상을 말한 상담"으로 볼 단어. 위 목록(약 문의 C-2 판정)은 넓히지 않는다.
-_GENERAL_SYMPTOM_WORDS = _SYMPTOM_WORDS + (
-    "소변", "쥐가", "피곤", "잠이안", "잠을못", "변비", "변을", "침침", "부어", "쑤시", "결리", "쓰려", "답답", "더부룩", "시려",
-)
+_SYMPTOM_WORDS = chat_keywords.MEDICATION_SYMPTOM_WORDS
+_GENERAL_SYMPTOM_WORDS = chat_keywords.GENERAL_SYMPTOM_WORDS
 
 
 class MedicalLlmService:
-    # 응급 신호 목록의 단일 출처(chat_service도 이 목록을 쓴다). 공백을 뺀 문장에 부분 일치시킨다("숨을 못 쉬겠어요"→"숨을못쉬").
-    # 경계 케이스("숨이 차요", "가슴이 답답해요", "코피가 안 멈춰요")는 일부러 뺐다 - docs/chat-eval-set.md 참고.
-    # "일어나지못"·"말이꼬"는 "아침에 일어나지 못한 날"·"말이 꼬여서 다시 말할게요"에 걸려 "일어나지못하겠"·"말이자꾸꼬"로 좁혔다.
-    EMERGENCY_KEYWORDS = (
-        # 호흡
-        "숨이안쉬", "숨을못쉬", "숨쉬기힘", "숨쉬기가힘", "숨이막", "호흡곤란", "호흡이곤란", "질식", "목에걸려", "입술이파래", "입술이파랗",
-        # 심장·가슴
-        "가슴통증", "가슴이아", "가슴이조이", "가슴이조여", "가슴을쥐어", "가슴이찢어", "심장이아",
-        "가슴이쪼이", "가슴이쪼여", "가심이쪼이", "가심이쪼여", "가심이조이", "가심이조여", "가슴이꽉조이", "가슴이꽉조여", "가슴이너무조이", "가슴이너무조여",
-        # 의식·실신·낙상
-        "의식없", "의식이없", "의식을잃", "정신을잃", "기절", "실신", "쓰러짐", "쓰러졌", "쓰러져", "쓰러지", "깨어나지", "불러도반응", "못일어나",
-        "의식이흐려", "의식이흐릿", "일어나지못하겠", "일어나지를못", "일어날수가없", "일어설수가없",
-        # 출혈
-        "피가멈추지", "피가안멈", "피를토", "토혈", "피가많이", "출혈이심", "피가계속", "토한것이커피색", "토한게커피색", "커피색으로토",
-        # 경련
-        "경련", "발작", "거품을물",
-        # 뇌졸중 의심
-        "말이어눌", "말이안나", "발음이이상", "발음이꼬", "발음이자꾸꼬", "혀가꼬", "말이자꾸꼬", "한쪽팔", "한쪽다리", "한쪽이마비", "한쪽얼굴", "얼굴이한쪽", "입이돌아", "팔다리에힘이", "갑자기앞이안보", "벼락", "갑자기심한두통", "망치로맞은",
-        # 중독·자해
-        "약을많이먹", "약을한꺼번에", "과다복용", "농약", "죽고싶", "자살", "극단적인생각", "극단적인선택", "극단적선택",
-        # 기타
-        "응급", "심한화상", "화상이심", "온몸에두드러기",
-    )
-    # 자해·자살 신호(공백을 뺀 문장에 부분 일치). 일상 표현에 걸리지 않게 좁게 둔다 -
-    # "그만 살 빼야지"·"밥 다 먹어버릴까"·"무릎 아파 죽겠어"·"극단적인 다이어트"·"약을 다 먹었어요"(약이 떨어짐)는 걸리면 안 된다.
-    # "죽어버리"·"사는게싫"은 과장 표현에 걸릴 수 있다(수용 - 위기 응답 쪽 오탐).
-    SELF_HARM_KEYWORDS = (
-        "죽고싶", "자살", "자해", "극단적인생각", "극단적인선택", "극단적선택", "살기싫", "살기가싫", "사는게싫",
-        "살고싶지않", "살고싶지가않", "그만살고", "그만살래", "사라지고싶", "죽어버리", "목숨을끊", "목숨끊", "뛰어내리고싶",
-        "약을다먹어버릴", "약다먹어버릴", "약을다먹을까", "수면제를다먹어버릴", "수면제를다먹을까", "수면제를한꺼번에", "농약마시",
-    )
+    # 응급·자해 목록은 chat_keywords 가 단일 출처다.
+    EMERGENCY_KEYWORDS = chat_keywords.EMERGENCY_KEYWORDS
+    SELF_HARM_KEYWORDS = chat_keywords.SELF_HARM_KEYWORDS
     EMERGENCY_WARNING = _EMERGENCY_REPLY
-    RESERVATION_KEYWORDS = ("예약", "병원 찾", "근처 병원", "진료 가능", "응급실", "잡아", "접수", "병원 좀", "병원 추천", "진료 받")
-    MEDICAL_KEYWORDS = (
-        "아파", "아프", "통증", "열", "기침", "두통", "어지럽", "어지러", "어지럼", "구토", "충혈", "메스꺼", "설사", "변비",
-        "더부룩", "속이", "소화", "체했", "무릎", "허리", "관절", "시려", "저리", "붓", "부었", "가려", "피부", "발진",
-        "당뇨", "혈압", "혈당", "콜레스테롤", "불면", "잠이", "수면", "약을", "약 먹", "복용", "숨이", "가슴", "심장",
-        "기운", "피곤", "식욕", "체중", "눈이", "귀가", "목이", "코가",
-    )
+    RESERVATION_KEYWORDS = chat_keywords.RESERVATION_KEYWORDS
+    MEDICAL_KEYWORDS = chat_keywords.MEDICAL_KEYWORDS
 
     def __init__(self, settings: Settings, loader: MedGemmaLoader) -> None:
         self._settings = settings
@@ -516,7 +482,7 @@ class MedicalLlmService:
         def drop_reason(sentence: str) -> str | None:
             if _EXAMPLE_COPY.search(sentence):
                 return "example_copy"
-            if _SELF_ADJUST.search(sentence) and sentence.strip() != _SELF_ADJUST_SENTENCE:
+            if _self_adjust_hit(sentence) and sentence.strip() != _SELF_ADJUST_SENTENCE:
                 # 2026-10-30 J-5(qa.D5 X2): 술 마실 때 약을 거르라는 문장은 "상의"가 같이 있어도 뺀다 - 고정 상의 문장이 대신한다.
                 return "self_adjust"
             if (
@@ -588,7 +554,7 @@ class MedicalLlmService:
             return True
         for line in text.split("\n"):
             for sentence in _SENTENCE_SPLIT.split(line):
-                if _SELF_ADJUST.search(sentence) and not _SELF_ADJUST_CONSULTED.search(sentence):
+                if _self_adjust_hit(sentence) and not _SELF_ADJUST_CONSULTED.search(sentence):
                     return True
         return False
 
@@ -728,7 +694,8 @@ class MedicalLlmService:
             return False
         # 응급 키워드는 아니어도 위험 신호 단어(가슴·숨이 등)가 있으면 되묻지 않는다 - 위험 신호 119 한 줄이 나가는 답으로 둔다
         # (2026-10-29 v7 bd.02 "가슴이 답답해요"가 되묻기로 가 119 안내가 빠졌다).
-        if any(keyword in (message or "").strip().lower() for keyword in cls.HIGH_RISK_KEYWORDS):
+        # 공백을 뺀 문장으로 본다(2026-10-31 M-1: "숨차요"·"숨 차요"가 되묻기로 가 119 한 줄이 빠졌다).
+        if chat_keywords.has_red_flag(message):
             return False
         if _MEDICATION_WORD.search(compact) or cls.drug_alcohol_rules(message):
             return False
@@ -819,32 +786,32 @@ class MedicalLlmService:
     @classmethod
     def needs_red_flag_sentence(cls, message: str, reply: str) -> bool:
         """질문에 위험 신호 단어가 있는데 답에 119 안내가 없으면 True(응급 판정은 바꾸지 않는다 - 안내 한 줄만)."""
-        text = (message or "").strip().lower()
-        return "119" not in (reply or "") and any(keyword in text for keyword in cls.HIGH_RISK_KEYWORDS)
+        return "119" not in (reply or "") and chat_keywords.has_red_flag(message)
 
     @classmethod
     def classify_intent(cls, message: str) -> str:
         text = (message or "").strip().lower()
         if cls.emergency_signals(text):
             return "emergency_guidance"
-        if any(keyword in text for keyword in cls.RESERVATION_KEYWORDS):
+        if chat_keywords.has_reservation_word(text):
             return "hospital_reservation"
-        if any(keyword in text for keyword in cls.MEDICAL_KEYWORDS):
+        # 위험 신호·증상 단어만 있는 문장("숨차요"·"답답해요")도 상담이다 - 라우터 실패 때 일반 대화로 빠져 119 한 줄을 놓치지 않게.
+        if chat_keywords.has_medical_word(text) or chat_keywords.has_symptom_word(text) or chat_keywords.has_red_flag(text):
             return "medical_advice"
         return "general_chat"
 
-    HIGH_RISK_KEYWORDS = ("가슴", "숨이", "호흡", "의식", "실신", "쓰러", "출혈", "피가", "마비", "경련", "파래", "식은땀")
+    HIGH_RISK_KEYWORDS = chat_keywords.RED_FLAG_KEYWORDS
 
     @staticmethod
     def infer_risk(message: str, intent: str, emergency_warning: list[str]) -> tuple[str, str, bool]:
         text = (message or "").strip().lower()
         # 모델은 거의 항상 일반적인 응급 주의 문구를 붙이므로, 사용자 메시지에 응급 신호가 있을 때만 high로 본다.
-        has_high_signal = any(keyword in text for keyword in MedicalLlmService.HIGH_RISK_KEYWORDS)
+        has_high_signal = chat_keywords.has_red_flag(message)
         if intent == "emergency_guidance" or (emergency_warning and has_high_signal):
             return "high", "hospital_visit", True
         if intent in {"hospital_reservation", "medical_advice"}:
             return "medium", "guardian_contact", intent == "hospital_reservation"
-        if any(keyword in text for keyword in MedicalLlmService.MEDICAL_KEYWORDS):
+        if chat_keywords.has_medical_word(text):
             return "medium", "guardian_contact", False
         return "low", "home_monitoring", False
 
@@ -866,7 +833,8 @@ class MedicalLlmService:
         if emergency:
             # 응급이면 모델이 진료과를 권해도 쓰지 않는다. 경고 문구는 말풍선 위 빨간 박스(emergencyWarning)가 맡는다.
             advice = "지금은 병원 예약보다 119 연락이 먼저예요. 바로 119에 전화해 주세요."
-        lines.append(advice or "증상이 계속되면 가까운 병원 진료를 권해드려요. 갑자기 심해지면 바로 119에 연락하세요.")
+        # 빈 advice 기본 문장에는 119를 넣지 않는다 - 119는 위험 신호 문장 때만(D-3, 2026-10-31 L-2).
+        lines.append(advice or "증상이 계속되면 가까운 병원 진료를 권해드려요. 계속되거나 심해지면 꼭 진료를 받아 보세요.")
         return "\n".join(lines)
 
     PLACEHOLDERS = {"...", "…", "문자열", "-", "n/a", "없음", "정보 없음", "해당 없음", "알 수 없음", "해당사항 없음"}
@@ -975,7 +943,7 @@ class MedicalLlmService:
                 out["symptoms"] = (message or "").strip()[:60]
             department = _symptom_department(message or "")
             if not out["advice"] and department:
-                out["advice"] = f"{department} 진료를 권해드려요. 갑자기 심해지면 바로 119에 연락하세요."
+                out["advice"] = f"{department} 진료를 권해드려요. 계속되거나 심해지면 꼭 진료를 받아 보세요."
         else:
             # 인사·일반 질문인데 모델이 증상 칸을 채우면("고마워요") 상담 틀로 빠지므로 비운다.
             out["symptoms"] = ""
@@ -1132,7 +1100,8 @@ class MedicalLlmService:
             "visitHospitalIf": [],
             "emergencyWarning": emergency_warning,
             # 근거: 어떤 키워드로 응급을 봤는지(없으면 라우터 판단). chat_service가 router 정보를 덧붙여 로그에 남긴다.
-            "meta": {"emergencySignals": signals},
+            # redFlag119·drugAlcohol: 이어서 물어볼 질문을 붙이지 않는 답(2026-10-31 M-2).
+            "meta": {"emergencySignals": signals, "redFlag119": red_flag_added, "drugAlcohol": bool(self.drug_alcohol_rules(message))},
         }
 
 

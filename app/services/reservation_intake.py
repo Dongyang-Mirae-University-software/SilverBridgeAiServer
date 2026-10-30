@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.services import chat_keywords
 from app.utils.conversation import remove_personal_info
 
 # 시간 선택지에 붙는 "다른 날짜 선택" 버튼 값
@@ -238,13 +239,7 @@ def _find_time(text: str) -> str | None:
 # 병원에 넘기는 증상 요약(symptomSummary) 규칙(2026-10-28 S-8). 이번 예약 흐름에서 사용자가 직접 친 문장 중 증상 단어가 든 문장만 쓴다 -
 # 대화 이력·LLM 추출 값은 쓰지 않는다(이력은 클라이언트가 보내는 값이고, 관련 없는 대화가 예약 기록에 실렸다).
 SYMPTOM_SUMMARY_MAX_CHARS = 60
-# MedicalLlmService.MEDICAL_KEYWORDS 기준. 한 글자 "열"은 "열 시"와 겹쳐 "열이"·"열나"로 좁히고, 진료과 추론에 쓰는 부위 표현을 더했다.
-_SYMPTOM_WORDS = (
-    "아파", "아프", "통증", "열이", "열나", "기침", "두통", "어지럽", "어지러", "어지럼", "구토", "충혈", "메스꺼", "설사", "변비",
-    "더부룩", "속이", "소화", "체했", "무릎", "허리", "관절", "시려", "저리", "붓", "부었", "가려", "피부", "발진",
-    "당뇨", "혈압", "혈당", "콜레스테롤", "불면", "잠이", "수면", "숨이", "가슴", "심장", "기운", "피곤", "식욕", "체중",
-    "눈이", "귀가", "목이", "코가", "콧물", "편도", "두드러기", "시력", "감기", "결려", "쑤셔", "따가", "울렁",
-)
+_SYMPTOM_WORDS = chat_keywords.SUMMARY_SYMPTOM_WORDS
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。])\s+|\n+")
 
 

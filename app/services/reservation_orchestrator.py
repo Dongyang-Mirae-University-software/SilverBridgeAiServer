@@ -9,6 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.core.config import Settings, get_settings
+from app.services import chat_keywords
 from app.core.reservation_prompts import EXTRACTION_SCHEMA, SYSTEM_PROMPT, build_user_prompt
 from app.schemas.chat_schema import ChatRequest, UiOption, UiPayload
 from app.services.claude_structured_client import ClaudeStructuredClient, failure_cause
@@ -56,23 +57,6 @@ _GAP_PROMPTS: dict[str, tuple[str, str | None]] = {
 }
 
 
-# 증상 단어 → 진료과. 새 요청의 진료과가 직전 요청에서 이어지지 않게 하는 최소 규칙(LLM 추론보다 우선).
-# 상담 진료과 힌트(medical_llm_service)도 이 표를 쓴다. 위에서부터 먼저 걸린 과를 쓴다.
-# 한 글자 단어("목"·"속"·"열"·"눈"·"배"·"코"·"귀")는 조사·증상 말이 붙을 때만 본다(2026-10-29 D-6) -
-# 부분 일치일 때 "목요일"·"약속"·"계속"·"속상"·"열심히"·"배우자"·"눈치"·"코로나"·"귀찮"·"머리카락"·"허리띠"·"가려고"에 걸렸다.
-_SYMPTOM_DEPARTMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"머리가|머리 ?(아프|아파|통증|띵)|두통|어지러|어지럼|어지럽"), "신경과"),
-    (re.compile(r"눈이|눈알|눈꺼풀|눈 ?(아프|아파|따가|가려|침침|충혈)|충혈|시력"), "안과"),
-    (re.compile(r"귀가|귀에|귓|코가|코피|콧|코 ?막|목이|목구멍|목 ?(아프|아파|따가|부었|붓)|목감기|목소리|편도"), "이비인후과"),
-    (re.compile(r"피부|두드러기|가려[워운우움]|가렵"), "피부과"),
-    (re.compile(r"허리가|허리 ?(아프|아파|통증|삐)|무릎|관절|어깨|뼈|삐었|삐끗"), "정형외과"),
-    # 저림은 정형외과 다음 - "허리가 아프고 다리가 저려요"는 정형외과로 둔다(2026-10-29 E: 손발 저림이 힌트 없이 정형외과로 답해졌다).
-    (re.compile(r"저리|저려|저린|저림"), "신경과"),
-    (re.compile(r"소변|빈뇨|배가|배 ?(아프|아파)|배탈|아랫배|윗배|속이|속 ?(쓰|더부룩|메스)|더부룩|소화|설사|구토|기침|열이|열나|발열|미열|고열|감기"), "내과"),
-)
-
-# 열이 있다는 말(I-2). "열심히"·"열어"·"열쇠"는 걸리지 않게 뒤 글자를 정한다.
-_FEVER = re.compile(r"열(이|도|은|나|까지|감)|발열|미열|고열")
 
 # 예약 추출(Claude) 입력 줄이기(2026-10-28 S-6·O-3).
 EXTRACT_HISTORY_TURNS = 6
@@ -99,15 +83,7 @@ def coarse_region(text: str) -> str | None:
     return " ".join(kept) or None
 
 
-def _symptom_department(text: str) -> str | None:
-    for pattern, department in _SYMPTOM_DEPARTMENTS:
-        if pattern.search(text or ""):
-            # 열이 함께 있는 어지럼·두통·저림은 내과(2026-10-30 I-2: "어지러워요 / 열도 조금 있어요"에 신경과만 권했다).
-            # 귀·눈처럼 부위가 분명한 과는 앞 줄에서 이미 정해지므로 신경과일 때만 바꾼다.
-            if department == "신경과" and _FEVER.search(text or ""):
-                return "내과"
-            return department
-    return None
+_symptom_department = chat_keywords.symptom_department
 
 
 class _DepartmentNotOffered(Exception):
@@ -199,7 +175,7 @@ def _filter_future_times(slot_date: str | None, slots: list[str]) -> list[str]:
 
 
 class ReservationOrchestrator(ReservationFlowMixin):
-    RESERVATION_KEYWORDS = ("예약", "병원", "진료", "접수", "내 예약", "예약 내역", "예약 조회", "예약 목록")
+    RESERVATION_KEYWORDS = chat_keywords.RESERVATION_CONTEXT_WORDS
     LOOKUP_KEYWORDS = ("내 예약", "예약 내역", "예약 조회", "예약 목록")
     SEARCH_KEYWORDS = ("병원 찾아", "근처 병원", "찾아줘", "찾아")
     # 선택한 날짜가 꽉 찼을 때 다음 빈 날을 찾는 범위
