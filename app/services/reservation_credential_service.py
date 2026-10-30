@@ -74,42 +74,54 @@ class ReservationCredentialService:
         db.commit()
         return int(deleted)
 
-    def revoke_account_keys(self, client: ReservationApiClient, user_id: str) -> int | None:
-        """그 회원 예약 계정(sb-{userId})의 AI-{userId} 이름 활성 키를 모두 폐기한다(2026-10-30) - AI 쪽 행만 지우면
-        예약 서비스에는 쓰지 않는 키가 활성으로 남았다(탈퇴·측정 정리). 행 삭제 뒤 best-effort로 부른다.
-        폐기 건수, 계정이 없으면 0, 하지 못했으면 None. 가입하지 않는다. 다른 이름 키(웹 등)는 건드리지 않는다.
-        로그는 건수·상태 코드만(키·이메일·비밀번호 금지)."""
+    def purge_reservation_account(self, client: ReservationApiClient, user_id: str) -> dict[str, object]:
+        """그 회원 예약 계정(sb-{userId})을 예약 서비스에서 지운다 - 예약(환자 이름·전화·증상)·API 키·회원 행(2026-10-30,
+        예약 서비스 DELETE /users/me). 예약 서비스가 그 경로를 모르면(옛 버전) AI-{userId} 활성 키 폐기로 대신한다(#122).
+        AI 쪽 행 삭제 뒤 best-effort로 부른다 - 8초 안(BE 호출 제한 15초). 가입하지 않는다.
+        accountDeleted: True 지움 / False 계정 없음 / None 못 함·모름. revokedKeys: 없앤(지우거나 폐기한) 키 수, 못 하면 None.
+        로그는 건수·상태 코드만(키·이메일·비밀번호·예약 내용 금지)."""
+        out: dict[str, object] = {"accountDeleted": None, "revokedKeys": None}
         settings = client._settings
         if not settings.has_reservation_account_secret:
-            return None
+            return out
         email, password = self.account_for(user_id, settings.reservation_account_secret)
-        name = f"AI-{user_id}"
         try:
             with chat_deadline(_REVOKE_BUDGET_SEC):
                 login = client.login_account(email, password)
                 status = int(login.get("httpStatus") or 0)
                 if status in {400, 401, 404}:
-                    return 0  # 예약 계정이 없다(예약을 한 번도 안 했다)
+                    return {"accountDeleted": False, "revokedKeys": 0}  # 예약 계정이 없다(예약을 한 번도 안 했다)
                 data = login.get("data")
                 token = str(data.get("accessToken") or data.get("access_token") or "").strip() if isinstance(data, dict) else ""
                 if not (200 <= status < 300 and token):
-                    _LOG.info("[예약계정] 키 폐기용 로그인 실패 http_status=%s", status)
-                    return None
-                listed = client.list_api_keys(token)
-                rows = (listed.get("data") or {}).get("keys") if isinstance(listed.get("data"), dict) else None
-                if not (200 <= int(listed.get("httpStatus") or 0) < 300) or not isinstance(rows, list):
-                    _LOG.info("[예약계정] 키 폐기용 목록 조회 실패 http_status=%s", listed.get("httpStatus"))
-                    return None
-                targets = [r for r in rows if isinstance(r, dict) and r.get("name") == name and r.get("isActive") and isinstance(r.get("id"), int)]
-                revoked = 0
-                for row in targets:
-                    if 200 <= int(client.revoke_api_key(token, int(row["id"])).get("httpStatus") or 0) < 300:
-                        revoked += 1
-                _LOG.info("[예약계정] 회원 데이터 삭제 - 키 폐기 %s건(대상 %s건)", revoked, len(targets))
-                return revoked if revoked == len(targets) else None
-        except Exception as exc:  # noqa: BLE001 - 마감(ChatDeadlineExceeded) 포함, 행 삭제는 이미 끝났다
-            _LOG.info("[예약계정] 회원 데이터 삭제 - 키 폐기 건너뜀 %s", type(exc).__name__)
+                    _LOG.info("[예약계정] 회원 데이터 삭제 - 로그인 실패 http_status=%s", status)
+                    return out
+                deleted = client.delete_my_account(token)
+                d_status = int(deleted.get("httpStatus") or 0)
+                d_data = deleted.get("data") if isinstance(deleted.get("data"), dict) else {}
+                if 200 <= d_status < 300:
+                    keys = d_data.get("apiKeys")
+                    _LOG.info("[예약계정] 회원 데이터 삭제 - 계정 삭제(예약 %s건·키 %s건)", d_data.get("reservations"), keys)
+                    return {"accountDeleted": True, "revokedKeys": keys if isinstance(keys, int) else None}
+                _LOG.info("[예약계정] 회원 데이터 삭제 - 계정 삭제 실패 http_status=%s, 키 폐기로 대신", d_status)
+                out["revokedKeys"] = self._revoke_ai_keys(client, token, f"AI-{user_id}")
+                return out
+        except Exception as exc:  # noqa: BLE001 - 마감(ChatDeadlineExceeded) 포함, AI 쪽 행 삭제는 이미 끝났다
+            _LOG.info("[예약계정] 회원 데이터 삭제 건너뜀 %s", type(exc).__name__)
+            return out
+
+    @staticmethod
+    def _revoke_ai_keys(client: ReservationApiClient, token: str, name: str) -> int | None:
+        """name 이름의 활성 키를 모두 폐기한다. 전부 폐기했으면 건수, 목록·폐기 중 하나라도 실패하면 None."""
+        listed = client.list_api_keys(token)
+        rows = (listed.get("data") or {}).get("keys") if isinstance(listed.get("data"), dict) else None
+        if not (200 <= int(listed.get("httpStatus") or 0) < 300) or not isinstance(rows, list):
+            _LOG.info("[예약계정] 키 폐기용 목록 조회 실패 http_status=%s", listed.get("httpStatus"))
             return None
+        targets = [r for r in rows if isinstance(r, dict) and r.get("name") == name and r.get("isActive") and isinstance(r.get("id"), int)]
+        revoked = sum(1 for row in targets if 200 <= int(client.revoke_api_key(token, int(row["id"])).get("httpStatus") or 0) < 300)
+        _LOG.info("[예약계정] 회원 데이터 삭제 - 키 폐기 %s건(대상 %s건)", revoked, len(targets))
+        return revoked if revoked == len(targets) else None
 
     def get_api_key(self, db: Session, user_id: str) -> str | None:
         current = db.query(ReservationCredential).filter(ReservationCredential.user_id == user_id).first()

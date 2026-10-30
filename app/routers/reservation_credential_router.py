@@ -48,6 +48,6 @@ def delete_reservation_credential(
         )
     service = get_reservation_credential_service()
     deleted = service.delete_credential(db, userId.strip())
-    # 행을 먼저 지운 뒤 예약 서비스에 남은 그 회원의 AI 키도 폐기한다(best-effort, 8초 안). 못 했으면 revokedKeys=null.
-    revoked = service.revoke_account_keys(get_reservation_api_client(), userId.strip())
-    return success_response("예약 API 키 삭제 완료", {"deleted": deleted, "revokedKeys": revoked})
+    # 행을 먼저 지운 뒤 예약 서비스의 그 회원 계정(예약·키 포함)도 지운다(best-effort, 8초 안, 옛 예약 서비스면 키 폐기로 대신).
+    purged = service.purge_reservation_account(get_reservation_api_client(), userId.strip())
+    return success_response("예약 API 키 삭제 완료", {"deleted": deleted, **purged})
