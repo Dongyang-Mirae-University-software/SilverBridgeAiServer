@@ -21,7 +21,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.database.session import SessionLocal
 from app.models.reservation_token_claim import ReservationTokenClaim
-from app.services.chat_deadline import has_time, irreversible_min_sec
+from app.services.chat_deadline import ChatDeadlineExceeded, has_time, irreversible_min_sec
 from app.services.reservation_common import DEMO_NOTICE, _SEOUL_TZ, _date_label, _digits, _phone_last4, _trace, with_demo_notice
 from app.services.reservation_intake import ReservationDraft, build_reservation_draft
 
@@ -94,6 +94,16 @@ _CLAIMS = _TokenClaims()
 _BUSY_REPLY = "이미 처리 중이에요. 잠시 뒤 예약 목록에서 확인해 주세요."
 # 챗 전체 마감이 가까워 예약 생성·취소를 시작하지 않았을 때 앞에 붙이는 한 줄(O-3). 초안은 그대로 두고 버튼을 새 토큰으로 다시 준다.
 _DEADLINE_RETRY = "처리가 늦어져 아직 진행하지 못했어요. 아래 버튼을 다시 눌러 주세요."
+# 예약 서비스가 응답 전에 시간 초과로 끊겨 결과를 모를 때(2026-10-29 #107 점검 L-1). "실패"라고 하면 다시 눌러 중복을 만든다.
+_CREATE_UNKNOWN_REPLY = "예약이 됐는지 확인하지 못했어요. 예약 내역에서 확인해 주세요."
+_CANCEL_UNKNOWN_REPLY = "예약이 취소됐는지 확인하지 못했어요. 예약 내역에서 확인해 주세요."
+_RESULT_UNKNOWN = "RESULT_UNKNOWN"
+_INACTIVE_STATUSES = {"CANCELED", "CANCELLED", "REJECTED"}
+
+
+def _timed_out(status: int, data: Any) -> bool:
+    """예약 서비스에 요청이 닿았을 수 있는 시간 초과인가(연결 실패와 달리 결과를 모른다)."""
+    return status == 0 and isinstance(data, dict) and data.get("code") == "UPSTREAM_TIMEOUT"
 
 
 def draft_to_dict(draft: ReservationDraft) -> dict[str, Any]:
@@ -373,6 +383,14 @@ class ReservationFlowMixin:
         )
         st = int(cr.get("httpStatus") or 0)
         data = cr.get("data")
+        if _timed_out(st, data):
+            # 결과 불명 - 내 예약 목록에서 방금 그 예약이 생겼는지 한 번 확인한다(L-1).
+            data = self._find_created(key, draft, str(args["date"]), str(args["time"]))
+            if data is None:
+                _trace(meta, "reservation_submit_unknown")
+                return self._flow_error(meta, "make_appointment", _CREATE_UNKNOWN_REPLY, _RESULT_UNKNOWN)
+            st = 200
+            _trace(meta, "reservation_submit_confirmed_after_timeout")
         if 200 <= st < 300 and isinstance(data, dict):
             shaped = self._shape_make_appointment(data, str(args["patient_name"]), str(args["phone"]))  # type: ignore[attr-defined]
             _trace(meta, "reservation_submit_ok", reservation_id=shaped.get("reservation_id"), status=shaped.get("status"))
@@ -398,6 +416,43 @@ class ReservationFlowMixin:
             if reselect is not None:
                 return reselect
         return self._flow_error(meta, "make_appointment", msg, code, data)
+
+    def _find_created(self, key: str | None, draft: ReservationDraft, date_text: str, time_text: str) -> dict[str, Any] | None:
+        """시간 초과로 끝난 생성 요청이 실제로 예약을 만들었는지 - 같은 날짜·시간(같은 병원)의 활성 예약 행. 모르면 None.
+        예약 서비스는 한 사람의 같은 날짜·시간 활성 예약을 하나만 받으므로 그 행이 방금 만든 예약이다."""
+        try:
+            res = self._reservation.list_my_appointments(api_key_override=key)  # type: ignore[attr-defined]
+        except ChatDeadlineExceeded:
+            return None
+        rows = res.get("data")
+        if not (200 <= int(res.get("httpStatus") or 0) < 300) or not isinstance(rows, list):
+            return None
+        hospital = str(draft.hospital_name or "").strip()
+        for row in rows:
+            if not isinstance(row, dict) or str(row.get("status") or "").upper() in _INACTIVE_STATUSES:
+                continue
+            if str(row.get("reservationDate") or row.get("date") or "")[:10] != date_text[:10]:
+                continue
+            if str(row.get("reservationTime") or row.get("time") or "").strip() != time_text.strip():
+                continue
+            row_hospital = str(row.get("hospitalName") or "").strip()
+            if hospital and row_hospital and row_hospital != hospital:
+                continue
+            return row
+        return None
+
+    def _cancel_confirmed(self, key: str | None, reservation_id: int) -> bool:
+        """시간 초과로 끝난 취소 요청이 실제로 취소됐는가(L-1). 모르면 False."""
+        try:
+            res = self._reservation.get_reservation(reservation_id, api_key_override=key)  # type: ignore[attr-defined]
+        except ChatDeadlineExceeded:
+            return False
+        data = res.get("data")
+        return (
+            200 <= int(res.get("httpStatus") or 0) < 300
+            and isinstance(data, dict)
+            and str(data.get("status") or "").upper() in {"CANCELED", "CANCELLED"}
+        )
 
     def _reselect_time(
         self,
@@ -568,6 +623,13 @@ class ReservationFlowMixin:
                 return self._flow_message(meta, _BUSY_REPLY)
             res = self._reservation.cancel_reservation(int(pending["reservationId"]), api_key_override=key)  # type: ignore[attr-defined]
             st, data = int(res.get("httpStatus") or 0), res.get("data")
+            if _timed_out(st, data):
+                # 결과 불명 - 그 예약을 다시 조회해 취소됐는지 확인한다(L-1).
+                if not self._cancel_confirmed(key, int(pending["reservationId"])):
+                    _trace(meta, "reservation_cancel_unknown", reservation_id=pending["reservationId"])
+                    return self._flow_error(meta, "cancel_reservation", _CANCEL_UNKNOWN_REPLY, _RESULT_UNKNOWN)
+                st = 200
+                _trace(meta, "reservation_cancel_confirmed_after_timeout", reservation_id=pending["reservationId"])
             if 200 <= st < 300:
                 _trace(meta, "reservation_cancel_ok", reservation_id=pending["reservationId"])
                 out = self._flow_message(meta, f"{pending.get('label')} 예약을 취소했어요.", self._followup_ui())
