@@ -114,7 +114,11 @@ _SELF_ADJUST_SENTENCE = "약을 줄이거나 끊거나 거르는 것은 꼭 의�
 _SELF_ADJUST_ASK = re.compile(r"약(?!속)[^.!?。술]{0,12}(끊어도|끊으면|끊을까|중단해도|중단하면|안먹어도|안드셔도|안먹으면|줄여도|줄이면|건너뛰어도)")
 # 프롬프트 예시 2의 advice 를 모델이 그대로 베낀 문장(2026-10-28 측정: 술 질문 9/27에 끼어 어색 / "술을 더 드시거나"로 꼬임).
 # 약 + 술 문의에서만 뺀다 - 상의 안내는 고정 문장이 맡는다. 약을 더 먹거나 바꾸려는 질문(예시 2 상황)에서는 맞는 말이라 건드리지 않는다.
-_EXAMPLE_COPY = re.compile(r"(약|술)을 더 드시거나 바꾸기 전에|다니시는 병원 진료 때 함께 여쭤보셔도")
+_EXAMPLE_COPY = re.compile(
+    r"(약|술)을 더 드시거나 바꾸기 전에|다니시는 병원 진료 때 함께 여쭤보셔도"
+    # 2026-10-30 J-5: "술을 마시거나 바꾸기 전에"(qa.D5, 예시 문장이 꼬인 변형)
+    r"|(약|술)을 (더 )?(드시|마시|드셔|마셔)[^.!?。]{0,6}바꾸기 전에"
+)
 # 모델이 지어낸 진료과("당뇨 관리의학과", 2026-10-28 측정 1회). 실제 있는 "…의학과"만 남긴다.
 _REAL_MEDICINE_DEPTS = frozenset({
     "가정의학과", "재활의학과", "응급의학과", "핵의학과", "직업환경의학과", "예방의학과",
@@ -222,6 +226,8 @@ _DRUG_DIRECT_RULES = (
 # 수면제 구입 질문에서 "약국에서 살 수 없다"고 단정한 문장(G-1) - 이 질문에서만 뺀다.
 _SLEEPING_PILL_WRONG = re.compile(
     r"(약국|처방)[^.!?。]{0,25}(살 수 없|구입할 수 없|구매할 수 없|구입하실 수 있는 약은 아니|살 수 있는 약은 아니|사실 수 없)"
+    # 2026-10-30 J-1: "약국에서 직접 구입할 수 있는 약은 아니에요"·"살 수 있는 약이 아니에요" 변형도 같은 단정이다.
+    r"|(약국|처방)[^.!?。]{0,25}(살|사실|구입할|구입하실|구매할|구매하실) 수 있는 약(은|이) 아니"
 )
 # 생활관리 질문 고정 문장(2026-10-29 G-3, 약 질문 직접 안내와 같은 방식 - 판정자가 생성 차이로 내용이 빠진다고 본 E1·E2·E4).
 _LIFESTYLE_RULES = (
@@ -298,6 +304,34 @@ _EMERGENCY_ACTIONS = (
         "무리하게 일으키지 말고 편한 자세로 눕혀 두세요.",
     ),
 )
+# 2026-10-30 J-3: 응급 답의 설명 한 줄(판정자 6명 공통 지적 - B2 운전 금지·C5 출혈 신호·F3 심근경색 가능성).
+_BREATHING_NO_DRIVE = "직접 운전해서 병원에 가지 마세요."
+_VOMIT_BLOOD_INFO = "커피색이나 검은색으로 토하는 것은 위나 장의 출혈일 수 있어요."
+_CHEST_INDIGESTION = re.compile(r"소화불량|소화가안|체한|체했|체해서|체기|속이(쓰|더부룩|안좋)")
+_CHEST_INDIGESTION_INFO = "소화불량처럼 느껴져도 심근경색 증상일 수 있어요."
+# 2026-10-30 J-4: 일반 증상 답의 위험 신호·자가관리 고정 문장(A1·A2·A8). 119라는 말은 넣지 않는다(일반 답의 막연한 119를 늘리지 않게).
+_SYMPTOM_RULES = (
+    _DrugDirectRule(
+        "cough_red_flag",
+        re.compile(r"기침|목이(아프|아파|따가)|목(통증|감기)"),
+        "숨이 차거나 피 섞인 기침이 나오거나 삼키기 어려우면 바로 응급실 진료를 받으세요.",
+        re.compile(r"피 ?섞인|피가 섞|객혈"),
+    ),
+    _DrugDirectRule(
+        "orthostatic_dizziness",
+        re.compile(r"(일어나|일어설|일어날|일어서)[^.!?。]{0,10}어지|어지[^.!?。]{0,10}(일어나|일어설|일어날|일어서)"),
+        "누웠다 일어날 때는 천천히 일어나시고, 물을 충분히 드세요.",
+        re.compile(r"(?s)(?=.*천천히)(?=.*(물|수분))"),
+    ),
+    _DrugDirectRule(
+        "sudden_vision_loss",
+        re.compile(r"눈이?(침침|흐릿|뿌옇|잘안보)|시력|앞이(흐릿|뿌옇|침침)"),
+        "갑자기 앞이 안 보이거나 시야가 가려지면 바로 응급실이나 안과로 가세요.",
+        re.compile(r"갑자기[^.!?。]{0,15}(안 ?보|시력|시야)"),
+    ),
+)
+# 2026-10-30 J-2: 증상 칸에 나온 모델의 분석 문장("복약 문의. … 언급되지 않음") - 특징 칸 거르기(format_answer)와 같은 말들.
+_ANALYSIS_NOTE = re.compile(r"언급되지|언급 ?없|언급이 없|말씀하지 않|제공되지|명시되지|정보 ?없")
 # 저혈당은 "저혈당"이라는 말 또는 혈당 수치 70 미만일 때만 - "혈당이 300"에 단 음식을 권하면 반대가 된다.
 _HYPOGLYCEMIA_WORD = re.compile(r"저혈당")
 _GLUCOSE_VALUE = re.compile(r"혈당(?:이|은|가|수치가?)?(\d{2,3})")
@@ -461,6 +495,9 @@ class MedicalLlmService:
         def drop_reason(sentence: str) -> str | None:
             if _EXAMPLE_COPY.search(sentence):
                 return "example_copy"
+            if _SELF_ADJUST.search(sentence) and sentence.strip() != _SELF_ADJUST_SENTENCE:
+                # 2026-10-30 J-5(qa.D5 X2): 술 마실 때 약을 거르라는 문장은 "상의"가 같이 있어도 뺀다 - 고정 상의 문장이 대신한다.
+                return "self_adjust"
             if (
                 (_ALCOHOL_WORDS.search(sentence) or "잔" in sentence)
                 and _ALCOHOL_ALLOWANCE.search(sentence)
@@ -493,6 +530,9 @@ class MedicalLlmService:
         # 핵심 위험이 이미 있는지는 모델 답만 보고 정한다 - 앞서 붙인 고정 문장의 단어("어지럼")로 다른 약 문장이 빠지지 않게.
         model_text = out
         added = []
+        if dropped.get("self_adjust") and _SELF_ADJUST_SENTENCE not in out:
+            out = f"{out}\n{_SELF_ADJUST_SENTENCE}"
+            added.append("self_adjust")
         for rule in rules:
             if not rule.covered.search(model_text):
                 out = f"{out}\n{rule.sentence}"
@@ -595,7 +635,7 @@ class MedicalLlmService:
         compact = re.sub(r"\s+", "", message or "")
         overdose = bool(_OVERDOSE_TOLD.search(message or ""))
         out: list[tuple[str, str]] = []
-        for rule in _DRUG_DIRECT_RULES + _LIFESTYLE_RULES:
+        for rule in _DRUG_DIRECT_RULES + _LIFESTYLE_RULES + _SYMPTOM_RULES:
             if not rule.ask.search(compact) or rule.covered.search(reply or "") or rule.sentence in (reply or ""):
                 continue
             if rule.name in ("double_dose", "missed_dose_timing") and overdose:
@@ -707,6 +747,13 @@ class MedicalLlmService:
         """응급 답에 덧붙일 유형별 행동 (이름, 문장). 질문에 그 유형의 신호가 없으면 빈 목록(지금 응급 답 그대로)."""
         compact = re.sub(r"\s+", "", message or "")
         out = [(a.name, a.sentence) for a in _EMERGENCY_ACTIONS if a.signal.search(compact)]
+        names = {name for name, _ in out}
+        if "breathing" in names and "chest_stroke" not in names:  # 가슴 통증 줄에 이미 운전 금지가 있다
+            out.append(("breathing_no_drive", _BREATHING_NO_DRIVE))
+        if "vomiting_blood" in names:
+            out.append(("vomiting_blood_info", _VOMIT_BLOOD_INFO))
+        if "chest_stroke" in names and _CHEST_INDIGESTION.search(compact):
+            out.append(("chest_indigestion", _CHEST_INDIGESTION_INFO))
         values = [int(v) for v in _GLUCOSE_VALUE.findall(compact)]
         if _HYPOGLYCEMIA_WORD.search(compact) or any(v < 70 for v in values):
             out.append(("hypoglycemia", _HYPOGLYCEMIA_SENTENCE))
@@ -877,6 +924,10 @@ class MedicalLlmService:
             return cls._fallback_payload(message, intent, emergency_hint, raw_text)
         out = {key: cls._normalize_text(parsed.get(key)) for key in _STRING_KEYS}
         if intent in {"medical_advice", "emergency_guidance"}:
+            if _ANALYSIS_NOTE.search(out["symptoms"]):
+                out["symptoms"] = " ".join(
+                    x for x in _SENTENCE_SPLIT.split(out["symptoms"]) if not _ANALYSIS_NOTE.search(x)
+                ).strip()
             if not out["symptoms"]:
                 # 모델이 증상을 비우면 사용자 문장으로 메운다 - 상담인데 일반 답변 틀로 빠지지 않게.
                 out["symptoms"] = (message or "").strip()[:60]

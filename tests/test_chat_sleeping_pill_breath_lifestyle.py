@@ -134,4 +134,4 @@ def test_g_log_rule_names_only(caplog) -> None:
     msgs = [r.getMessage() for r in caplog.records if "[CHAT-SAFETY]" in r.getMessage()]
     assert "[CHAT-SAFETY] sleeping_pill_misstatement_dropped=1" in msgs
     assert "[CHAT-SAFETY] drug_direct=sleeping_pill_purchase" in msgs
-    assert "[CHAT-SAFETY] emergency_action=vomiting_blood" in msgs
+    assert "[CHAT-SAFETY] emergency_action=vomiting_blood,vomiting_blood_info" in msgs
