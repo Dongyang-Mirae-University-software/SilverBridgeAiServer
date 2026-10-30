@@ -9,7 +9,7 @@ from app.schemas.reservation_credential_schema import (
     ReservationCredentialUpsertRequest,
 )
 from app.services.reservation_api_client import get_reservation_api_client
-from app.services.reservation_credential_service import get_reservation_credential_service
+from app.services.reservation_credential_service import get_reservation_credential_service, mark_purged
 
 router = APIRouter(prefix="/api/v1/reservation-credentials", tags=["Reservation Credentials"])
 
@@ -47,6 +47,7 @@ def delete_reservation_credential(
             detail=error_response("userId 가 필요합니다.", "RESERVATION_CREDENTIAL_USER_ID_REQUIRED", None),
         )
     service = get_reservation_credential_service()
+    mark_purged(userId.strip())  # 진행 중이던 상담이 정리 뒤 예약 계정을 되살리지 않게(점검 L-2)
     deleted = service.delete_credential(db, userId.strip())
     # 행을 먼저 지운 뒤 예약 서비스의 그 회원 계정(예약·키 포함)도 지운다(best-effort, 8초 안, 옛 예약 서비스면 키 폐기로 대신).
     purged = service.purge_reservation_account(get_reservation_api_client(), userId.strip())

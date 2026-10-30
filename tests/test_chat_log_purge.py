@@ -40,7 +40,7 @@ def test_delete_removes_only_that_users_logs() -> None:
     with _client() as (client, session):
         res = client.delete("/api/v1/chat/logs", params={"userId": "aaaaaa"})
         assert res.status_code == 200, res.text
-        assert res.json()["data"] == {"deleted": 2}
+        assert res.json()["data"] == {"deleted": 2, "proxyDeleted": 0}
         assert [row.user_id for row in session.query(ChatLog).all()] == ["bbbbbb"]
 
 
@@ -56,7 +56,7 @@ def test_delete_unknown_user_is_idempotent() -> None:
     with _client() as (client, session):
         res = client.delete("/api/v1/chat/logs", params={"userId": "zzzzzz"})
         assert res.status_code == 200
-        assert res.json()["data"] == {"deleted": 0}
+        assert res.json()["data"] == {"deleted": 0, "proxyDeleted": 0}
         assert session.query(ChatLog).count() == 3
 
 

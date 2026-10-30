@@ -16,7 +16,7 @@ from app.models.chat_log import ChatLog
 from app.core.config import get_settings
 from app.schemas.chat_schema import ChatHistoryItem, ChatRequest
 from app.services.reservation_api_client import get_reservation_api_client
-from app.services.reservation_credential_service import get_reservation_credential_service
+from app.services.reservation_credential_service import get_reservation_credential_service, recently_purged
 from app.services.chat_deadline import ChatDeadlineExceeded, chat_deadline, tighter_deadline
 from app.services.chat_router_service import ROUTER_RESERVE_SEC, get_chat_router_service
 from app.services.claude_structured_client import failure_cause
@@ -307,7 +307,11 @@ class ChatService:
             reservation_api_key = None
             reservation_started = time.perf_counter()
             # 예약 계정 비밀값이 없으면 예약 기능만 끈다(상담·이상감지 등 나머지는 그대로).
-            reservation_disabled = reservation_flow_hint and not self._settings.has_reservation_account_secret
+            reservation_disabled = reservation_flow_hint and (
+                not self._settings.has_reservation_account_secret
+                # 방금 회원 데이터를 지운 ID면 예약 계정을 되살리지 않는다(탈퇴 정리 점검 L-2) - 예약 꺼짐과 같은 안내로 끝낸다.
+                or recently_purged(ward_id or payload.userId)
+            )
             if department_answer:
                 pass  # 이미 result가 있다
             elif self_harm:
@@ -983,11 +987,34 @@ class ChatService:
         }
 
     @staticmethod
-    def delete_logs(db: Session, user_id: str) -> int:
-        """해당 회원의 상담 기록을 모두 지우고 지운 건수를 돌려준다(회원 탈퇴 정리용). 다른 회원 기록은 건드리지 않는다."""
-        deleted = db.query(ChatLog).filter(ChatLog.user_id == user_id).delete(synchronize_session=False)
+    def delete_logs(db: Session, user_id: str) -> tuple[int, int]:
+        """해당 회원의 상담 기록을 모두 지운다(회원 탈퇴 정리용). (본인 기록 수, 대리 상담 기록 수)를 돌려준다.
+        보호자가 이 회원(피보호자)을 대신해 상담한 기록(보호자 ID로 저장, userContext.wardId == 이 회원)도 지운다 -
+        그 기록에 피보호자 이름·전화·생년월일·예약 초안 환자 정보가 들어 있다(2026-10-30 탈퇴 정리 점검 M-1, 기록째 삭제는 사용자 결정).
+        그 밖의 다른 회원 기록은 건드리지 않는다."""
+        own = db.query(ChatLog).filter(ChatLog.user_id == user_id).delete(synchronize_session=False)
+        proxy_ids = [
+            log.id
+            for log in db.query(ChatLog).filter(ChatLog.context_json.contains(user_id)).all()
+            if user_id in ChatService._proxy_ward_ids(log.context_json)
+        ]
+        proxy = db.query(ChatLog).filter(ChatLog.id.in_(proxy_ids)).delete(synchronize_session=False) if proxy_ids else 0
         db.commit()
-        return int(deleted)
+        return int(own), int(proxy)
+
+    @staticmethod
+    def _proxy_ward_ids(context_json: str | None) -> set[str]:
+        """기록이 대리 상담한 피보호자 ID(router.wardId·userContext.wardId). 형식이 이상하면 빈 집합."""
+        try:
+            ctx = json.loads(context_json or "{}")
+        except ValueError:
+            return set()
+        if not isinstance(ctx, dict):
+            return set()
+        meta = ctx.get("upstreamMeta") if isinstance(ctx.get("upstreamMeta"), dict) else {}
+        router = meta.get("router") if isinstance(meta.get("router"), dict) else {}
+        user_context = ctx.get("userContext") if isinstance(ctx.get("userContext"), dict) else {}
+        return {str(v) for v in (router.get("wardId"), user_context.get("wardId")) if v}
 
     @staticmethod
     def list_logs(db: Session, user_id: str | None = None) -> list[dict]:
