@@ -1,6 +1,6 @@
 # 증상 상담 되묻기 설계 (C-1) - 2026-10-29
 
-> **구현 상태**: 설계만 한다(2026-10-29, 결정 질문 Q1~Q5 답을 받은 뒤 구현). 이 문서 시점에 코드는 바뀌지 않았다. 근거는 main `b81b570` 기준 코드(`chat_service.py`·`medical_llm_service.py`·`medical_chat_prompts.py`·`chat_router_service.py`)와 BE `docs/(2026-10-20) analysis-ai-chat-reservation.md` 3-3절 C-1.
+> **구현 상태**: 구현·배포 완료(#115 `aabccaf` 2026-10-29, 위험 신호 단어 제외 #117 `c53cac0` 2026-10-30, gosky 반영). 결정 Q1~Q5는 권장안대로. 측정 결과 `docs/eval-results/2026-10-29-chat-followup-question.md`. 아래 본문은 설계 시점(main `b81b570`) 기록이다.
 
 ## 1. 문제
 

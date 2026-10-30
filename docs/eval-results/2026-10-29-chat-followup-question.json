@@ -1,0 +1,18 @@
+{
+ "label": "2026-10-29-chat-followup-question",
+ "createdAt": "2026-10-30",
+ "note": "답변 본문·사용자 문장 없음.",
+ "pr": [{"code": 115, "merge": "aabccaf"}, {"code": 117, "merge": "c53cac0"}],
+ "gosky": [
+  {"before": "73f2360", "after": "aabccaf", "restartKst": "2026-10-29 22:27:31", "beWsReconnectKst": "2026-10-29 22:28:01"},
+  {"before": "aabccaf", "after": "c53cac0", "restartKst": "2026-10-30 09:16:11", "beWsReconnectKst": "2026-10-30 09:16:40"}
+ ],
+ "pytest_117": {"passed": 1091, "failed": 1, "faultInjection": {"high_risk_gate_removed": 2}},
+ "v7": {
+  "base_73f2360": {"judged": 132, "passed": 132, "emergency119WarnHigh": "37/37/37", "general119": "2/77", "note": "되묻기 판정 없는 옛 run_eval"},
+  "h_aabccaf": {"judged": 132, "passed": 130, "failed": ["fq.08", "fq.18"], "emergency119WarnHigh": "37/37/37", "general119": "1/77", "followupTarget": "9/10", "followupAnswer": "9/10", "counterExample": "10/10", "bd02_119": false, "symptomAvgMs": 10115},
+  "h2_c53cac0": {"judged": 132, "passed": 132, "failed": [], "emergency119WarnHigh": "37/37/37", "general119": "2/77", "followupTarget": "10/10", "followupAnswer": "10/10", "counterExample": "10/10", "bd02_119": true, "symptomAvgMs": 10069}
+ },
+ "qa32x3_aabccaf": {"passed": ["32/32", "32/32", "32/32"], "followupAsked": 0, "symptomAvgSec": {"before": 12.78, "after": 12.95}},
+ "judge2turn": {"items": 10, "sonnet_followupWins": "10/10", "opus_followupWins": "10/10", "caveat": "되묻기 쪽이 정보를 더 들은 비교"}
+}
