@@ -26,6 +26,7 @@ from app.services.reservation_intake import CHANGE_DATE_OPTION, _find_department
 from app.services.reservation_orchestrator import ReservationOrchestrator, get_reservation_orchestrator
 
 _KST = ZoneInfo("Asia/Seoul")
+_MEDGEMMA_GENDERS = frozenset({"MALE", "FEMALE"})
 
 
 def _age_from_birth_date(birth_date: str) -> int | None:
@@ -771,12 +772,14 @@ class ChatService:
         원본(예약 환자 정보·챗 기록 피보호자 구분)은 그대로 둔다. 생년월일만 있으면 만 나이로 바꿔 넘긴다."""
         ctx: dict[str, object] = {}
         age = user_context.get("age")
-        if age is None:
+        # 나이는 0~130 정수, 성별은 정해진 값만(그 밖이면 칸을 뺀다 - 2026-10-29 #107 점검 L-3).
+        if not (isinstance(age, int) and not isinstance(age, bool) and 0 <= age <= 130):
             age = _age_from_birth_date(str(user_context.get("birthDate") or ""))
         if age is not None:
             ctx["age"] = age
-        if user_context.get("gender"):
-            ctx["gender"] = user_context["gender"]
+        gender = str(user_context.get("gender") or "").strip().upper()
+        if gender in _MEDGEMMA_GENDERS:
+            ctx["gender"] = gender
         return ctx
 
     @staticmethod

@@ -189,6 +189,14 @@ class ReservationApiClient:
         )
         return {"httpStatus": st, "data": data}
 
+    def list_api_keys(self, access_token: str) -> dict[str, Any]:
+        st, data = self._request("GET", "/auth/api-keys", auth="user", token_override=access_token)
+        return {"httpStatus": st, "data": data}
+
+    def revoke_api_key(self, access_token: str, api_key_id: int) -> dict[str, Any]:
+        st, data = self._request("DELETE", f"/auth/api-keys/{int(api_key_id)}", auth="user", token_override=access_token)
+        return {"httpStatus": st, "data": data}
+
     def has_valid_reservation_key(self, api_key: str | None) -> bool:
         key = (api_key or "").strip()
         if not key:

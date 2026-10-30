@@ -151,7 +151,36 @@ class ReservationCredentialService:
             current.api_key = raw_api_key
         db.commit()
         db.refresh(current)
+        self._revoke_stale_keys(client, access_token, f"AI-{user_id}", current.api_key_prefix)
         return current.api_key.strip()
+
+    @staticmethod
+    def _revoke_stale_keys(client: ReservationApiClient, access_token: str, name: str, keep_prefix: str) -> None:
+        """새 키를 저장한 뒤 같은 이름의 옛 키를 폐기한다(2026-10-29 #107 점검 L-2) - 발급이 시간 초과로 끝났는데 실제로는
+        만들어졌거나, 저장된 키가 무효라 다시 발급한 경우 쓰지 않는 키가 남지 않게. 다른 이름(웹 등)의 키는 건드리지 않는다.
+        best-effort - 실패해도 새 키로 상담을 이어 간다. 로그에는 개수·상태 코드만(키·prefix 금지)."""
+        if not keep_prefix:
+            return
+        try:
+            listed = client.list_api_keys(access_token)
+            rows = (listed.get("data") or {}).get("keys") if isinstance(listed.get("data"), dict) else None
+            if not (200 <= int(listed.get("httpStatus") or 0) < 300) or not isinstance(rows, list):
+                _LOG.info("[예약계정] 옛 키 목록 조회 실패 http_status=%s", listed.get("httpStatus"))
+                return
+            stale = [
+                row for row in rows
+                if isinstance(row, dict) and row.get("name") == name and row.get("isActive")
+                and row.get("keyPrefix") != keep_prefix and isinstance(row.get("id"), int)
+            ]
+            failed = 0
+            for row in stale:
+                res = client.revoke_api_key(access_token, int(row["id"]))
+                if not (200 <= int(res.get("httpStatus") or 0) < 300):
+                    failed += 1
+            if stale:
+                _LOG.info("[예약계정] 옛 키 폐기 %s건(실패 %s건)", len(stale) - failed, failed)
+        except Exception as exc:  # noqa: BLE001 - 마감(ChatDeadlineExceeded) 포함, 새 키 저장은 이미 끝났다
+            _LOG.info("[예약계정] 옛 키 폐기 건너뜀 %s", type(exc).__name__)
 
     @staticmethod
     def _to_summary(item: ReservationCredential) -> ReservationCredentialSummary:
