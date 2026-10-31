@@ -409,6 +409,7 @@ class ChatService:
                         history,
                         intent=llm_intent,
                         processed_symptom=processed_symptom,
+                        proxy=self._is_proxy(payload, message),
                     )
                     timing["llmMs"] = _elapsed_ms(llm_started)
                 except Exception as exc:
@@ -416,13 +417,16 @@ class ChatService:
                     # 옛 챗 서버로 넘기던 폴백은 없앴다(2026-10-22) - 고정 문구로 끝낸다. 로그는 예외 클래스명만(상담 내용 금지).
                     _LOG.warning("[CHAT-LLM-FAILED] %s", type(exc).__name__)
                     result = _mark_generation_failed(self._fallback_reply(
-                        message, history, emergency=bool(route_info.get("emergency")), history_basis=not crisis_released
+                        message, history, emergency=bool(route_info.get("emergency")), history_basis=not crisis_released,
+                        proxy=self._is_proxy(payload, message),
                     ))
         except Exception as exc:
             # 예외 문구·스택에는 SQL 파라미터·요청 값이 섞일 수 있어 클래스명과 발생 위치만 남긴다.
             _LOG.error("chat process_message fallback: %s at %s", type(exc).__name__, _origin(exc))
             # 직전 턴이 응급 답이면 대체 응답도 응급 쪽(119·경고)으로 - "안정 상태로 보입니다"가 나가지 않게(2026-10-29 점검 M-1).
-            result = _mark_generation_failed(self._fallback_reply(message or log_message, history, emergency=after_emergency))
+            result = _mark_generation_failed(self._fallback_reply(
+                message or log_message, history, emergency=after_emergency, proxy=self._is_proxy(payload, message or log_message)
+            ))
             route_info = {}
         if crisis_followup and route_info and isinstance(result.get("reply"), str):
             result["reply"] = f"{_CRISIS_FOLLOWUP}\n{result['reply']}"
@@ -947,8 +951,15 @@ class ChatService:
             "emergencyWarning": [],
         }
 
+    @staticmethod
+    def _is_proxy(payload: ChatRequest, message: str) -> bool:
+        """대리 상담(보호자가 가족 대신 묻는 상담)인가 - wardId 가 있거나 문장의 주어가 가족. 되묻기·이어서 물어볼 질문과 같은 기준."""
+        ward = payload.context.wardId if payload.context else None
+        return bool((ward or "").strip()) or MedicalLlmService.about_family(message or "")
+
     def _fallback_reply(
-        self, message: str, history: list[dict[str, str]], emergency: bool = False, history_basis: bool = True
+        self, message: str, history: list[dict[str, str]], emergency: bool = False, history_basis: bool = True,
+        proxy: bool = False,
     ) -> dict:
         """생성 실패 폴백. history_basis=False(위기 뒤 해제된 턴)면 앞 턴 자해 키워드로 위기 응답을 되살리지 않는다 -
         응급이면 일반 119 폴백. 이번 문장의 자해 키워드는 그대로 위기 응답이다."""
@@ -1003,7 +1014,7 @@ class ChatService:
             "homeCare": [],
             "visitHospitalIf": [],
             # MedGemma 응급 경로와 같은 경고 박스 - 모델이 실패해도 응급 안내가 빨간 박스에서 빠지지 않게(#33).
-            "emergencyWarning": [MedicalLlmService.EMERGENCY_WARNING] if intent == "emergency_guidance" else [],
+            "emergencyWarning": [MedicalLlmService.EMERGENCY_WARNING.pick(proxy)] if intent == "emergency_guidance" else [],
         }
 
     @staticmethod
