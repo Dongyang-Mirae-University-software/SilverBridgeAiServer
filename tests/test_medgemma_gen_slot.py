@@ -256,7 +256,7 @@ def test_emergency_turn_gets_119_fallback_within_3s_while_slot_held(chat_env, ca
     assert chat_env.tracker.calls == 0
     assert out["engine"] == "fallback"
     assert out["riskLevel"] == "high"
-    assert out["emergencyWarning"] == [MedicalLlmService.EMERGENCY_WARNING]
+    assert out["emergencyWarning"] == [MedicalLlmService.EMERGENCY_WARNING.pick(MedicalLlmService.about_family(message))]
     joined = "\n".join(r.getMessage() for r in caplog.records)
     assert "[CHAT-LLM-FAILED] MedGemmaBusyError" in joined
     assert "숨을" not in joined and "엄마가" not in joined

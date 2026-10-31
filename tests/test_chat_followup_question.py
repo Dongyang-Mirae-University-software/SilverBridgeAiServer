@@ -33,8 +33,8 @@ class _Llm:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    def generate(self, message, ctx, history, intent=None, processed_symptom=None) -> dict[str, Any]:  # noqa: ARG002
-        self.calls.append({"message": message, "intent": intent, "processed_symptom": processed_symptom})
+    def generate(self, message, ctx, history, intent=None, processed_symptom=None, proxy=False) -> dict[str, Any]:  # noqa: ARG002
+        self.calls.append({"message": message, "intent": intent, "processed_symptom": processed_symptom, "proxy": proxy})
         risk = "high" if intent == "emergency_guidance" else "medium"  # 실제 서비스처럼 응급 의도면 high
         return {"reply": "신경과 진료를 권해드려요.", "riskLevel": risk, "recommendedAction": "guardian_contact",
                 "reservationRequired": False, "intent": intent, "engine": "medgemma", "modelName": "m",
@@ -189,3 +189,16 @@ def test_no_followup_right_after_emergency_reply(env) -> None:
     env.llm.calls.clear()
     out = _send(env, "머리가 아파요")  # 응급 답 다음 턴은 되묻지 않는다
     assert INTRO not in out["reply"] and len(env.llm.calls) == 1
+
+
+# ---- 대리 상담 여부 전달(2026-10-31 구조 정리 B) --------------------------------------------------------------
+
+
+@pytest.mark.parametrize("message, ward, expected", [
+    ("며칠째 기침이 나고 목이 아파요", None, False),
+    ("며칠째 기침이 나고 목이 아파요", "ward-1", True),  # 보호자 대리 상담 화면(wardId)
+    ("어머니가 며칠째 기침을 하고 목이 아프세요", None, True),  # 가족이 주어
+])
+def test_generation_gets_proxy_flag(env, message: str, ward: str | None, expected: bool) -> None:
+    _send(env, message, ward=ward)
+    assert env.llm.calls and env.llm.calls[-1]["proxy"] is expected

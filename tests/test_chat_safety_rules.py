@@ -147,7 +147,8 @@ def test_fallback_emergency_fills_warning(env) -> None:
 def test_fallback_router_only_emergency_fills_warning(env) -> None:
     env.llm, env.router = _Llm(fail=True), _Router(emergency=True)
     out = _send(env, "엄마가 아까부터 좀 이상해요 대답을 잘 못하세요")
-    assert out["riskLevel"] == "high" and out["emergencyWarning"] == [MedicalLlmService.EMERGENCY_WARNING]
+    # 가족이 주어인 문장 = 대리 상담 - 경고 박스도 대리 상담 문구(2026-10-31 구조 정리 B)
+    assert out["riskLevel"] == "high" and out["emergencyWarning"] == [MedicalLlmService.EMERGENCY_WARNING.proxy]
 
 
 def test_fallback_non_emergency_has_no_warning(env) -> None:

@@ -206,6 +206,11 @@ def _fixed_texts() -> dict[str, str]:
     for table in ("_DRUG_ALCOHOL_RULES", "_DRUG_DIRECT_RULES", "_LIFESTYLE_RULES", "_SYMPTOM_RULES", "_EMERGENCY_ACTIONS"):
         for rule in getattr(mls, table):
             texts[f"{table}.{rule.name}"] = rule.sentence
+    # 대리 상담 문장(2026-10-31 구조 정리 B)도 같은 빼기 규칙을 지난다 - 본래 문장과 같은 허용 목록을 쓴다.
+    for sentence in mls.FIXED_SENTENCES:
+        if sentence.proxy:
+            texts[sentence.name] = texts.get(sentence.name, sentence)
+            texts[f"{sentence.name}#proxy"] = sentence.proxy
     return texts
 
 
@@ -248,8 +253,9 @@ def test_no_fixed_sentence_is_removed_by_a_drop_rule() -> None:
     problems = []
     for name, text in texts.items():
         for sentence in mls._SENTENCE_SPLIT.split(text):
-            hits = _drop_hits(sentence) - _ALLOWED.get(name, set())
-            if _ALLOWED_119.match(name):
+            base = name.removesuffix("#proxy")
+            hits = _drop_hits(sentence) - _ALLOWED.get(base, set())
+            if _ALLOWED_119.match(base):
                 hits.discard("119")
             if hits:
                 problems.append((name, sorted(hits)))

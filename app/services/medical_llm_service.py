@@ -15,6 +15,25 @@ from app.utils.conversation import format_recent_history, normalize_history
 from app.utils.json_extract import extract_json_fields_lenient, extract_json_object
 
 
+class FixedSentence(str):
+    """답에 붙이는 고정 문장(2026-10-31 구조 정리 B). 문자열 그대로 쓰이고(본인 상담 답은 바이트 그대로),
+    이름·주어·대리 상담 문장을 함께 들고 있다. 주어 - self: 본인에게 하는 지시 / carer: 돌보는 사람에게 하는 지시 /
+    neutral: 누구에게나 맞음 / own_variant: 자체 변형이 따로 있음(자해 응답 가족용·되묻기 질문)."""
+
+    name: str
+    subject: str
+    proxy: str | None
+
+    def __new__(cls, text: str, name: str, subject: str, proxy: str | None = None) -> "FixedSentence":
+        obj = super().__new__(cls, text)
+        obj.name, obj.subject, obj.proxy = name, subject, proxy
+        return obj
+
+    def pick(self, proxy: bool) -> str:
+        """대리 상담(보호자가 가족 대신 묻는 상담)이면 대리 문장, 아니면 본래 문장."""
+        return self.proxy if proxy and self.proxy else str(self)
+
+
 _LOG = logging.getLogger(__name__)
 
 _STRING_KEYS = ["empathy", "symptoms", "features", "advice", "reply"]
@@ -408,6 +427,80 @@ _SYMPTOM_WORDS = chat_keywords.MEDICATION_SYMPTOM_WORDS
 _GENERAL_SYMPTOM_WORDS = chat_keywords.GENERAL_SYMPTOM_WORDS
 
 
+# ---- 고정 문장 표(2026-10-31 구조 정리 B, 점검 L-3·L-6) ----------------------------------------------------------
+# 답에 붙이는 고정 문장 전부의 주어와 대리 상담 문장. 새 고정 문장은 이 표에 넣어야 붙일 수 있다
+# (FIXED_SENTENCES 를 순회하는 테스트가 빼기 규칙 충돌·주어 self 의 대리 문장 누락을 막는다).
+# 키: 모듈 상수 이름 또는 "규칙 표.규칙 이름". 값: (주어, 대리 상담 문장 또는 None).
+_SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
+    "_EMERGENCY_REPLY": ("self", "지금은 응급 상황일 수 있어요. 지금 바로 119에 전화하세요. 구급대가 올 때까지 곁에 있어 주시고, 다른 가족에게도 알려 주세요."),
+    "_SELF_HARM_REPLY": ("own_variant", None),
+    "_SELF_HARM_REPLY_FAMILY": ("own_variant", None),
+    "_SELF_HARM_WARNING": ("own_variant", None),
+    "_CLINIC_SENTENCE": ("neutral", None),
+    "_SELF_ADJUST_SENTENCE": ("neutral", None),
+    "_CLINIC_SENTENCE_WITH_DEPT": ("neutral", None),
+    "_CONSULT_SENTENCE": ("neutral", None),
+    "_RED_FLAG_119_SENTENCE": ("neutral", None),
+    "_DOUBLE_DOSE_SENTENCE": ("self", "놓친 약을 다음에 두 번 몫으로 한꺼번에 드시게 하지는 마세요."),
+    "_PERSISTING_SENTENCE": ("neutral", None),
+    "_BREATHING_NO_DRIVE": ("self", "직접 운전해서 병원에 모시고 가지 마세요."),
+    "_VOMIT_BLOOD_INFO": ("neutral", None),
+    "_CHEST_INDIGESTION_INFO": ("neutral", None),
+    "_HYPOGLYCEMIA_SENTENCE": ("self", "의식이 있으시면 사탕이나 단 음료를 드시게 하고, 의식이 흐리시면 억지로 먹이지 마세요."),
+    "_HYPOGLYCEMIA_RECHECK": ("self", "15분쯤 뒤 혈당을 다시 재 드리고, 계속 낮거나 증상이 이어지면 의사에게 알려 주세요."),
+    "_FOLLOWUP_INTRO": ("own_variant", None),
+    "_FOLLOWUP_CLOSING": ("own_variant", None),
+    "_DRUG_ALCOHOL_RULES.diabetes": ("self", "어르신이 당뇨약을 드시는 중에 술을 드시면 저혈당(식은땀·떨림·어지럼)이 늦게 올 수 있어요. 드시기 전에 의사·약사와 꼭 상의해 주세요."),
+    "_DRUG_ALCOHOL_RULES.sedative": ("self", "어르신이 수면제나 안정제를 술과 함께 드시면 숨이 약해지거나 깨어나기 어려울 만큼 위험할 수 있어요. 술과 함께 드시지 않게 해 주세요."),
+    "_DRUG_ALCOHOL_RULES.acetaminophen": ("self", "어르신이 타이레놀(아세트아미노펜)을 드시는 중에 술을 드시면 간이 상할 수 있어요. 함께 드시지 않게 해 주시고, 술을 자주 드시면 의사·약사와 상의해 주세요."),
+    "_DRUG_ALCOHOL_RULES.anticoagulant": ("self", "어르신이 와파린 같은 피를 묽게 하는 약을 드시는 중에 술을 드시면 출혈 위험이 커지고 약 효과가 달라질 수 있어요. 드시기 전에 의사·약사와 꼭 상의해 주세요."),
+    "_DRUG_ALCOHOL_RULES.blood_pressure": ("self", "어르신이 혈압약을 드시는 중에 술을 드시면 혈압이 갑자기 떨어져 어지럽거나 넘어지실 수 있고, 자주 드시면 오히려 혈압이 올라 약 효과가 떨어질 수 있어요. 드시기 전에 의사·약사와 상의해 주세요."),
+    "_DRUG_ALCOHOL_RULES.antibiotic": ("self", "어르신이 항생제를 드시는 동안에는 술을 피하시게 해 주세요. 일부 항생제는 술과 함께 드시면 심한 두근거림·구토가 생길 수 있어요. 드시는 약이 괜찮은지 약사에게 확인해 주세요."),
+    "_DRUG_DIRECT_RULES.missed_dose_timing": ("self", "놓친 약은 생각났을 때 바로 드시게 하되, 다음 드실 시간이 가까우면 놓친 것은 건너뛰고 원래 시간에 한 번만 드시게 해 주세요. 약마다 다를 수 있으니 약사에게 확인해 보세요."),
+    "_DRUG_DIRECT_RULES.double_dose": ("self", "놓친 약을 다음에 두 번 몫으로 한꺼번에 드시게 하지는 마세요."),
+    "_DRUG_DIRECT_RULES.painkiller_limit": ("self", "진통제는 정해진 양과 간격을 넘겨 드시지 않게 해 주세요."),
+    "_DRUG_DIRECT_RULES.leftover_antibiotic": ("self", "남은 항생제를 임의로 드시지 않게 해 주세요. 열이 나시면 진료를 받아 보시게 해 주세요."),
+    "_DRUG_DIRECT_RULES.antibiotic_virus": ("neutral", None),
+    "_DRUG_DIRECT_RULES.cold_medicine_combo": ("neutral", None),
+    "_DRUG_DIRECT_RULES.bp_med_stop": ("neutral", None),
+    "_DRUG_DIRECT_RULES.sleeping_pill_purchase": ("self", "약국에서 살 수 있는 수면유도제(일반의약품)도 있지만, 수면제는 처방이 필요해요. 드시게 하기 전에 약사와 상의해 주세요."),
+    "_LIFESTYLE_RULES.diabetes_fruit": ("self", "과일은 당도가 낮은 것을 조금씩, 식후에 드시게 하는 것이 좋아요."),
+    "_LIFESTYLE_RULES.high_bp_exercise": ("self", "혈압이 평소보다 높게 나온 날은 운동을 쉬시거나 가볍게 하시게 하고, 가슴 통증·어지럼이 있으시면 바로 멈추시게 해 주세요."),
+    "_LIFESTYLE_RULES.arthritis_exercise": ("self", "걷기·수영·실내 자전거처럼 관절에 무리가 덜 가는 운동을, 통증이 생기지 않는 범위에서 하시게 해 주세요."),
+    "_LIFESTYLE_RULES.cholesterol_diet": ("neutral", None),
+    "_SYMPTOM_RULES.cough_red_flag": ("neutral", None),
+    "_SYMPTOM_RULES.orthostatic_dizziness": ("self", "누웠다 일어나실 때는 천천히 일어나시게 하고, 물을 충분히 드시게 해 주세요."),
+    "_SYMPTOM_RULES.sudden_vision_loss": ("neutral", None),
+    "_SYMPTOM_RULES.numbness_stroke_sign": ("neutral", None),
+    "_EMERGENCY_ACTIONS.chest_stroke": ("self", "직접 운전해서 모시고 가지 마시고, 혼자 움직이시게 두지 마세요."),
+    "_EMERGENCY_ACTIONS.seizure": ("carer", None),
+    "_EMERGENCY_ACTIONS.breathing": ("carer", None),
+    "_EMERGENCY_ACTIONS.vomiting_blood": ("carer", None),
+    "_EMERGENCY_ACTIONS.collapse_fall": ("carer", None),
+}
+
+
+def _fixed(key: str, text: str) -> FixedSentence:
+    subject, proxy = _SENTENCE_TABLE[key]  # 표에 없는 고정 문장은 여기서 KeyError - 표를 먼저 채운다
+    return FixedSentence(text, key, subject, proxy)
+
+
+for _name in [k for k in _SENTENCE_TABLE if "." not in k]:
+    globals()[_name] = _fixed(_name, globals()[_name])
+_DRUG_ALCOHOL_RULES = tuple(r._replace(sentence=_fixed(f"_DRUG_ALCOHOL_RULES.{r.name}", r.sentence)) for r in _DRUG_ALCOHOL_RULES)
+_DRUG_DIRECT_RULES = tuple(r._replace(sentence=_fixed(f"_DRUG_DIRECT_RULES.{r.name}", r.sentence)) for r in _DRUG_DIRECT_RULES)
+_LIFESTYLE_RULES = tuple(r._replace(sentence=_fixed(f"_LIFESTYLE_RULES.{r.name}", r.sentence)) for r in _LIFESTYLE_RULES)
+_SYMPTOM_RULES = tuple(r._replace(sentence=_fixed(f"_SYMPTOM_RULES.{r.name}", r.sentence)) for r in _SYMPTOM_RULES)
+_EMERGENCY_ACTIONS = tuple(a._replace(sentence=_fixed(f"_EMERGENCY_ACTIONS.{a.name}", a.sentence)) for a in _EMERGENCY_ACTIONS)
+del _name
+# 고정 문장 전부(표 순서). 테스트·점검은 이 목록만 본다.
+FIXED_SENTENCES: tuple[FixedSentence, ...] = tuple(
+    [globals()[k] for k in _SENTENCE_TABLE if "." not in k]
+    + [r.sentence for r in _DRUG_ALCOHOL_RULES + _DRUG_DIRECT_RULES + _LIFESTYLE_RULES + _SYMPTOM_RULES + _EMERGENCY_ACTIONS]
+)
+assert len(FIXED_SENTENCES) == len(_SENTENCE_TABLE)
+
+
 class MedicalLlmService:
     # 응급·자해 목록은 chat_keywords 가 단일 출처다.
     EMERGENCY_KEYWORDS = chat_keywords.EMERGENCY_KEYWORDS
@@ -472,7 +565,7 @@ class MedicalLlmService:
         return [rule for rule in _DRUG_ALCOHOL_RULES if rule.drug.search(text)]
 
     @staticmethod
-    def apply_drug_alcohol_rules(message: str, reply: str) -> tuple[str, dict[str, int], list[str]]:
+    def apply_drug_alcohol_rules(message: str, reply: str, proxy: bool = False) -> tuple[str, dict[str, int], list[str]]:
         """약 + 술 문의 답 손보기: ① 술을 조금은 괜찮다고 허용한 문장 ② 그 약에서 방향이 반대인 문장을 빼고
         ③ 답에 핵심 위험이 없으면 고정 문장을 붙인다. (고친 답, 뺀 문장 수 {이유: 수}, 붙인 규칙 이름). 다른 상담은 그대로."""
         rules = MedicalLlmService.drug_alcohol_rules(message)
@@ -522,7 +615,7 @@ class MedicalLlmService:
             added.append("self_adjust")
         for rule in rules:
             if not rule.covered.search(model_text):
-                out = f"{out}\n{rule.sentence}"
+                out = f"{out}\n{rule.sentence.pick(proxy)}"
                 added.append(rule.name)
         return out, dropped, added
 
@@ -617,19 +710,19 @@ class MedicalLlmService:
         return "\n".join(lines), removed
 
     @staticmethod
-    def drug_direct_sentences(message: str, reply: str) -> list[tuple[str, str]]:
+    def drug_direct_sentences(message: str, reply: str, proxy: bool = False) -> list[tuple[str, str]]:
         """약 질문 유형별로 덧붙일 (규칙 이름, 문장). 과다 복용을 말한 질문의 "두 번 몫" 안내는 빼고, 답에 같은 뜻이 있으면 생략한다."""
         compact = re.sub(r"\s+", "", message or "")
         overdose = bool(_OVERDOSE_TOLD.search(message or ""))
         out: list[tuple[str, str]] = []
         for rule in _DRUG_DIRECT_RULES + _LIFESTYLE_RULES + _SYMPTOM_RULES:
-            if not rule.ask.search(compact) or rule.covered.search(reply or "") or rule.sentence in (reply or ""):
+            if not rule.ask.search(compact) or rule.covered.search(reply or "") or rule.sentence.pick(proxy) in (reply or ""):
                 continue
             if rule.name in ("double_dose", "missed_dose_timing") and overdose:
                 continue
-            if any(sentence == rule.sentence for _, sentence in out):
+            if any(sentence == rule.sentence.pick(proxy) for _, sentence in out):
                 continue
-            out.append((rule.name, rule.sentence))
+            out.append((rule.name, rule.sentence.pick(proxy)))
         return out
 
     @staticmethod
@@ -751,21 +844,21 @@ class MedicalLlmService:
         return "\n".join(lines), removed
 
     @staticmethod
-    def emergency_action_sentences(message: str) -> list[tuple[str, str]]:
+    def emergency_action_sentences(message: str, proxy: bool = False) -> list[tuple[str, str]]:
         """응급 답에 덧붙일 유형별 행동 (이름, 문장). 질문에 그 유형의 신호가 없으면 빈 목록(지금 응급 답 그대로)."""
         compact = re.sub(r"\s+", "", message or "")
-        out = [(a.name, a.sentence) for a in _EMERGENCY_ACTIONS if a.signal.search(compact)]
+        out = [(a.name, a.sentence.pick(proxy)) for a in _EMERGENCY_ACTIONS if a.signal.search(compact)]
         names = {name for name, _ in out}
         if "breathing" in names and "chest_stroke" not in names:  # 가슴 통증 줄에 이미 운전 금지가 있다
-            out.append(("breathing_no_drive", _BREATHING_NO_DRIVE))
+            out.append(("breathing_no_drive", _BREATHING_NO_DRIVE.pick(proxy)))
         if "vomiting_blood" in names:
             out.append(("vomiting_blood_info", _VOMIT_BLOOD_INFO))
         if "chest_stroke" in names and _CHEST_INDIGESTION.search(compact):
             out.append(("chest_indigestion", _CHEST_INDIGESTION_INFO))
         values = [int(v) for v in _GLUCOSE_VALUE.findall(compact)]
         if _HYPOGLYCEMIA_WORD.search(compact) or any(v < 70 for v in values):
-            out.append(("hypoglycemia", _HYPOGLYCEMIA_SENTENCE))
-            out.append(("hypoglycemia_recheck", _HYPOGLYCEMIA_RECHECK))
+            out.append(("hypoglycemia", _HYPOGLYCEMIA_SENTENCE.pick(proxy)))
+            out.append(("hypoglycemia_recheck", _HYPOGLYCEMIA_RECHECK.pick(proxy)))
         return out
 
     @staticmethod
@@ -958,7 +1051,9 @@ class MedicalLlmService:
         *,
         intent: str | None = None,
         processed_symptom: str | None = None,
+        proxy: bool = False,
     ) -> dict[str, Any]:
+        # proxy: 보호자가 가족 대신 묻는 대리 상담(chat_service 가 wardId·가족 주어로 정한다) - 고정 문장을 대리 문장으로 고른다(L-3).
         intent = intent or self.classify_intent(message)
         signals = self.emergency_signals(message)
         emergency_hint = intent == "emergency_guidance" or bool(signals)
@@ -1010,7 +1105,7 @@ class MedicalLlmService:
         normalized = self._normalize_payload(parsed, raw, message, intent, emergency_hint)
 
         # 응급이면 상단에 경고 박스 한 줄만. 그 외 목록(원인·자가관리·방문기준)은 더 이상 내지 않는다 - 말풍선 한 개로 끝낸다.
-        emergency_warning = [_EMERGENCY_REPLY] if emergency_hint or intent == "emergency_guidance" else []
+        emergency_warning = [_EMERGENCY_REPLY.pick(proxy)] if emergency_hint or intent == "emergency_guidance" else []
         risk_level, recommended_action, reservation_required = self.infer_risk(message, intent, emergency_warning)
         # 답변 품질 후처리(D-1·D-2·D-4)는 응급이 아닌 증상 상담에만 쓴다 - 응급·약 + 술 답은 기존 안전 규칙만 손댄다.
         quality = intent == "medical_advice" and not emergency_warning and not self.drug_alcohol_rules(message)
@@ -1030,7 +1125,7 @@ class MedicalLlmService:
             reply, boilerplate = self.drop_medication_boilerplate(message, reply)
             if boilerplate:
                 _LOG.info("[CHAT-QUALITY] medication_boilerplate_dropped=%s", boilerplate)
-            reply, dropped, added = self.apply_drug_alcohol_rules(message, reply)
+            reply, dropped, added = self.apply_drug_alcohol_rules(message, reply, proxy)
             if dropped or added:
                 # 상담 내용은 남기지 않는다 - 규칙 이름·뺀 문장 수만.
                 _LOG.info("[CHAT-SAFETY] drug_alcohol dropped=%s added=%s", dropped or {}, ",".join(added) or "-")
@@ -1048,14 +1143,14 @@ class MedicalLlmService:
                 reply, misstated = self.drop_sleeping_pill_misstatement(message, reply)
                 if misstated:
                     _LOG.info("[CHAT-SAFETY] sleeping_pill_misstatement_dropped=%s", misstated)
-                direct = self.drug_direct_sentences(message, reply)
+                direct = self.drug_direct_sentences(message, reply, proxy)
                 for _, sentence in direct:
                     reply = f"{reply}\n{sentence}"
                 if direct:
                     _LOG.info("[CHAT-SAFETY] drug_direct=%s", ",".join(name for name, _ in direct))
         else:
             # 응급 답: 119 안내(advice 줄)는 그대로 두고 그 뒤에 유형별 행동 한 줄. 경고 박스(emergencyWarning)는 바꾸지 않는다.
-            actions = self.emergency_action_sentences(message)
+            actions = self.emergency_action_sentences(message, proxy)
             for _, sentence in actions:
                 reply = f"{reply}\n{sentence}"
             if actions:
