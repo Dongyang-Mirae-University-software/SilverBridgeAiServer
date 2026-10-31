@@ -160,6 +160,8 @@ class ChatService:
         session_id = (payload.sessionId or "").strip() or f"chat-{uuid4().hex[:12]}"
         user_context = self._build_user_context(payload)
         ward_id = (payload.context.wardId or "").strip() if payload.context and payload.context.wardId else ""
+        # 대리 상담 판정에 쓸 문장 - 되묻기에 답한 턴은 "앞 질문 / 이번 답"으로 바꾼다(2026-11-01 점검 M-1).
+        proxy_text = message
         # 요청의 history 는 읽지 않는다 - 조작한 assistant 발화·지운 자해 발화로 경로·위기 응답·예약 값이 바뀌지 않게(S-7).
         # 아래 모든 단계(라우터·예약 추출·규칙 초안·MedGemma·위기 근거·대체 응답)가 payload.history 를 쓰므로 여기서 바꿔 끼운다.
         recent_logs = self._recent_logs(db, payload.userId)
@@ -401,6 +403,7 @@ class ChatService:
                         # 되묻기에 답한 턴: 짧은 답("어제부터요")만으로는 증상을 모르니 앞 질문과 이어서 상담한다.
                         _LOG.info("[CHAT-QUALITY] followup_answered=true route=%s", route_info["route"])
                         gen_message = followup_answer
+                        proxy_text = followup_answer
                         llm_intent = "medical_advice"
                         processed_symptom = (route_info.get("symptom_summary") if route_info["route"] == "symptom" else None) or followup_answer
                     result = local_llm.generate(
@@ -409,7 +412,7 @@ class ChatService:
                         history,
                         intent=llm_intent,
                         processed_symptom=processed_symptom,
-                        proxy=self._is_proxy(payload, message),
+                        proxy=self._is_proxy(payload, proxy_text),
                     )
                     timing["llmMs"] = _elapsed_ms(llm_started)
                 except Exception as exc:
@@ -418,7 +421,7 @@ class ChatService:
                     _LOG.warning("[CHAT-LLM-FAILED] %s", type(exc).__name__)
                     result = _mark_generation_failed(self._fallback_reply(
                         message, history, emergency=bool(route_info.get("emergency")), history_basis=not crisis_released,
-                        proxy=self._is_proxy(payload, message),
+                        proxy=self._is_proxy(payload, proxy_text),
                     ))
         except Exception as exc:
             # 예외 문구·스택에는 SQL 파라미터·요청 값이 섞일 수 있어 클래스명과 발생 위치만 남긴다.
@@ -452,7 +455,7 @@ class ChatService:
                 result["meta"]["emergencyFollowup"] = True
         suggested = follow_up_questions.suggested_questions(
             self._settings, result, route_info, message,
-            proxy=self._is_proxy(payload, message),
+            proxy=self._is_proxy(payload, proxy_text),
             emergency_text=bool(message) and bool(MedicalLlmService.emergency_signals(message)),
             self_harm_text=bool(message) and bool(MedicalLlmService.self_harm_signals(message)),
         )
@@ -1015,7 +1018,7 @@ class ChatService:
             "homeCare": [],
             "visitHospitalIf": [],
             # MedGemma 응급 경로와 같은 경고 박스 - 모델이 실패해도 응급 안내가 빨간 박스에서 빠지지 않게(#33).
-            "emergencyWarning": [MedicalLlmService.EMERGENCY_WARNING.pick(proxy)] if intent == "emergency_guidance" else [],
+            "emergencyWarning": [MedicalLlmService.EMERGENCY_WARNING.pick(proxy or MedicalLlmService.mentions_other_person(message))] if intent == "emergency_guidance" else [],
         }
 
     @staticmethod

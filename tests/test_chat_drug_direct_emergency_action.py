@@ -20,7 +20,8 @@ BP = "혈압약을 임의로 끊으면 혈압이 다시 오를 수 있어요."
 CALL_119 = "지금은 병원 예약보다 119 연락이 먼저예요. 바로 119에 전화해 주세요."
 DRIVE = "직접 운전하거나 혼자 움직이지 마세요."
 SEIZURE = "바닥에 편히 누우시고, 곁에 있는 분께 억지로 붙잡거나 입에 물건을 넣지 말라고 알려 주세요."  # 본인 상담 문장(2026-10-31 - 돌보는 사람 말투는 대리 상담 문장)
-COLLAPSE = "무리하게 일어나지 마시고 편한 자세로 누워 계세요."  # 본인 상담 문장(2026-10-31 - 돌보는 사람 말투는 대리 상담 문장)
+COLLAPSE = "무리하게 일어나지 마시고 편한 자세로 누워 계세요."  # 본인 상담 문장(2026-10-31)
+COLLAPSE_CARER = "무리하게 일으키지 말고 편한 자세로 눕혀 두세요."  # 대리 상담·다른 사람 낱말이 있는 응급(2026-11-01)
 SUGAR = "의식이 있으면 사탕이나 단 음료를 드시고, 의식이 흐리면 억지로 먹이지 마세요."
 ACTIONS = (DRIVE, SEIZURE, COLLAPSE, SUGAR)
 
@@ -110,7 +111,7 @@ def test_no_drug_direct_on_emergency() -> None:
     ("가슴이 조이고 식은땀이 나요", "medical_advice", DRIVE),
     ("갑자기 말이 어눌해지고 입이 한쪽으로 돌아가요", "emergency_guidance", DRIVE),
     ("몸에서 경련이 계속 나요", "medical_advice", SEIZURE),
-    ("할머니가 쓰러지셨어요", "medical_advice", COLLAPSE),
+    ("할머니가 쓰러지셨어요", "medical_advice", COLLAPSE_CARER),  # 다른 사람 낱말 → 돌보는 사람 말투(2026-11-01)
     ("넘어졌는데 허벅지가 너무 아파서 일어나지 못하겠어요", "emergency_guidance", COLLAPSE),
     ("혈당이 40밖에 안 나오고 몸이 떨려요", "emergency_guidance", SUGAR),
     ("저혈당 온 것 같아요, 식은땀이 나요", "emergency_guidance", SUGAR),
@@ -120,7 +121,8 @@ def test_emergency_gets_action_after_119(message: str, intent: str, action: str)
     lines = out["reply"].split("\n")
     assert CALL_119 in lines and action in lines
     assert lines.index(CALL_119) < lines.index(action)  # 119 안내가 먼저
-    assert out["emergencyWarning"] == [MedicalLlmService.EMERGENCY_WARNING]  # 경고 박스 그대로
+    # 경고 박스: 다른 사람 낱말이 있으면 돌보는 사람 말투(2026-11-01), 없으면 본래 문구
+    assert out["emergencyWarning"] == [MedicalLlmService.EMERGENCY_WARNING.pick(MedicalLlmService.mentions_other_person(message))]
     assert out["riskLevel"] == "high"
 
 

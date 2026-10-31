@@ -109,9 +109,9 @@ def test_drug_direct_skips_when_proxy_sentence_already_in_reply() -> None:
 
 
 def test_emergency_warning_box_and_actions_for_proxy() -> None:
-    message = "아버지가 갑자기 쓰러지셨어요"
-    own = _gen(message, intent="emergency_guidance")
-    proxy = _gen(message, intent="emergency_guidance", proxy=True)
+    # 본인 상담은 다른 사람 낱말이 없는 문장(있으면 응급 쪽은 돌보는 사람 말투 - 2026-11-01)
+    own = _gen("갑자기 쓰러졌어요", intent="emergency_guidance")
+    proxy = _gen("아버지가 갑자기 쓰러지셨어요", intent="emergency_guidance", proxy=True)
     assert own["emergencyWarning"] == [str(mls._EMERGENCY_REPLY)]
     assert proxy["emergencyWarning"] == [mls._EMERGENCY_REPLY.proxy]
     assert "119" in proxy["emergencyWarning"][0] and proxy["riskLevel"] == "high"
@@ -171,7 +171,6 @@ def test_proxy_subject(message: str) -> None:
     "아내가 제가 어지러워 보인대요",
     "엄마가 나한테 술 끊으래",
     "할머니가 저는 혈압약을 꼭 먹어야 한대요",
-    "어머니가 쓰러지셨는데 제가 어떻게 해요?",  # 받아들인 비용: 본인 상담으로 본다(경고 박스·119 는 같다)
     "기침이 나요", "어지러워요",
 ])
 def test_speaker_self_is_not_proxy(message: str) -> None:

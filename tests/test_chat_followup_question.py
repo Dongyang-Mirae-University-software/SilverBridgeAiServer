@@ -202,3 +202,11 @@ def test_no_followup_right_after_emergency_reply(env) -> None:
 def test_generation_gets_proxy_flag(env, message: str, ward: str | None, expected: bool) -> None:
     _send(env, message, ward=ward)
     assert env.llm.calls and env.llm.calls[-1]["proxy"] is expected
+
+
+def test_followup_answer_turn_uses_previous_question_for_proxy(env) -> None:
+    # 되묻기에 답한 턴은 "앞 질문 / 이번 답"으로 대리 판정한다(2026-11-01 점검 M-1).
+    _send(env, "어머니가 기침을 하세요")
+    assert env.llm.calls == []  # 첫 턴은 되묻기(MedGemma 안 부름)
+    _send(env, "어제부터요")
+    assert env.llm.calls and env.llm.calls[-1]["proxy"] is True
