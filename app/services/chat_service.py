@@ -16,7 +16,8 @@ from app.models.chat_log import ChatLog
 from app.core.config import get_settings
 from app.schemas.chat_schema import ChatHistoryItem, ChatRequest
 from app.services.reservation_api_client import get_reservation_api_client
-from app.services.reservation_credential_service import get_reservation_credential_service, recently_purged
+from app.services.reservation_credential_service import (
+    get_reservation_credential_service, recently_proxy_purged, recently_purged)
 from app.services.chat_deadline import ChatDeadlineExceeded, chat_deadline, tighter_deadline
 from app.services.chat_router_service import ROUTER_RESERVE_SEC, get_chat_router_service
 from app.services import follow_up_questions
@@ -498,7 +499,8 @@ class ChatService:
             reservation_required=bool(result["reservationRequired"]),
         )
         save_started = time.perf_counter()
-        if recently_purged(payload.userId) or (ward_id and recently_purged(ward_id)):
+        if (recently_purged(payload.userId) or (ward_id and recently_purged(ward_id))
+                or (ward_id and recently_proxy_purged(payload.userId, ward_id))):
             # 방금 회원 데이터를 지운 ID - 탈퇴 순간 진행 중이던 턴이 끝나며 기록을 새로 남기지 않게 답만 돌려준다
             # (2026-10-30 통합 점검 L-1). chatLogId 는 null.
             _LOG.info("[CHAT-PURGE-HOLD] log_skipped")
@@ -1019,6 +1021,20 @@ class ChatService:
         proxy = db.query(ChatLog).filter(ChatLog.id.in_(proxy_ids)).delete(synchronize_session=False) if proxy_ids else 0
         db.commit()
         return int(own), int(proxy)
+
+    @staticmethod
+    def delete_proxy_logs(db: Session, guardian_id: str, ward_id: str) -> int:
+        """보호자가 그 피보호자를 대신해 상담한 기록만 지운다(연결 해제·역할 변경 정리용, BE 2026-10 전체 점검 L-13).
+        보호자 본인 상담 기록과 다른 피보호자 대리 상담 기록은 남긴다. 지운 수를 돌려준다."""
+        proxy_ids = [
+            log.id
+            for log in db.query(ChatLog).filter(ChatLog.user_id == guardian_id,
+                                                ChatLog.context_json.contains(ward_id)).all()
+            if ward_id in ChatService._proxy_ward_ids(log.context_json)
+        ]
+        deleted = db.query(ChatLog).filter(ChatLog.id.in_(proxy_ids)).delete(synchronize_session=False) if proxy_ids else 0
+        db.commit()
+        return int(deleted)
 
     @staticmethod
     def _proxy_ward_ids(context_json: str | None) -> set[str]:

@@ -32,6 +32,20 @@ def mark_purged(user_id: str) -> None:
         _PURGED[user_id] = now
 
 
+def _proxy_key(guardian_id: str, ward_id: str) -> str:
+    # 회원 ID는 영숫자라 ":"가 들어갈 수 없어 회원 단위 키와 겹치지 않는다
+    return f"proxy:{guardian_id}:{ward_id}"
+
+
+def mark_proxy_purged(guardian_id: str, ward_id: str) -> None:
+    """보호자의 그 피보호자 대리 상담 기록을 지운 직후 - 진행 중이던 대리 상담 턴이 기록을 새로 남기지 않게(BE L-13)."""
+    mark_purged(_proxy_key(guardian_id, ward_id))
+
+
+def recently_proxy_purged(guardian_id: str, ward_id: str) -> bool:
+    return recently_purged(_proxy_key(guardian_id, ward_id))
+
+
 def recently_purged(user_id: str) -> bool:
     with _PURGED_LOCK:
         at = _PURGED.get(user_id)

@@ -9,7 +9,7 @@ from app.database.session import get_db
 from app.schemas.chat_schema import ChatRequest
 from app.services.chat_service import ChatService
 from app.services.chat_stats_service import ChatStatsRangeError, ChatStatsService, parse_range
-from app.services.reservation_credential_service import mark_purged
+from app.services.reservation_credential_service import mark_proxy_purged, mark_purged
 
 router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
 chat_service = ChatService()
@@ -68,6 +68,21 @@ def delete_logs(userId: str | None = Query(default=None, max_length=64), db: Ses
     own, proxy = chat_service.delete_logs(db, userId.strip())
     # deleted = 본인 기록 + 이 회원을 대신한 보호자 대리 상담 기록(proxyDeleted) - 탈퇴 정리 점검 M-1.
     return success_response("챗 로그 삭제 완료", {"deleted": own + proxy, "proxyDeleted": proxy})
+
+
+@router.delete("/logs/proxy", summary="보호자의 특정 피보호자 대리 상담 기록 삭제 (연결 해제 정리용)")
+def delete_proxy_logs(
+    guardianId: str | None = Query(default=None, max_length=64),
+    wardId: str | None = Query(default=None, max_length=64),
+    db: Session = Depends(get_db),
+) -> dict:
+    # 연결이 끝나면(해제·역할 변경·관리자 해제) 그 보호자가 피보호자 이름·전화·건강 대화를 담아 남긴 대리 상담 기록을 지운다
+    # (BE 2026-10 전체 점검 L-13). 둘 다 필수 - 하나라도 비면 범위가 넓어진다. 보호자 본인 상담 기록은 남긴다.
+    _require_user_id(guardianId)
+    _require_user_id(wardId)
+    mark_proxy_purged(guardianId.strip(), wardId.strip())  # 진행 중이던 대리 상담 턴이 기록을 다시 남기지 않게
+    deleted = chat_service.delete_proxy_logs(db, guardianId.strip(), wardId.strip())
+    return success_response("대리 상담 기록 삭제 완료", {"deleted": deleted})
 
 
 @router.get("/logs/{chat_id}", summary="챗 로그 상세 조회")
