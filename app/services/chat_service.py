@@ -383,7 +383,7 @@ class ChatService:
                     }
             elif self._should_ask_followup(route_info, message, ui_selection, crisis_followup, after_emergency, after_followup):
                 # 정보가 부족한 일반 증상 한마디 - 언제부터·얼마나·동반 증상을 한 번 묻는다(C-1, MedGemma 를 부르지 않는다).
-                proxy = bool(ward_id) or MedicalLlmService.about_family(message)
+                proxy = self._is_proxy(payload, message)
                 _LOG.info("[CHAT-QUALITY] followup_asked=true proxy=%s", proxy)
                 result = MedicalLlmService.followup_question_response(message, proxy=proxy)
             else:
@@ -452,7 +452,7 @@ class ChatService:
                 result["meta"]["emergencyFollowup"] = True
         suggested = follow_up_questions.suggested_questions(
             self._settings, result, route_info, message,
-            proxy=bool(ward_id) or MedicalLlmService.about_family(message),
+            proxy=self._is_proxy(payload, message),
             emergency_text=bool(message) and bool(MedicalLlmService.emergency_signals(message)),
             self_harm_text=bool(message) and bool(MedicalLlmService.self_harm_signals(message)),
         )
@@ -953,9 +953,10 @@ class ChatService:
 
     @staticmethod
     def _is_proxy(payload: ChatRequest, message: str) -> bool:
-        """대리 상담(보호자가 가족 대신 묻는 상담)인가 - wardId 가 있거나 문장의 주어가 가족. 되묻기·이어서 물어볼 질문과 같은 기준."""
+        """대리 상담(보호자가 가족 대신 묻는 상담)인가 - wardId 가 있거나(대리 상담 화면), 문장의 주어가 가족·옆 사람이고
+        화자 본인을 가리키는 말이 없다. 고정 문장·되묻기·이어서 물어볼 질문이 모두 이 기준을 쓴다."""
         ward = payload.context.wardId if payload.context else None
-        return bool((ward or "").strip()) or MedicalLlmService.about_family(message or "")
+        return bool((ward or "").strip()) or MedicalLlmService.proxy_subject(message or "")
 
     def _fallback_reply(
         self, message: str, history: list[dict[str, str]], emergency: bool = False, history_basis: bool = True,

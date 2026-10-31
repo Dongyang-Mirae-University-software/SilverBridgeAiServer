@@ -18,7 +18,8 @@ from app.utils.json_extract import extract_json_fields_lenient, extract_json_obj
 class FixedSentence(str):
     """답에 붙이는 고정 문장(2026-10-31 구조 정리 B). 문자열 그대로 쓰이고(본인 상담 답은 바이트 그대로),
     이름·주어·대리 상담 문장을 함께 들고 있다. 주어 - self: 본인에게 하는 지시 / carer: 돌보는 사람에게 하는 지시 /
-    neutral: 누구에게나 맞음 / own_variant: 자체 변형이 따로 있음(자해 응답 가족용·되묻기 질문)."""
+    neutral: 누구에게나 맞음 / own_variant: 자체 변형이 따로 있음(자해 응답 가족용·되묻기 질문).
+    응급 행동 4개(경련·숨참·토혈·쓰러짐)도 2026-10-31 부터 본인 말투가 본래 문장, 돌보는 사람 말투가 대리 문장이다."""
 
     name: str
     subject: str
@@ -52,6 +53,10 @@ _SELF_HARM_REPLY_FAMILY = (
     "혼자 계시지 않게 곁에 있어 주세요."
 )
 _SELF_HARM_WARNING = "지금 위험하다고 느끼시면 바로 119에 전화하세요. 자살예방 상담전화 109는 24시간 받습니다."
+# 대리 상담 판정 보조(2026-10-31): 가족이 아닌 다른 사람이 주어인 문장("옆 사람이 쓰러졌어요")과 화자 본인을 가리키는 말.
+# 본인 말은 낱말 경계일 때만 본다 - "문제가"·"열이 나는데"·"내가족" 의 글자에 걸리지 않게.
+_OTHER_PERSON_SUBJECT = re.compile(r"(옆\s*사람|어떤\s*분|친구|이웃)\s*(이|가|께서|는|은)")
+_SPEAKER_SELF = re.compile(r"(?:^|[\s,])(저한테|저에게|제가|저는|저도|저를|나한테|나에게|내가|나는|나를)(?=[\s,.?!~]|$)")
 _THIRD_PERSON_SUBJECT = re.compile(r"(엄마|어머니|어머님|아빠|아버지|아버님|할머니|할아버지|부모님|남편|아내|와이프)\s*(가|이|께서|는|은)")
 # 약 복용 문의 + 증상인데 답에 병원 권유가 없을 때 덧붙인다. 판정 기준은 평가 실행기 must_hospital 과 같은 단어다
 # ("의사·약사에게 물어보세요"만으로는 진료 권유가 아니다).
@@ -324,22 +329,22 @@ _EMERGENCY_ACTIONS = (
         re.compile(r"가슴이?(아|조|쪼|통증|찢)|가심이|심장이아|말이어눌|발음이(이상|꼬|자꾸)|혀가꼬|한쪽(팔|다리|얼굴|이)|얼굴이한쪽|입이돌아|팔다리에힘|갑자기앞이안보|벼락|갑자기심한두통|망치로맞은"),
         "직접 운전하거나 혼자 움직이지 마세요.",
     ),
-    _EmergencyAction("seizure", re.compile(r"경련|발작|거품을물"), "억지로 붙잡거나 입에 물건을 넣지 마세요."),
+    _EmergencyAction("seizure", re.compile(r"경련|발작|거품을물"), "바닥에 편히 누우시고, 곁에 있는 분께 억지로 붙잡거나 입에 물건을 넣지 말라고 알려 주세요."),
     # 2026-10-29 G-2. 질식·목에 걸림은 앉은 자세 안내가 맞지 않아 뺀다(신호 정규식이 "질식"·"목에걸려"를 보지 않는다).
     _EmergencyAction(
         "breathing",
         re.compile(r"숨이안쉬|숨을못쉬|숨쉬기힘|숨쉬기가힘|숨이막히|호흡곤란|호흡이곤란|입술이파"),
-        "편하게 앉은 자세로 숨을 쉬게 하고, 꽉 끼는 옷은 풀어 주세요.",
+        "편하게 앉은 자세로 숨을 쉬시고, 꽉 끼는 옷은 풀어 두세요.",
     ),
     _EmergencyAction(
         "vomiting_blood",
         re.compile(r"피를토|토혈|커피색|피가섞인구토|피섞인구토"),
-        "토한 것이 목에 걸리지 않게 옆으로 눕히고, 아무것도 먹거나 마시지 마세요.",
+        "토한 것이 목에 걸리지 않게 옆으로 누우시고, 아무것도 먹거나 마시지 마세요.",
     ),
     _EmergencyAction(
         "collapse_fall",
         re.compile(r"쓰러|넘어져|넘어졌|못일어나|일어나지못|일어나지를못|일어날수가없|일어설수가없"),
-        "무리하게 일으키지 말고 편한 자세로 눕혀 두세요.",
+        "무리하게 일어나지 마시고 편한 자세로 누워 계세요.",
     ),
 )
 # 2026-10-30 J-3: 응급 답의 설명 한 줄(판정자 6명 공통 지적 - B2 운전 금지·C5 출혈 신호·F3 심근경색 가능성).
@@ -473,10 +478,10 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_SYMPTOM_RULES.sudden_vision_loss": ("neutral", None),
     "_SYMPTOM_RULES.numbness_stroke_sign": ("neutral", None),
     "_EMERGENCY_ACTIONS.chest_stroke": ("self", "직접 운전해서 모시고 가지 마시고, 혼자 움직이시게 두지 마세요."),
-    "_EMERGENCY_ACTIONS.seizure": ("carer", None),
-    "_EMERGENCY_ACTIONS.breathing": ("carer", None),
-    "_EMERGENCY_ACTIONS.vomiting_blood": ("carer", None),
-    "_EMERGENCY_ACTIONS.collapse_fall": ("carer", None),
+    "_EMERGENCY_ACTIONS.seizure": ("self", "억지로 붙잡거나 입에 물건을 넣지 마세요."),
+    "_EMERGENCY_ACTIONS.breathing": ("self", "편하게 앉은 자세로 숨을 쉬게 하고, 꽉 끼는 옷은 풀어 주세요."),
+    "_EMERGENCY_ACTIONS.vomiting_blood": ("self", "토한 것이 목에 걸리지 않게 옆으로 눕히고, 아무것도 먹거나 마시지 마세요."),
+    "_EMERGENCY_ACTIONS.collapse_fall": ("self", "무리하게 일으키지 말고 편한 자세로 눕혀 두세요."),
 }
 
 
@@ -524,6 +529,15 @@ class MedicalLlmService:
         """자해·자살 신호 키워드. 비어 있지 않으면 증상 상담 대신 고정 응답을 낸다."""
         compact = re.sub(r"\s+", "", (message or "").lower())
         return [keyword for keyword in cls.SELF_HARM_KEYWORDS if keyword in compact]
+
+    @staticmethod
+    def proxy_subject(message: str) -> bool:
+        """문장만 보고 대리 상담(다른 사람의 일을 대신 묻는 상담)인가 - 가족·옆 사람이 주어이고, 화자 본인을 가리키는 말
+        ("저한테"·"제가"…)이 없을 때(2026-10-31). 자해 응답의 가족용 선택(about_family)은 이 규칙을 쓰지 않는다."""
+        text = message or ""
+        if not (_THIRD_PERSON_SUBJECT.search(text) or _OTHER_PERSON_SUBJECT.search(text)):
+            return False
+        return not _SPEAKER_SELF.search(text)
 
     @staticmethod
     def about_family(message: str) -> bool:
