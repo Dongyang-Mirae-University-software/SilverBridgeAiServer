@@ -116,9 +116,10 @@ def test_emergency_warning_box_and_actions_for_proxy() -> None:
     assert proxy["emergencyWarning"] == [mls._EMERGENCY_REPLY.proxy]
     assert "119" in proxy["emergencyWarning"][0] and proxy["riskLevel"] == "high"
     assert "혼자 계시면" not in proxy["emergencyWarning"][0]
-    # 돌보는 사람 말투 행동(쓰러짐)은 두 경우 모두 같은 문장
-    collapse = str(_sentence("_EMERGENCY_ACTIONS.collapse_fall"))
-    assert collapse in own["reply"] and collapse in proxy["reply"]
+    # 응급 행동(쓰러짐)은 본인 상담이면 본인 말투, 대리 상담이면 돌보는 사람 말투(2026-10-31)
+    collapse = _sentence("_EMERGENCY_ACTIONS.collapse_fall")
+    assert str(collapse) in own["reply"] and collapse.proxy not in own["reply"]
+    assert collapse.proxy in proxy["reply"] and str(collapse) not in proxy["reply"]
 
 
 def test_hypoglycemia_and_no_drive_for_proxy() -> None:
@@ -135,6 +136,9 @@ def test_hypoglycemia_and_no_drive_for_proxy() -> None:
     ("", "어머니가 기침을 하세요", True),
     ("", "기침이 나요", False),
     ("  ", "기침이 나요", False),
+    ("ward-1", "어머니가 쓰러지셨는데 제가 어떻게 해요?", True),  # 대리 상담 화면은 문장과 상관없이 대리
+    ("", "엄마가 저한테 약 먹으래요", False),  # 화자 본인의 일
+    ("", "옆 사람이 쓰러졌어요", True),  # 가족이 아닌 다른 사람
 ])
 def test_chat_service_proxy_rule(ward_id: str, message: str, expected: bool) -> None:
     payload = ChatRequest(userId="u1", message=message, context={"wardId": ward_id} if ward_id else None)
@@ -146,3 +150,48 @@ def test_fallback_emergency_warning_for_proxy() -> None:
     own = ChatService()._fallback_reply("쓰러질 것 같아요", [], emergency=True)
     assert proxy["emergencyWarning"] == [mls._EMERGENCY_REPLY.proxy]
     assert own["emergencyWarning"] == [str(mls._EMERGENCY_REPLY)]
+
+
+
+# ---- 대리 상담 판정: 화자 본인·제3자 (2026-10-31) -------------------------------------------------------------
+
+
+@pytest.mark.parametrize("message", [
+    "어머니가 기침을 하세요", "아버지가 갑자기 쓰러지셨어요", "할머니께서 혈압약을 두 번 드셨어요",
+    "옆 사람이 쓰러졌어요", "옆사람이 경련을 해요", "친구가 피를 토했어요", "이웃이 숨을 못 쉬어요", "어떤 분이 길에서 쓰러지셨어요",
+    "어머니가 열이 나는데 괜찮을까요", "아버지가 문제가 있어 보여요",  # "나는"·"제가" 글자가 낱말 안에 있을 뿐
+])
+def test_proxy_subject(message: str) -> None:
+    assert MedicalLlmService.proxy_subject(message) is True
+
+
+@pytest.mark.parametrize("message", [
+    "엄마가 저한테 약 먹으래요",  # 화자 본인의 일(오판 예문)
+    "남편이 저를 병원에 데려간대요",
+    "아내가 제가 어지러워 보인대요",
+    "엄마가 나한테 술 끊으래",
+    "할머니가 저는 혈압약을 꼭 먹어야 한대요",
+    "어머니가 쓰러지셨는데 제가 어떻게 해요?",  # 받아들인 비용: 본인 상담으로 본다(경고 박스·119 는 같다)
+    "기침이 나요", "어지러워요",
+])
+def test_speaker_self_is_not_proxy(message: str) -> None:
+    assert MedicalLlmService.proxy_subject(message) is False
+
+
+def test_self_harm_family_choice_is_unchanged() -> None:
+    # 위기 문구는 따로 정한다 - 자해 응답의 가족용 선택은 화자 본인 규칙을 쓰지 않는다.
+    assert MedicalLlmService.about_family("엄마가 죽고 싶다고 저한테 말했어요") is True
+    assert MedicalLlmService.about_family("옆 사람이 죽고 싶대요") is False
+
+
+@pytest.mark.parametrize("name", ["seizure", "breathing", "vomiting_blood", "collapse_fall"])
+def test_emergency_actions_have_own_and_carer_wording(name: str) -> None:
+    sentence = _sentence(f"_EMERGENCY_ACTIONS.{name}")
+    assert sentence.subject == "self" and sentence.proxy
+    assert dict(MedicalLlmService.emergency_action_sentences(_ACTION_MESSAGES[name]))[name] == str(sentence)
+    assert dict(MedicalLlmService.emergency_action_sentences(_ACTION_MESSAGES[name], proxy=True))[name] == sentence.proxy
+
+
+_ACTION_MESSAGES = {
+    "seizure": "경련이 나요", "breathing": "숨을 못 쉬겠어요", "vomiting_blood": "피를 토했어요", "collapse_fall": "쓰러졌어요",
+}
