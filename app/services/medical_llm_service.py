@@ -15,6 +15,25 @@ from app.utils.conversation import format_recent_history, normalize_history
 from app.utils.json_extract import extract_json_fields_lenient, extract_json_object
 
 
+class FixedSentence(str):
+    """답에 붙이는 고정 문장(2026-10-31 구조 정리 B). 문자열 그대로 쓰이고(본인 상담 답은 바이트 그대로),
+    이름·주어·대리 상담 문장을 함께 들고 있다. 주어 - self: 본인에게 하는 지시 / carer: 돌보는 사람에게 하는 지시 /
+    neutral: 누구에게나 맞음 / own_variant: 자체 변형이 따로 있음(자해 응답 가족용·되묻기 질문)."""
+
+    name: str
+    subject: str
+    proxy: str | None
+
+    def __new__(cls, text: str, name: str, subject: str, proxy: str | None = None) -> "FixedSentence":
+        obj = super().__new__(cls, text)
+        obj.name, obj.subject, obj.proxy = name, subject, proxy
+        return obj
+
+    def pick(self, proxy: bool) -> str:
+        """대리 상담(보호자가 가족 대신 묻는 상담)이면 대리 문장, 아니면 본래 문장."""
+        return self.proxy if proxy and self.proxy else str(self)
+
+
 _LOG = logging.getLogger(__name__)
 
 _STRING_KEYS = ["empathy", "symptoms", "features", "advice", "reply"]
@@ -406,6 +425,80 @@ _MEDICATION_WORD = re.compile(r"약|항생제|진통제|수면제|소화제|해�
 _MEDICATION_ASK = re.compile(r"먹어도|드셔도|복용해도|끊어도|중단해도|먹으면|드시면|먹을까")
 _SYMPTOM_WORDS = chat_keywords.MEDICATION_SYMPTOM_WORDS
 _GENERAL_SYMPTOM_WORDS = chat_keywords.GENERAL_SYMPTOM_WORDS
+
+
+# ---- 고정 문장 표(2026-10-31 구조 정리 B, 점검 L-3·L-6) ----------------------------------------------------------
+# 답에 붙이는 고정 문장 전부의 주어와 대리 상담 문장. 새 고정 문장은 이 표에 넣어야 붙일 수 있다
+# (FIXED_SENTENCES 를 순회하는 테스트가 빼기 규칙 충돌·주어 self 의 대리 문장 누락을 막는다).
+# 키: 모듈 상수 이름 또는 "규칙 표.규칙 이름". 값: (주어, 대리 상담 문장 또는 None).
+_SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
+    "_EMERGENCY_REPLY": ("self", None),
+    "_SELF_HARM_REPLY": ("own_variant", None),
+    "_SELF_HARM_REPLY_FAMILY": ("own_variant", None),
+    "_SELF_HARM_WARNING": ("own_variant", None),
+    "_CLINIC_SENTENCE": ("neutral", None),
+    "_SELF_ADJUST_SENTENCE": ("neutral", None),
+    "_CLINIC_SENTENCE_WITH_DEPT": ("neutral", None),
+    "_CONSULT_SENTENCE": ("neutral", None),
+    "_RED_FLAG_119_SENTENCE": ("neutral", None),
+    "_DOUBLE_DOSE_SENTENCE": ("self", None),
+    "_PERSISTING_SENTENCE": ("neutral", None),
+    "_BREATHING_NO_DRIVE": ("self", None),
+    "_VOMIT_BLOOD_INFO": ("neutral", None),
+    "_CHEST_INDIGESTION_INFO": ("neutral", None),
+    "_HYPOGLYCEMIA_SENTENCE": ("self", None),
+    "_HYPOGLYCEMIA_RECHECK": ("self", None),
+    "_FOLLOWUP_INTRO": ("own_variant", None),
+    "_FOLLOWUP_CLOSING": ("own_variant", None),
+    "_DRUG_ALCOHOL_RULES.diabetes": ("self", None),
+    "_DRUG_ALCOHOL_RULES.sedative": ("self", None),
+    "_DRUG_ALCOHOL_RULES.acetaminophen": ("self", None),
+    "_DRUG_ALCOHOL_RULES.anticoagulant": ("self", None),
+    "_DRUG_ALCOHOL_RULES.blood_pressure": ("self", None),
+    "_DRUG_ALCOHOL_RULES.antibiotic": ("self", None),
+    "_DRUG_DIRECT_RULES.missed_dose_timing": ("self", None),
+    "_DRUG_DIRECT_RULES.double_dose": ("self", None),
+    "_DRUG_DIRECT_RULES.painkiller_limit": ("self", None),
+    "_DRUG_DIRECT_RULES.leftover_antibiotic": ("self", None),
+    "_DRUG_DIRECT_RULES.antibiotic_virus": ("neutral", None),
+    "_DRUG_DIRECT_RULES.cold_medicine_combo": ("neutral", None),
+    "_DRUG_DIRECT_RULES.bp_med_stop": ("neutral", None),
+    "_DRUG_DIRECT_RULES.sleeping_pill_purchase": ("self", None),
+    "_LIFESTYLE_RULES.diabetes_fruit": ("self", None),
+    "_LIFESTYLE_RULES.high_bp_exercise": ("self", None),
+    "_LIFESTYLE_RULES.arthritis_exercise": ("self", None),
+    "_LIFESTYLE_RULES.cholesterol_diet": ("neutral", None),
+    "_SYMPTOM_RULES.cough_red_flag": ("neutral", None),
+    "_SYMPTOM_RULES.orthostatic_dizziness": ("self", None),
+    "_SYMPTOM_RULES.sudden_vision_loss": ("neutral", None),
+    "_SYMPTOM_RULES.numbness_stroke_sign": ("neutral", None),
+    "_EMERGENCY_ACTIONS.chest_stroke": ("self", None),
+    "_EMERGENCY_ACTIONS.seizure": ("carer", None),
+    "_EMERGENCY_ACTIONS.breathing": ("carer", None),
+    "_EMERGENCY_ACTIONS.vomiting_blood": ("carer", None),
+    "_EMERGENCY_ACTIONS.collapse_fall": ("carer", None),
+}
+
+
+def _fixed(key: str, text: str) -> FixedSentence:
+    subject, proxy = _SENTENCE_TABLE[key]  # 표에 없는 고정 문장은 여기서 KeyError - 표를 먼저 채운다
+    return FixedSentence(text, key, subject, proxy)
+
+
+for _name in [k for k in _SENTENCE_TABLE if "." not in k]:
+    globals()[_name] = _fixed(_name, globals()[_name])
+_DRUG_ALCOHOL_RULES = tuple(r._replace(sentence=_fixed(f"_DRUG_ALCOHOL_RULES.{r.name}", r.sentence)) for r in _DRUG_ALCOHOL_RULES)
+_DRUG_DIRECT_RULES = tuple(r._replace(sentence=_fixed(f"_DRUG_DIRECT_RULES.{r.name}", r.sentence)) for r in _DRUG_DIRECT_RULES)
+_LIFESTYLE_RULES = tuple(r._replace(sentence=_fixed(f"_LIFESTYLE_RULES.{r.name}", r.sentence)) for r in _LIFESTYLE_RULES)
+_SYMPTOM_RULES = tuple(r._replace(sentence=_fixed(f"_SYMPTOM_RULES.{r.name}", r.sentence)) for r in _SYMPTOM_RULES)
+_EMERGENCY_ACTIONS = tuple(a._replace(sentence=_fixed(f"_EMERGENCY_ACTIONS.{a.name}", a.sentence)) for a in _EMERGENCY_ACTIONS)
+del _name
+# 고정 문장 전부(표 순서). 테스트·점검은 이 목록만 본다.
+FIXED_SENTENCES: tuple[FixedSentence, ...] = tuple(
+    [globals()[k] for k in _SENTENCE_TABLE if "." not in k]
+    + [r.sentence for r in _DRUG_ALCOHOL_RULES + _DRUG_DIRECT_RULES + _LIFESTYLE_RULES + _SYMPTOM_RULES + _EMERGENCY_ACTIONS]
+)
+assert len(FIXED_SENTENCES) == len(_SENTENCE_TABLE)
 
 
 class MedicalLlmService:
