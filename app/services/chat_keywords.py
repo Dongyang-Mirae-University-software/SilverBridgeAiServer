@@ -94,8 +94,13 @@ ANY_SYMPTOM_WORDS = tuple(dict.fromkeys(
 ))
 
 
+# 위험 신호 낱말에 걸리지만 위험 신호가 아닌 말(2026-11-01 점검 M-2: "커피 가게" → "피가"). 지운 뒤에 본다 -
+# "커피가 쏟아져 피가 나요"의 "피가"는 그대로 잡힌다. "코피가"는 위험 신호로 둔다.
+_RED_FLAG_FALSE = re.compile(r"커피가")
+
+
 def has_red_flag(text: str) -> bool:
-    c = compact(text)
+    c = _RED_FLAG_FALSE.sub(" ", compact(text))
     return any(keyword in c for keyword in RED_FLAG_KEYWORDS)
 
 

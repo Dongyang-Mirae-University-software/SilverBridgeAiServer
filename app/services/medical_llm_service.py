@@ -55,16 +55,28 @@ _SELF_HARM_REPLY_FAMILY = (
 _SELF_HARM_WARNING = "지금 위험하다고 느끼시면 바로 119에 전화하세요. 자살예방 상담전화 109는 24시간 받습니다."
 # 대리 상담 판정 보조(2026-10-31): 가족이 아닌 다른 사람이 주어인 문장("옆 사람이 쓰러졌어요")과 화자 본인을 가리키는 말.
 # 본인 말은 낱말 경계일 때만 본다 - "문제가"·"열이 나는데"·"내가족" 의 글자에 걸리지 않게.
-_OTHER_PERSON_SUBJECT = re.compile(r"(옆\s*사람|어떤\s*분|친구|이웃)\s*(이|가|께서|는|은)")
+# 2026-11-01 점검 H-1: 자녀·손주·형제·직원·환자도 대리 주어로 본다(짧은 호칭은 앞 낱말 경계 - "모형이"·"딸기가"에 걸리지 않게).
+# 이 호칭들은 대리 판정에만 쓴다 - 자해 응답 가족용 선택(_THIRD_PERSON_SUBJECT)은 넓히지 않는다.
+_FAMILY_WORDS = r"엄마|어머니|어머님|아빠|아버지|아버님|할머니|할아버지|부모님|남편|아내|와이프"
+_KIN_WORDS = r"아들|딸|손자|손녀|며느리|사위|형|오빠|언니|누나|동생|자녀|아이|직원|환자"
+_OTHER_PERSON_SUBJECT = re.compile(
+    rf"(옆\s*사람|어떤\s*분|친구|이웃)\s*(이|가|께서|는|은)|(?:^|[\s,])(?:{_KIN_WORDS})(이|가|께서|는|은)(?=[\s,.?!~]|$)"
+)
+# 문장 맨 앞 호칭 + 띄어쓰기(조사 생략, "엄마 기침이 심해요") - 바로 뒤에 "저"·"나"가 따로 오면 화자 본인("엄마 나 아파").
+_LEADING_PERSON = re.compile(rf"^\s*(?:저희\s*|우리\s*)?(?:{_FAMILY_WORDS}|{_KIN_WORDS})\s+(?!(?:저|나)(?:\s|$))\S")
+# 응급 쪽 안전 기본값(H-1 ③): 대리 판정과 별개로 다른 사람을 가리키는 낱말이 있는가(조사 "께"·"한테" 등 포함).
+_OTHER_PERSON_WORD = re.compile(
+    rf"(?:{_FAMILY_WORDS}|옆\s*사람|어떤\s*분|친구|이웃)"
+    rf"|(?:^|[\s,])(?:{_KIN_WORDS})(?:이|가|께서|께|는|은|를|을|한테|에게|도)?(?=[\s,.?!~]|$)"
+)
 _SPEAKER_SELF = re.compile(r"(?:^|[\s,])(저한테|저에게|제가|저는|저도|저를|나한테|나에게|내가|나는|나를)(?=[\s,.?!~]|$)")
+# 할 일을 묻는 화자("제가 어떻게 해요?")는 돌보는 사람이다 - 화자 본인 판정에서 뺀다(H-1 ②).
+_SPEAKER_ASKS_WHAT_TO_DO = re.compile(r"(?:제가|저는|내가|나는)\s*(?:어떻게|뭘|뭐|무엇을|어디로|해야)")
 _THIRD_PERSON_SUBJECT = re.compile(r"(엄마|어머니|어머님|아빠|아버지|아버님|할머니|할아버지|부모님|남편|아내|와이프)\s*(가|이|께서|는|은)")
 # 약 복용 문의 + 증상인데 답에 병원 권유가 없을 때 덧붙인다. 판정 기준은 평가 실행기 must_hospital 과 같은 단어다
 # ("의사·약사에게 물어보세요"만으로는 진료 권유가 아니다).
 _CLINIC_SENTENCE = "증상이 계속되거나 걱정되시면 병원 진료를 받아 보세요."
 # 당뇨약 + 술 문의에 붙이는 저혈당 문장(2026-10-27 점검 M-2 - qa.D5 에서 저혈당 미언급 4/4·방향 반대 1/4). 약 종류별 규칙은 _DRUG_ALCOHOL_RULES.
-_ALCOHOL_HYPOGLYCEMIA_SENTENCE = (
-    "당뇨약을 드시는 중에 술을 마시면 저혈당(식은땀·떨림·어지럼)이 늦게 올 수 있어요. 드시기 전에 의사·약사와 꼭 상의하세요."
-)
 _DIABETES_MED_WORDS = re.compile(r"당뇨|혈당약|혈당 ?약|인슐린")
 # "수술"·"기술"·"예술"·"마술"·"미술"의 "술"은 술이 아니다.
 _ALCOHOL_WORDS = re.compile(r"(?<![수기예마미])술|음주|소주|맥주|막걸리|와인|양주|알코올|알콜")
@@ -86,7 +98,9 @@ class _DrugAlcoholRule(NamedTuple):
 
 
 _DRUG_ALCOHOL_RULES = (
-    _DrugAlcoholRule("diabetes", _DIABETES_MED_WORDS, _ALCOHOL_HYPOGLYCEMIA_SENTENCE, re.compile("저혈당"), _GLUCOSE_UP),
+    _DrugAlcoholRule("diabetes", _DIABETES_MED_WORDS, (
+    "당뇨약을 드시는 중에 술을 마시면 저혈당(식은땀·떨림·어지럼)이 늦게 올 수 있어요. 드시기 전에 의사·약사와 꼭 상의하세요."
+    ), re.compile("저혈당"), _GLUCOSE_UP),
     _DrugAlcoholRule(
         "sedative",
         re.compile(r"수면제|수면 ?유도제|수면 ?보조제|신경 ?안정제|안정제|진정제|항불안제|졸피뎀|스틸녹스|자낙스|알프라졸람|로라제팜"),
@@ -535,9 +549,14 @@ class MedicalLlmService:
         """문장만 보고 대리 상담(다른 사람의 일을 대신 묻는 상담)인가 - 가족·옆 사람이 주어이고, 화자 본인을 가리키는 말
         ("저한테"·"제가"…)이 없을 때(2026-10-31). 자해 응답의 가족용 선택(about_family)은 이 규칙을 쓰지 않는다."""
         text = message or ""
-        if not (_THIRD_PERSON_SUBJECT.search(text) or _OTHER_PERSON_SUBJECT.search(text)):
+        if not (_THIRD_PERSON_SUBJECT.search(text) or _OTHER_PERSON_SUBJECT.search(text) or _LEADING_PERSON.search(text)):
             return False
-        return not _SPEAKER_SELF.search(text)
+        return not _SPEAKER_SELF.search(_SPEAKER_ASKS_WHAT_TO_DO.sub(" ", text))
+
+    @staticmethod
+    def mentions_other_person(message: str) -> bool:
+        """다른 사람(가족·자녀·옆 사람 등)을 가리키는 낱말이 있는가 - 응급 행동·응급 경고 박스의 돌보는 사람 말투 기본값(H-1 ③)."""
+        return bool(_OTHER_PERSON_WORD.search(message or ""))
 
     @staticmethod
     def about_family(message: str) -> bool:
@@ -1119,7 +1138,9 @@ class MedicalLlmService:
         normalized = self._normalize_payload(parsed, raw, message, intent, emergency_hint)
 
         # 응급이면 상단에 경고 박스 한 줄만. 그 외 목록(원인·자가관리·방문기준)은 더 이상 내지 않는다 - 말풍선 한 개로 끝낸다.
-        emergency_warning = [_EMERGENCY_REPLY.pick(proxy)] if emergency_hint or intent == "emergency_guidance" else []
+        # 응급 쪽은 대리 판정이 아니어도 다른 사람 낱말이 있으면 돌보는 사람 말투(옆에서 돕는 사람에게 환자용 지시가 나가지 않게).
+        carer = proxy or self.mentions_other_person(message)
+        emergency_warning = [_EMERGENCY_REPLY.pick(carer)] if emergency_hint or intent == "emergency_guidance" else []
         risk_level, recommended_action, reservation_required = self.infer_risk(message, intent, emergency_warning)
         # 답변 품질 후처리(D-1·D-2·D-4)는 응급이 아닌 증상 상담에만 쓴다 - 응급·약 + 술 답은 기존 안전 규칙만 손댄다.
         quality = intent == "medical_advice" and not emergency_warning and not self.drug_alcohol_rules(message)
@@ -1164,7 +1185,7 @@ class MedicalLlmService:
                     _LOG.info("[CHAT-SAFETY] drug_direct=%s", ",".join(name for name, _ in direct))
         else:
             # 응급 답: 119 안내(advice 줄)는 그대로 두고 그 뒤에 유형별 행동 한 줄. 경고 박스(emergencyWarning)는 바꾸지 않는다.
-            actions = self.emergency_action_sentences(message, proxy)
+            actions = self.emergency_action_sentences(message, carer)
             for _, sentence in actions:
                 reply = f"{reply}\n{sentence}"
             if actions:
