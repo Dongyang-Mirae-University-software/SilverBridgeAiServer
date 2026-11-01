@@ -19,6 +19,7 @@ from app.database.session import engine
 from app.routers.analysis_router import router as analysis_router
 from app.routers.camera_router import router as camera_router
 from app.routers.chat_router import router as chat_router
+from app.routers.checkin_router import router as checkin_router
 from app.routers.game_router import router as game_router
 from app.routers.health_router import router as health_router
 from app.routers.live_stream_router import router as live_stream_router
@@ -143,3 +144,5 @@ app.include_router(live_stream_router, dependencies=[Depends(require_api_key)])
 app.include_router(live_ws_router)
 app.include_router(reservation_credential_router, dependencies=[Depends(require_api_key)])
 app.include_router(medication_ocr_router, dependencies=[Depends(require_api_key)])
+# 안부 말벗: CHECKIN_ENABLED 를 켜기 전에는 503 이고 모델도 올리지 않는다(첫 요청 때 적재)
+app.include_router(checkin_router, dependencies=[Depends(require_api_key)])
