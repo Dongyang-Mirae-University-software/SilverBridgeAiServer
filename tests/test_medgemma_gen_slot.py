@@ -15,6 +15,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+from app.services.chat_layout import split_warning
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -256,7 +258,7 @@ def test_emergency_turn_gets_119_fallback_within_3s_while_slot_held(chat_env, ca
     assert chat_env.tracker.calls == 0
     assert out["engine"] == "fallback"
     assert out["riskLevel"] == "high"
-    assert out["emergencyWarning"] == [MedicalLlmService.EMERGENCY_WARNING.pick(MedicalLlmService.about_family(message))]
+    assert out["emergencyWarning"] == split_warning([MedicalLlmService.EMERGENCY_WARNING.pick(MedicalLlmService.about_family(message))])  # 경고 박스는 한 문장씩(2026-11-01)
     joined = "\n".join(r.getMessage() for r in caplog.records)
     assert "[CHAT-LLM-FAILED] MedGemmaBusyError" in joined
     assert "숨을" not in joined and "엄마가" not in joined

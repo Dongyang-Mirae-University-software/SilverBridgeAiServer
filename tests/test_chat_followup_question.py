@@ -101,8 +101,8 @@ def test_other_sentences_do_not_need_followup(message: str) -> None:
 
 def test_first_turn_asks_without_calling_medgemma(env) -> None:
     out = _send(env, "머리가 아파요")
-    assert out["reply"].startswith(INTRO)
-    assert "· 언제부터 그러셨나요?" in out["reply"]
+    assert all(part in out["reply"] for part in INTRO.split(". ")) and out["layout"]["questions"]  # 핵심 한 줄이 맨 위(2026-11-01)
+    assert "❓ 언제부터 그러셨나요?" in out["reply"]
     assert "신경과 진료를 생각해 보셔도 좋아요." in out["reply"]  # 진료과 한 줄(Q2)
     assert "119" not in out["reply"] and not out["emergencyWarning"] and out["riskLevel"] == "medium"
     assert env.llm.calls == []
@@ -134,9 +134,9 @@ def test_thanks_after_followup_is_not_joined(env) -> None:
 
 def test_proxy_question_wording(env) -> None:
     out = _send(env, "기침이 나요", ward="ab12")
-    assert "· 어르신께서 언제부터 그러셨나요?" in out["reply"]
+    assert "❓ 어르신께서 언제부터 그러셨나요?" in out["reply"]
     out = _send(env, "엄마가 어지러워해요", session="s2")
-    assert "· 어르신께서 언제부터 그러셨나요?" in out["reply"]
+    assert "❓ 어르신께서 언제부터 그러셨나요?" in out["reply"]
 
 
 def test_router_emergency_never_asks(env) -> None:
@@ -163,7 +163,7 @@ def test_followup_meta_is_recorded(env) -> None:
 def test_different_session_or_ward_does_not_continue(env) -> None:
     _send(env, "머리가 아파요", session="s1")
     out = _send(env, "배가 아파요", session="s9")  # 다른 세션 - 되묻기 다음 턴이 아니라 새 질문
-    assert out["reply"].startswith(INTRO)
+    assert all(part in out["reply"] for part in INTRO.split(". ")) and out["layout"]["questions"]  # 핵심 한 줄이 맨 위(2026-11-01)
 
 
 def test_followup_log_has_flags_only(env, caplog) -> None:
