@@ -170,16 +170,16 @@ def test_fallback_uses_history_when_emergency(env) -> None:
 @pytest.mark.parametrize("message", ["엄마가 죽고 싶다고 하세요", "아버지께서 자살 얘기를 하세요", "남편이 살기가 싫대요"])
 def test_family_subject_gets_family_reply(env, message: str) -> None:
     out = _send(env, message)
-    assert out["reply"].startswith("많이 놀라셨겠어요.")
+    assert out["reply"].startswith("🚨 ") and "119" in out["reply"].split("\n")[0] and "많이 놀라셨겠어요." in out["reply"]  # 🚨 119 줄이 맨 위(2026-11-01)
     assert "가족도 24시간" in out["reply"] and "119" in out["reply"]
-    assert out["emergencyWarning"] and "109" in out["emergencyWarning"][0]
+    assert out["emergencyWarning"] and any("109" in w for w in out["emergencyWarning"])
 
 
 def test_own_crisis_from_guardian_gets_personal_reply(env) -> None:
     payload = ChatRequest(userId="g-1", message="나도 죽고 싶어요", sessionId="s2",
                           context=ChatContext(name="보호자", role="GUARDIAN", wardId="w1"))
     out = env.svc.process_message(env.db, payload)
-    assert out["reply"].startswith("많이 힘드시군요.")  # 역할값이 아니라 주어로 가른다
+    assert "많이 힘드시군요." in out["reply"] and "많이 놀라셨겠어요." not in out["reply"]  # 역할값이 아니라 주어로 가른다
 
 
 # ---- L-3 기록 응답의 emergencyWarning ---------------------------------------------------------------------
@@ -190,7 +190,7 @@ def test_chat_log_responses_include_emergency_warning(env) -> None:
     _send(env, "어제부터 기침이 나요")
     items = cs.ChatService.list_logs(env.db, "user-1")
     by_message = {item["message"]: item for item in items}
-    assert "109" in by_message["죽고 싶어요"]["emergencyWarning"][0]
+    assert any("109" in w for w in by_message["죽고 싶어요"]["emergencyWarning"])
     assert by_message["어제부터 기침이 나요"]["emergencyWarning"] == ["경고"]
     one = cs.ChatService.get_log(env.db, by_message["죽고 싶어요"]["id"], "user-1")
     assert one["emergencyWarning"] == by_message["죽고 싶어요"]["emergencyWarning"]

@@ -147,3 +147,59 @@ def symptom_department(text: str) -> str | None:
                 return "내과"
             return department
     return None
+
+
+# ── 답 모양(2026-11-01 가독성): 줄 머리 이모지·카드 자리 낱말 ──────────────────────────────────────────
+# 판정 낱말이 아니라 "보여 주는 모양"용이다. 위험도·119·응급·자해·약 + 술·되묻기·진료과 판정은 이 목록을 보지 않는다.
+# 이모지는 모든 판정이 끝난 뒤 chat_layout 이 붙이고, 다음 턴 이력은 strip_layout_emoji 로 지운 문장을 쓴다.
+
+# 응급·자해·위기 답 전용(그 답에는 이것 하나만).
+LAYOUT_EMERGENCY_EMOJI = "🚨"
+LAYOUT_EMPATHY_EMOJI = "💬"
+LAYOUT_SUMMARY_EMOJI = "📝"
+LAYOUT_QUESTION_EMOJI = "❓"
+LAYOUT_DEFAULT_EMOJI = "💡"
+
+# 문장 뜻 → 이모지. 위에서부터 처음 맞는 것 하나(순서가 규칙이다).
+LAYOUT_EMOJI_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("⚠️", re.compile(r"119|응급실")),
+    ("🚫", re.compile(r"마세요|마시고|않게|피하|금지|안 ?돼")),
+    ("🩺", re.compile(r"의사|약사|상의|의료진")),
+    ("🏥", re.compile(r"병원|진료")),
+    ("💊", re.compile(r"(?<![예])약(?![속해])|복용|항생제|진통제|수면제|타이레놀")),
+    ("🩸", re.compile(r"혈당|혈압")),
+    ("🌡️", re.compile(r"열(이|도|은|나|감)|발열|미열|고열|체온")),
+    ("💧", re.compile(r"물을|물은|물도|수분|음료")),
+    ("🍚", re.compile(r"식사|식후|식전|음식|과일|식단|드시는 것이 좋")),
+    ("🚶", re.compile(r"운동|걷기|산책|스트레칭")),
+    ("🛏️", re.compile(r"잠|수면|주무|쉬시|쉬세요|휴식|누워|눕")),
+    ("🧊", re.compile(r"찜질|얼음")),
+    ("📞", re.compile(r"가족|이웃|알려|연락|곁에")),
+)
+
+# 허용 목록(19개). 답에 이 밖의 이모지는 나가지 않는다.
+LAYOUT_EMOJI_ALLOWLIST: frozenset[str] = frozenset(
+    [LAYOUT_EMERGENCY_EMOJI, LAYOUT_EMPATHY_EMOJI, LAYOUT_SUMMARY_EMOJI, LAYOUT_QUESTION_EMOJI, LAYOUT_DEFAULT_EMOJI]
+    + [emoji for emoji, _ in LAYOUT_EMOJI_RULES]
+)
+
+# 카드 자리: 병원·의사·119 이야기나 "~하면 진료" 같은 조건 문장은 "이럴 땐 병원으로", 그 밖의 안내는 "집에서 이렇게".
+LAYOUT_HOSPITAL = re.compile(r"119|응급실|병원|진료|의사|약사|상의|의료진")
+LAYOUT_CONDITIONAL = re.compile(r"계속되|지속되|심해지|생기면|생기거나|나타나면|이어지면|되면|있으면|나면")
+
+# 줄 머리 이모지 지우기(다음 턴 이력·판정용). 그림 문자 범위 + 변형 선택자 + 뒤 공백.
+_EMOJI_CHARS = re.compile(r"[\U0001F000-\U0001FAFF⌀-⏿☀-➿⬀-⯿️‍]+\s?")
+
+
+def strip_layout_emoji(text: str) -> str:
+    """이모지를 지운 문장. 판정·이력은 이 문장으로 본다(이모지 때문에 판정이 바뀌지 않게)."""
+    return _EMOJI_CHARS.sub("", text or "")
+
+
+def layout_emoji(sentence: str) -> str:
+    """문장 뜻에 맞는 줄 머리 이모지 하나(허용 목록 안)."""
+    plain = strip_layout_emoji(sentence)
+    for emoji, pattern in LAYOUT_EMOJI_RULES:
+        if pattern.search(plain):
+            return emoji
+    return LAYOUT_DEFAULT_EMOJI

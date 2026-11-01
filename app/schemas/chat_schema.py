@@ -74,6 +74,8 @@ class ChatReplyData(BaseModel):
     data: Any | None = None
     # 이어서 물어볼 질문 0~3개(2026-10-30). 응급·자해·예약 선택지 답에는 빈 목록.
     suggestedQuestions: list[str] = Field(default_factory=list)
+    # 답 모양(2026-11-01): headline·body·questions·homeCare·visitHospitalIf. 예약 흐름 답은 null. FE 는 있으면 이것으로 그린다.
+    layout: dict[str, Any] | None = None
 
 
 class ChatLogOut(BaseModel):

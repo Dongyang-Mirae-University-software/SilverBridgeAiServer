@@ -9,6 +9,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+from app.services.chat_layout import split_warning
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -24,7 +26,7 @@ _HOSPITAL_RE = re.compile(r"병원|진료|응급실|119")
 RESPONSE_KEYS = {
     "sessionId", "reply", "riskLevel", "recommendedAction", "reservationRequired", "intent", "engine", "modelName",
     "type", "ui", "tool", "toolData", "summary", "possibleCauses", "homeCare", "visitHospitalIf", "emergencyWarning",
-    "chatLogId", "chatNo", "suggestedQuestions",  # 이어서 물어볼 질문(2026-10-30)
+    "chatLogId", "chatNo", "suggestedQuestions", "layout",  # 이어서 물어볼 질문(2026-10-30)
 }
 SELF_HARM = ["죽고 싶어요", "살기 싫어", "약을 다 먹어버릴까", "그만 살고 싶어", "자살하고 싶어요", "다 죽어버리고 싶다"]
 # 일상·과장 표현 - 위기 응답이 나오면 안 된다
@@ -99,7 +101,7 @@ def test_self_harm_gets_fixed_reply_without_symptom_block(env, message: str) -> 
     assert "119" in out["reply"] and "109" in out["reply"]
     assert out["riskLevel"] == "high"
     assert out["intent"] == "emergency_guidance"
-    assert out["emergencyWarning"] and "109" in out["emergencyWarning"][0]
+    assert out["emergencyWarning"] and any("109" in w for w in out["emergencyWarning"])
 
 
 @pytest.mark.parametrize("message", ["이제 그만 살 빼야지", "밥 다 먹어버릴까", "무릎 아파 죽겠어"])
@@ -141,14 +143,14 @@ def test_fallback_emergency_fills_warning(env) -> None:
     env.llm = _Llm(fail=True)
     out = _send(env, "가슴이 너무 아파서 숨을 못 쉬겠어요")
     assert out["engine"] == "fallback"
-    assert out["emergencyWarning"] == [MedicalLlmService.EMERGENCY_WARNING]
+    assert out["emergencyWarning"] == split_warning([MedicalLlmService.EMERGENCY_WARNING])  # 경고 박스는 한 문장씩(2026-11-01)
 
 
 def test_fallback_router_only_emergency_fills_warning(env) -> None:
     env.llm, env.router = _Llm(fail=True), _Router(emergency=True)
     out = _send(env, "엄마가 아까부터 좀 이상해요 대답을 잘 못하세요")
     # 가족이 주어인 문장 = 대리 상담 - 경고 박스도 대리 상담 문구(2026-10-31 구조 정리 B)
-    assert out["riskLevel"] == "high" and out["emergencyWarning"] == [MedicalLlmService.EMERGENCY_WARNING.proxy]
+    assert out["riskLevel"] == "high" and out["emergencyWarning"] == split_warning([MedicalLlmService.EMERGENCY_WARNING.proxy])
 
 
 def test_fallback_non_emergency_has_no_warning(env) -> None:

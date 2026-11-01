@@ -518,6 +518,10 @@ FIXED_SENTENCES: tuple[FixedSentence, ...] = tuple(
     + [r.sentence for r in _DRUG_ALCOHOL_RULES + _DRUG_DIRECT_RULES + _LIFESTYLE_RULES + _SYMPTOM_RULES + _EMERGENCY_ACTIONS]
 )
 assert len(FIXED_SENTENCES) == len(_SENTENCE_TABLE)
+# 약 + 술 고정 문장(본인·대리 둘 다) - 답 모양에서 이 문장의 "상의" 문장을 핵심 한 줄로 고른다(chat_layout).
+DRUG_ALCOHOL_SENTENCES: tuple[str, ...] = tuple(
+    t for r in _DRUG_ALCOHOL_RULES for t in (str(r.sentence), r.sentence.proxy) if t
+)
 
 
 class MedicalLlmService:
@@ -1232,6 +1236,12 @@ class MedicalLlmService:
             # 근거: 어떤 키워드로 응급을 봤는지(없으면 라우터 판단). chat_service가 router 정보를 덧붙여 로그에 남긴다.
             # redFlag119·drugAlcohol: 이어서 물어볼 질문을 붙이지 않는 답(2026-10-31 M-2).
             "meta": {"emergencySignals": signals, "redFlag119": red_flag_added, "drugAlcohol": bool(self.drug_alcohol_rules(message))},
+            # 답 모양(chat_layout)용 - 공감·권고 칸 문장. chat_layout.apply 가 꺼내 버린다(기록·응답에 남지 않음).
+            "layoutParts": {
+                "empathy": normalized.get("empathy") or "",
+                "advice": normalized.get("advice") or "",
+                "structured": bool(normalized.get("symptoms")),
+            },
         }
 
 

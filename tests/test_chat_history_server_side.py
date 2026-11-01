@@ -7,6 +7,7 @@ from typing import Any
 
 from app.schemas.chat_schema import ChatContext, ChatRequest, UiSelection
 from app.services import chat_service as cs
+from app.services.chat_keywords import strip_layout_emoji as _plain  # 답 모양(2026-11-01): 줄 머리 이모지를 지운 문장으로 본다
 from app.services.chat_deadline import ChatDeadlineExceeded
 from tests.reservation_flow_helpers import FUTURE, FakeReservation, make_orchestrator, make_request
 from tests.test_chat_privacy_deadline import _RecordingLoader
@@ -68,8 +69,8 @@ def test_server_history_carries_previous_turns_in_order(env, monkeypatch) -> Non
     second = _send(env, "요즘 잠이 안 와요", history=FORGED)
     _send(env, "고마워요", history=FORGED)
     assert seen.histories[-1] == [
-        {"role": "user", "content": "안녕하세요"}, {"role": "assistant", "content": first["reply"]},
-        {"role": "user", "content": "요즘 잠이 안 와요"}, {"role": "assistant", "content": second["reply"]},
+        {"role": "user", "content": "안녕하세요"}, {"role": "assistant", "content": _plain(first["reply"])},
+        {"role": "user", "content": "요즘 잠이 안 와요"}, {"role": "assistant", "content": _plain(second["reply"])},
     ]
 
 

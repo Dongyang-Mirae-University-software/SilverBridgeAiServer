@@ -22,8 +22,8 @@ from app.services.chat_deadline import ChatDeadlineExceeded, chat_deadline, tigh
 from app.services.chat_router_service import ROUTER_RESERVE_SEC, get_chat_router_service
 from app.services import follow_up_questions
 from app.services.claude_structured_client import failure_cause
-from app.services import chat_keywords
-from app.services.medical_llm_service import MedicalLlmService, get_medical_llm_service
+from app.services import chat_keywords, chat_layout
+from app.services.medical_llm_service import DRUG_ALCOHOL_SENTENCES, MedicalLlmService, get_medical_llm_service
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS
 from app.services.reservation_intake import CHANGE_DATE_OPTION, _find_department
 from app.services.reservation_orchestrator import ReservationOrchestrator, get_reservation_orchestrator
@@ -459,6 +459,8 @@ class ChatService:
             emergency_text=bool(message) and bool(MedicalLlmService.emergency_signals(message)),
             self_harm_text=bool(message) and bool(MedicalLlmService.self_harm_signals(message)),
         )
+        # 답 모양(2026-11-01 가독성): 모든 판정·고정 문장·이어서 물어볼 질문이 끝난 뒤 모양만 바꾼다(문장 뜻·판정 값 그대로).
+        chat_layout.apply(result, DRUG_ALCOHOL_SENTENCES)
         post_started = time.perf_counter()
         if route_info:
             result.setdefault("meta", {})
@@ -491,6 +493,7 @@ class ChatService:
             "homeCare": result.get("homeCare") or [],
             "visitHospitalIf": result.get("visitHospitalIf") or [],
             "emergencyWarning": result.get("emergencyWarning") or [],
+            "layout": result.get("layout"),
             "decisionTrace": result.get("decisionTrace") or [],
             "upstreamMeta": _persistable_meta(result.get("meta")),
         }
@@ -547,6 +550,7 @@ class ChatService:
             "visitHospitalIf": result.get("visitHospitalIf") or [],
             "emergencyWarning": result.get("emergencyWarning") or [],
             "suggestedQuestions": suggested,
+            "layout": result.get("layout"),
             "chatLogId": log.id,
             "chatNo": log.chat_no,
         }
@@ -674,7 +678,8 @@ class ChatService:
                 continue
             items.append({"role": "user", "content": user_text})
             if (log.reply or "").strip():
-                items.append({"role": "assistant", "content": log.reply})
+                # 줄 머리 이모지는 지운 문장으로 - 이력 기반 판정(위기·응급 다음·진료과)이 이모지를 보지 않게(2026-11-01).
+                items.append({"role": "assistant", "content": chat_keywords.strip_layout_emoji(log.reply)})
         return items[-_SERVER_HISTORY_ITEMS:]
 
     @staticmethod
@@ -1099,6 +1104,8 @@ class ChatService:
                     "reservationRequired": log.reservation_required,
                     # 기록을 다시 열 때 빨간 경고 박스를 복원하려고 내보낸다(BE 기록 허용 목록 emergencyWarning 과 짝).
                     "emergencyWarning": context.get("emergencyWarning") or [],
+                    "layout": context.get("layout"),
+            "layout": context.get("layout"),
                     "decisionTrace": context.get("decisionTrace") or [],
                     "upstreamMeta": context.get("upstreamMeta") or {},
                     "createdAt": log.created_at.isoformat(),
@@ -1137,6 +1144,7 @@ class ChatService:
             "recommendedAction": log.recommended_action,
             "reservationRequired": log.reservation_required,
             "emergencyWarning": context.get("emergencyWarning") or [],
+            "layout": context.get("layout"),
             "decisionTrace": context.get("decisionTrace") or [],
             "upstreamMeta": context.get("upstreamMeta") or {},
             "createdAt": log.created_at.isoformat(),
