@@ -73,6 +73,11 @@ _SPEAKER_SELF = re.compile(r"(?:^|[\s,])(저한테|저에게|제가|저는|저�
 # 할 일을 묻는 화자("제가 어떻게 해요?")는 돌보는 사람이다 - 화자 본인 판정에서 뺀다(H-1 ②).
 _SPEAKER_ASKS_WHAT_TO_DO = re.compile(r"(?:제가|저는|내가|나는)\s*(?:어떻게|뭘|뭐|무엇을|어디로|해야)")
 _THIRD_PERSON_SUBJECT = re.compile(r"(엄마|어머니|어머님|아빠|아버지|아버님|할머니|할아버지|부모님|남편|아내|와이프)\s*(가|이|께서|는|은)")
+# 자해 응답 가족용 선택의 화자 주어(2026-11-01): "남편이 때려서 제가 죽고 싶어요"는 화자 본인의 위기다 - 본인용.
+# "저한테"·"저를"은 주어가 아니라 보지 않는다("엄마가 죽고 싶다고 저한테 말했어요"는 가족용 그대로).
+_SPEAKER_AS_SUBJECT = re.compile(r"(?:^|[\s,.?!~])(제가|저는|저도|내가|나는|나도)(?=[\s,.?!~]|$)")
+# 할 일을 묻거나 지켜본 것을 전하는 화자("제가 어떻게 해야 해요?"·"제가 보기엔")는 돌보는 사람이다 - 화자 주어 판정에서 뺀다.
+_FAMILY_CARER_SPEAKER = re.compile(r"(?:제가|저는|저도|내가|나는|나도)\s*(?:어떻게|어떡|뭘|뭐|무엇을|어디로|해야|보기|보니|듣기)")
 # 약 복용 문의 + 증상인데 답에 병원 권유가 없을 때 덧붙인다. 판정 기준은 평가 실행기 must_hospital 과 같은 단어다
 # ("의사·약사에게 물어보세요"만으로는 진료 권유가 아니다).
 _CLINIC_SENTENCE = "증상이 계속되거나 걱정되시면 병원 진료를 받아 보세요."
@@ -454,7 +459,8 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_EMERGENCY_REPLY": ("self", "지금은 응급 상황일 수 있어요. 지금 바로 119에 전화하세요. 구급대가 올 때까지 곁에 있어 주시고, 다른 가족에게도 알려 주세요."),
     "_SELF_HARM_REPLY": ("own_variant", None),
     "_SELF_HARM_REPLY_FAMILY": ("own_variant", None),
-    "_SELF_HARM_WARNING": ("own_variant", None),
+    # 자해 경고 박스: 대리 문장 자리에 가족용(2026-11-01 사용자 결정). proxy_subject 가 아니라 about_family 로 고른다.
+    "_SELF_HARM_WARNING": ("self", "가족분이 지금 위험해 보이면 바로 119에 전화하세요. 자살예방 상담전화 109는 가족도 24시간 상담할 수 있어요."),
     "_CLINIC_SENTENCE": ("neutral", None),
     "_SELF_ADJUST_SENTENCE": ("neutral", None),
     "_CLINIC_SENTENCE_WITH_DEPT": ("neutral", None),
@@ -564,8 +570,12 @@ class MedicalLlmService:
 
     @staticmethod
     def about_family(message: str) -> bool:
-        """문장의 주어가 가족(제3자)인가 - "엄마가 죽고 싶다고 하세요"."""
-        return bool(_THIRD_PERSON_SUBJECT.search(message or ""))
+        """문장의 주어가 가족(제3자)인가 - "엄마가 죽고 싶다고 하세요". 자해 응답 본문과 경고 박스를 같이 고른다.
+        화자 주어("제가"·"내가" 등, 할 일을 묻는 말 제외)가 있으면 화자 본인의 위기로 보고 False(2026-11-01)."""
+        text = message or ""
+        if not _THIRD_PERSON_SUBJECT.search(text):
+            return False
+        return not _SPEAKER_AS_SUBJECT.search(_FAMILY_CARER_SPEAKER.sub(" ", text))
 
     @classmethod
     def self_harm_in_history(cls, history: list[dict[str, str]]) -> bool:
@@ -589,7 +599,7 @@ class MedicalLlmService:
             "possibleCauses": [],
             "homeCare": [],
             "visitHospitalIf": [],
-            "emergencyWarning": [_SELF_HARM_WARNING],
+            "emergencyWarning": [_SELF_HARM_WARNING.pick(family)],  # 가족 주어면 가족용 박스(본문과 같은 기준, 2026-11-01)
             "meta": {"selfHarm": True, "selfHarmTrigger": trigger, "selfHarmFamily": family},
         }
 
