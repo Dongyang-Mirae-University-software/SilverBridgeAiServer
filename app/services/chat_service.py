@@ -1105,7 +1105,6 @@ class ChatService:
                     # 기록을 다시 열 때 빨간 경고 박스를 복원하려고 내보낸다(BE 기록 허용 목록 emergencyWarning 과 짝).
                     "emergencyWarning": context.get("emergencyWarning") or [],
                     "layout": context.get("layout"),
-            "layout": context.get("layout"),
                     "decisionTrace": context.get("decisionTrace") or [],
                     "upstreamMeta": context.get("upstreamMeta") or {},
                     "createdAt": log.created_at.isoformat(),

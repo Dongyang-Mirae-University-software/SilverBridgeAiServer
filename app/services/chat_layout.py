@@ -24,6 +24,8 @@ _QUESTION_LINE = re.compile(r"^·\s*(.+)$")
 _CALL_119 = re.compile(r"119")
 _CALL_109 = re.compile(r"109")
 _HEADLINE_CALL = re.compile(r"전화|연락")
+# 따옴표 안 낱말은 안내할 말의 예시다("병원 찾아줘"라고 말씀해 주세요) - 병원 문장·핵심 줄 판단에서 뺀다(2026-11-01 점검 M-2).
+_QUOTED = re.compile(r"\"[^\"]*\"|“[^”]*”|'[^']*'|‘[^’]*’")
 BODY_MAX_LINES = 4
 
 
@@ -54,6 +56,20 @@ def _kind(result: dict[str, Any]) -> str | None:
     if meta.get("followupAsked"):
         return "followup"
     return "general"
+
+
+def _hospital(sentence: str) -> bool:
+    """병원·의사·119 이야기인가(따옴표 안 낱말 제외)."""
+    return bool(kw.LAYOUT_HOSPITAL.search(_QUOTED.sub("", sentence)))
+
+
+def _without_emoji(text: str) -> str:
+    """모델이 문장 안에 쓴 이모지를 지운 글(줄 구분은 그대로). 줄 머리 이모지는 이 뒤에 허용 목록에서 하나만 붙인다
+    - 한 줄 하나·허용 목록 19개·응급 답 🚨 하나 규칙이 모델 출력과 상관없이 지켜지게(2026-11-01 점검 M-1)."""
+    def clean(line: str) -> str:
+        plain = kw.strip_layout_emoji(line)
+        return line if plain == line else re.sub(r"[ \t]{2,}", " ", plain).strip()  # 이모지 없는 줄은 원문 그대로
+    return "\n".join(clean(line) for line in (text or "").split("\n"))
 
 
 def _emoji(sentence: str) -> str:
@@ -98,9 +114,9 @@ def _followup_layout(reply: str) -> dict[str, Any]:
             questions.append(f"{kw.LAYOUT_QUESTION_EMOJI} {q.group(1).strip()}")  # 질문 줄은 "?" 뒤 괄호까지 한 줄
             continue
         for s in _sentences(text):
-            if headline is None and kw.LAYOUT_HOSPITAL.search(s) and not kw.LAYOUT_CONDITIONAL.search(s):
+            if headline is None and _hospital(s) and not kw.LAYOUT_CONDITIONAL.search(s):
                 headline = _emoji(s)
-            elif kw.LAYOUT_HOSPITAL.search(s):
+            elif _hospital(s):
                 hospital.append(_emoji(s))
             else:
                 body.append(f"{kw.LAYOUT_EMPATHY_EMOJI} {s}")
@@ -142,7 +158,7 @@ def _general_layout(reply: str, parts: dict[str, Any], drug_alcohol: list[str]) 
             continue
         if any(p.match(text) for p in _MULTI_FIXED):
             group = _sentences(text)
-            where = "hospital" if any(kw.LAYOUT_HOSPITAL.search(x) for x in group) else "home"
+            where = "hospital" if any(_hospital(x) for x in group) else "home"
             placed.extend((where, x) for x in group)
             continue
         for s in _sentences(text):
@@ -151,10 +167,10 @@ def _general_layout(reply: str, parts: dict[str, Any], drug_alcohol: list[str]) 
             if _in(s, empathy):
                 placed.append(("empathy", s))
             elif _in(s, drug_alcohol):
-                if kw.LAYOUT_HOSPITAL.search(s) and not _CALL_119.search(s):
+                if _hospital(s) and not _CALL_119.search(s):
                     headline_candidates.append((0, s))
                 placed.append(("body", s))
-            elif kw.LAYOUT_HOSPITAL.search(s):
+            elif _hospital(s):
                 if not _CALL_119.search(s) and not kw.LAYOUT_CONDITIONAL.search(s):
                     headline_candidates.append((1 if _in(s, advice) else 2, s))
                 placed.append(("hospital", s))
@@ -223,7 +239,8 @@ def apply(result: dict[str, Any], drug_alcohol_sentences: list[str] | None = Non
     if kind is None:
         result["layout"] = None
         return result
-    reply = result["reply"]
+    reply = _without_emoji(result["reply"])
+    parts = {**parts, **{k: _without_emoji(str(parts.get(k) or "")) for k in ("empathy", "advice")}}
     if kind == "emergency":
         layout = _urgent_layout(reply, _CALL_119, parts)
         result["emergencyWarning"] = split_warning(result.get("emergencyWarning"))
