@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from app.core.response import error_response
 from app.services.checkin import audio as audio_mod
 from app.services.checkin import config as cfg_mod
+from app.services.checkin import face as face_mod
 from app.services.checkin import models as models_mod
 from app.services.checkin import service
 
@@ -244,3 +245,53 @@ def test_voice_metrics_on_tone_with_silence():
     assert 1.8 <= m["speechSec"] <= 2.2
     assert 0.15 <= m["pauseRatio"] <= 0.4
     assert m["charsPerSec"] and m["loudnessDb"] < 0
+
+
+JPEG = b"\xff\xd8\xff\xe0fakejpeg"
+
+
+class FakeFace:
+    def __init__(self, fail=False):
+        self.fail = fail
+
+    def analyze(self, frames):
+        if self.fail:
+            raise RuntimeError("gpu")
+        ps = [[0.9, 0.05, 0.05]] * (len(frames) - 1) + [[0.05, 0.05, 0.9]]  # 마지막 장만 부정
+        return face_mod.summarize_frames(len(frames), ps, lambda p: "negative" if p[2] >= 0.8 else
+                                         "smile" if p[0] >= p[1] else "calm")
+
+
+def test_face_is_recorded_per_turn_and_merged_at_finish(client, fake, monkeypatch):
+    monkeypatch.setattr(face_mod, "get_face", lambda: FakeFace())
+    sid = _sid(); _start(client, sid)
+    fake.transcripts = ["잘 잤어요", "밥 먹었어요"]
+    t1 = _turn(client, sid, 1, frames=[JPEG] * 4).json()["data"]
+    assert t1["face"] == {"frames": 4, "faceFrames": 4, "smile": 0.688, "calm": 0.05, "negative": 0.263,
+                          "smileRatio": 0.75, "negativeRatio": 0.25}
+    t2 = _turn(client, sid, 2).json()["data"]  # 사진 없는 턴
+    assert t2["face"] is None
+    d = client.post(f"/api/v1/checkin/sessions/{sid}/finish", json={"userId": "u1"}).json()["data"]
+    assert d["face"]["frames"] == 4 and d["face"]["smileRatio"] == 0.75
+
+
+def test_face_failure_keeps_conversation(client, fake, monkeypatch):
+    monkeypatch.setattr(face_mod, "get_face", lambda: FakeFace(fail=True))
+    sid = _sid(); _start(client, sid)
+    fake.transcripts = ["잘 잤어요"]
+    r = _turn(client, sid, 1, frames=[JPEG])
+    assert r.status_code == 200 and r.json()["data"]["face"] is None
+
+
+def test_face_without_model_paths_is_off(fake):
+    assert face_mod.get_face() is None  # CHECKIN_FACE_MODEL·HEAD 미설정
+
+
+def test_face_merge_weights_by_face_frames():
+    a = {"frames": 2, "faceFrames": 2, "smile": 1.0, "calm": 0.0, "negative": 0.0, "smileRatio": 1.0, "negativeRatio": 0.0}
+    b = {"frames": 3, "faceFrames": 0, "smile": None, "calm": None, "negative": None, "smileRatio": None,
+         "negativeRatio": None}
+    c = {"frames": 2, "faceFrames": 2, "smile": 0.0, "calm": 0.0, "negative": 1.0, "smileRatio": 0.0, "negativeRatio": 1.0}
+    m = face_mod.merge([a, None, b, c])
+    assert m["frames"] == 7 and m["faceFrames"] == 4 and m["smile"] == 0.5 and m["negativeRatio"] == 0.5
+    assert face_mod.merge([None, b])["smile"] is None and face_mod.merge([None]) is None

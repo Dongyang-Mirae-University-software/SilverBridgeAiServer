@@ -33,6 +33,11 @@ class CheckinSettings:
     summary_adapter: str
     emotion_adapter: str
     sensevoice_model: str
+    # 표정(보조 신호): 셋 다 있어야 켜진다. 비면 face 는 null.
+    face_model: str  # HSEmotion enet_b0_8_best_vgaf.pt
+    face_head: str  # 한국인 표정으로 다시 학습한 3분류 층
+    face_detector: str  # OpenCV YuNet face_detection_yunet_2023mar.onnx
+    face_neg_pct: int  # 부정 확률이 이 % 이상인 사진만 부정으로 센다
     device: str
     max_audio_bytes: int
     max_audio_sec: int
@@ -52,6 +57,10 @@ def get_checkin_settings() -> CheckinSettings:
         summary_adapter=os.getenv("CHECKIN_SUMMARY_ADAPTER", "").strip(),
         emotion_adapter=os.getenv("CHECKIN_EMOTION_ADAPTER", "").strip(),
         sensevoice_model=os.getenv("CHECKIN_SENSEVOICE_MODEL", "FunAudioLLM/SenseVoiceSmall").strip(),
+        face_model=os.getenv("CHECKIN_FACE_MODEL", "").strip(),
+        face_head=os.getenv("CHECKIN_FACE_HEAD", "").strip(),
+        face_detector=os.getenv("CHECKIN_FACE_DETECTOR", "").strip(),
+        face_neg_pct=_int("CHECKIN_FACE_NEG_PCT", 80, 50, 99),
         device=os.getenv("CHECKIN_DEVICE", "cuda:0").strip(),
         max_audio_bytes=_int("CHECKIN_MAX_AUDIO_BYTES", 5 * 1024 * 1024, 64 * 1024, 10 * 1024 * 1024),
         max_audio_sec=_int("CHECKIN_MAX_AUDIO_SEC", 60, 5, 120),

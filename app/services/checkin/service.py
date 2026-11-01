@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.models.checkin import CheckinSession, CheckinTurn
 from app.services import chat_keywords
 from app.services.checkin import audio as audio_mod
+from app.services.checkin import face as face_mod
 from app.services.checkin.config import get_checkin_settings
 from app.services.checkin.models import get_models
 
@@ -106,6 +107,18 @@ def _session_or_404(db: Session, session_id: str, user_id: str) -> CheckinSessio
     return s
 
 
+def _face(frames: list[bytes]) -> dict | None:
+    """표정은 보조 신호라 실패해도 대화는 이어간다(그 턴 face = null)."""
+    analyzer = face_mod.get_face() if frames else None
+    if analyzer is None:
+        return None
+    try:
+        return analyzer.analyze(frames)
+    except Exception as e:
+        log.warning("[CHECKIN] face failed err=%s", type(e).__name__)
+        return None
+
+
 def _turn_view(t: CheckinTurn) -> dict:
     return {"turnNo": t.turn_no, "transcript": t.transcript, "reply": t.reply, "done": bool(t.done),
             "voice": json.loads(t.voice_json or "{}"), "face": json.loads(t.face_json) if t.face_json else None,
@@ -156,6 +169,7 @@ def turn(db: Session, session_id: str, user_id: str, turn_no: int, audio_bytes: 
     if not transcript:
         raise CheckinError(422, "SPEECH_NOT_RECOGNIZED", "말씀을 알아듣지 못했어요.")
     voice = audio_mod.voice_metrics(arr, transcript)
+    face = _face(frames)
     question = s.question if not turns else turns[-1].reply
     risk = _risk(transcript)
     last = turn_no >= cfg.max_turns or any(w in transcript for w in END_WORDS)
@@ -168,7 +182,8 @@ def turn(db: Session, session_id: str, user_id: str, turn_no: int, audio_bytes: 
     else:
         reply = _clean_reply(models.reply(question, transcript, last)) or (FAREWELL if last else FALLBACK_REPLIES[turn_no % 3])
     row = CheckinTurn(session_id=session_id, user_id=user_id, turn_no=turn_no, question=question, transcript=transcript,
-                      reply=reply, done=int(last), voice_json=json.dumps(voice), face_json=None)
+                      reply=reply, done=int(last), voice_json=json.dumps(voice),
+                      face_json=json.dumps(face) if face else None)
     db.add(row)
     try:
         db.commit()
@@ -220,7 +235,7 @@ def finish(db: Session, session_id: str, user_id: str, self_report: str | None, 
         "evidence": evidence,
         "voice": {"avgAnswerSec": avg("answerSec"), "avgSpeechSec": avg("speechSec"), "avgPauseRatio": avg("pauseRatio"),
                   "avgCharsPerSec": avg("charsPerSec"), "avgLoudnessDb": avg("loudnessDb")},
-        "face": None,  # 표정 모델은 한국인 얼굴 시험 뒤에 연결한다(그 전까지 null)
+        "face": face_mod.merge([json.loads(t.face_json) if t.face_json else None for t in turns]),
     }
     s.result_json = json.dumps(result, ensure_ascii=False)
     s.finished_at = datetime.utcnow()

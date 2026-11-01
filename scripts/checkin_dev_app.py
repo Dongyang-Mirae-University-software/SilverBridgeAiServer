@@ -24,9 +24,11 @@ from app.services.checkin.config import get_checkin_settings
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     if get_checkin_settings().enabled:
+        from app.services.checkin.face import get_face
         from app.services.checkin.models import get_models
 
         get_models()  # 첫 대답이 모델 적재 시간을 기다리지 않게 미리 올린다
+        get_face()
     yield
 
 
