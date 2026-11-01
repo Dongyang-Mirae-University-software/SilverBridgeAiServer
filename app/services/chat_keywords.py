@@ -187,8 +187,9 @@ LAYOUT_EMOJI_ALLOWLIST: frozenset[str] = frozenset(
 LAYOUT_HOSPITAL = re.compile(r"119|응급실|병원|진료|의사|약사|상의|의료진")
 LAYOUT_CONDITIONAL = re.compile(r"계속되|지속되|심해지|생기면|생기거나|나타나면|이어지면|되면|있으면|나면")
 
-# 줄 머리 이모지 지우기(다음 턴 이력·판정용). 그림 문자 범위 + 변형 선택자 + 뒤 공백.
-_EMOJI_CHARS = re.compile(r"[\U0001F000-\U0001FAFF⌀-⏿☀-➿⬀-⯿️‍]+\s?")
+# 이모지 지우기(다음 턴 이력·판정용, 모델이 문장 안에 쓴 이모지도). 그림 문자 범위 + 변형 선택자 + 뒤 공백 하나.
+# 뒤 공백은 스페이스·탭만 - 줄바꿈까지 먹으면 줄 끝 이모지 뒤의 다음 줄이 합쳐진다(2026-11-01 점검 L-1).
+_EMOJI_CHARS = re.compile(r"[\U0001F000-\U0001FAFF⌀-⏿☀-➿⬀-⯿️‍]+[ \t]?")
 
 
 def strip_layout_emoji(text: str) -> str:

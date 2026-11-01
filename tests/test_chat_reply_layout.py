@@ -375,3 +375,84 @@ def test_old_log_without_layout_reads_back_unchanged(tmp_path) -> None:
     assert detail["layout"] is None and detail["reply"] == "옛 답\n· 증상: 기침"
     if log is not None:
         assert log["layout"] is None
+
+
+# ── 2026-11-01 점검 반영: 모델이 쓴 이모지·따옴표 안 낱말·줄바꿈·중복 키 ───────────────────────────────
+
+FACE = "😊"
+
+
+def _with_model_emoji(raw: dict[str, Any]) -> dict[str, Any]:
+    """모델이 문장 안·끝에 이모지를 쓴 답(합성). 첫 문장 뒤와 줄 끝에 넣는다."""
+    out = dict(raw)
+    lines = raw["reply"].split("\n")
+    out["reply"] = "\n".join(
+        (line.replace(". ", f". {FACE} ", 1) + f" {FACE}") if line.strip() else line for line in lines
+    )
+    return out
+
+
+def test_model_emoji_is_removed_so_one_allowed_emoji_per_line() -> None:
+    """M-1: 모델 문장 속 이모지가 남아 한 줄 두 개·허용 목록 밖·응급 답 🚨 외 이모지가 되지 않는다."""
+    for _, raw in _corpus_results():
+        out = _apply(_with_model_emoji(raw))
+        assert FACE not in out["reply"]
+        assert FACE not in json.dumps(out["layout"], ensure_ascii=False)
+        urgent = bool(out.get("emergencyWarning")) or out["meta"].get("selfHarm")
+        for line in out["reply"].split("\n"):
+            found = EMOJI.findall(line)
+            assert len(found) <= 1, line
+            if found:
+                assert line.startswith(found[0] + " ")
+                assert found[0].rstrip("️") in {e.rstrip("️") for e in kw.LAYOUT_EMOJI_ALLOWLIST}
+                if urgent:
+                    assert found[0] == kw.LAYOUT_EMERGENCY_EMOJI
+
+
+def test_model_emoji_removal_keeps_every_sentence_and_119() -> None:
+    for _, raw in _corpus_results():
+        out = _apply(_with_model_emoji(raw))
+        clean = _apply(raw)
+        assert out["reply"] == clean["reply"]  # 이모지만 빠지고 나머지는 이모지 없던 답과 같다
+        assert out["layout"] == clean["layout"]
+
+
+def test_strip_keeps_line_breaks_after_line_end_emoji() -> None:
+    """L-1: 줄 끝 이모지 뒤 줄바꿈을 먹어 다음 줄과 합치지 않는다."""
+    assert kw.strip_layout_emoji(f"물을 드세요 {FACE}\n쉬세요.") == "물을 드세요 \n쉬세요."
+    assert kw.strip_layout_emoji("💧 물을 드세요.\n🛏️ 쉬세요.").split("\n") == ["물을 드세요.", "쉬세요."]
+
+
+def test_quoted_hospital_word_does_not_become_headline() -> None:
+    """M-2: "무슨 과로 가야 해?" 규칙 답 - 따옴표 안 "병원 찾아줘"가 핵심 줄로 올라가 진료과 안내보다 앞서지 않는다."""
+    from app.services.chat_service import ChatService
+
+    history = [{"role": "user", "content": "무릎이 아파요"}, {"role": "assistant", "content": "정형외과 진료를 권해드려요."}]
+    raw = ChatService._department_question_reply("무슨 과로 가야 해?", history)
+    assert raw is not None
+    out = _apply(raw)
+    assert out["layout"]["headline"] is None
+    assert _new_sentences(out["reply"]) == _sentences(raw["reply"])  # 문장 순서 그대로
+    assert "정형외과" in _new_sentences(out["reply"])[0]
+
+
+def test_quoted_word_still_counts_outside_quotes() -> None:
+    """따옴표 안만 뺀다 - 같은 문장의 따옴표 밖 병원 낱말은 그대로 병원 문장이다."""
+    sentence = '"병원은 나중에"라고 미루지 마시고 다리가 저리면 진료를 받아 보세요.'
+    out = _apply(_gen("허리가 아파요", empathy="불편하시겠어요.", symptoms="허리 통증",
+                      advice=f"정형외과 진료를 권해드려요. {sentence}"))
+    assert out["layout"]["headline"] == "🏥 정형외과 진료를 권해드려요."
+    assert any(kw.strip_layout_emoji(x) == sentence for x in out["layout"]["visitHospitalIf"])
+
+
+def test_chat_service_dicts_have_no_duplicate_keys() -> None:
+    """L-2: 기록 응답 dict 에 같은 키가 두 번 들어가지 않는다(뒤 값이 앞 값을 조용히 덮는다)."""
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path("app/services/chat_service.py").read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            keys = [k.value for k in node.keys if isinstance(k, ast.Constant)]
+            dup = {k for k in keys if keys.count(k) > 1}
+            assert not dup, (node.lineno, dup)
