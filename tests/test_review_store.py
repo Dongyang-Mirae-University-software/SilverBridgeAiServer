@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
-from app.routers.companion_router import get_question_fetcher, get_text_classifier, get_transcriber
+from app.routers.companion_router import get_text_classifier, get_transcriber
 from app.services.companion.review_store import ReviewItem, review_store
 from app.services.companion.stt_service import SttResult
 from app.services.companion.text_emotion_service import TextEmotionResult
@@ -24,7 +24,6 @@ def client(tmp_path):
         "companion_backend_base_url": "http://backend.test",
     })
     app.dependency_overrides[get_settings] = lambda: settings
-    app.dependency_overrides[get_question_fetcher] = lambda: (lambda s, w, sl: ("잘 주무셨어요?", "q-test"))
     app.dependency_overrides[get_transcriber] = lambda: (lambda a: SttResult("테스트 대답입니다", 0.9, 1))
     app.dependency_overrides[get_text_classifier] = lambda: (lambda t: TextEmotionResult("기쁨", 0.9, True, {}))
     c = TestClient(app)
@@ -33,7 +32,7 @@ def client(tmp_path):
 
 
 def _turn(c, text="오늘은 손주가 와서 정말 기분이 좋아요") -> str:
-    did = c.post("/companion/dialogues", json={"wardId": "u1", "sessionId": "s1", "slot": "09:00"}, headers=HDR).json()["data"]["dialogueId"]
+    did = c.post("/companion/dialogues", json={"wardId": "u1", "sessionId": "s1", "slot": "09:00", "question": "잘 주무셨어요?", "questionId": "q-test"}, headers=HDR).json()["data"]["dialogueId"]
     c.post(f"/companion/dialogues/{did}/reply", json={"text": text}, headers=HDR)
     return did
 

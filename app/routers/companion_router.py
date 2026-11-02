@@ -17,7 +17,6 @@ from app.core.response import success_response
 from app.schemas.companion_schema import TIME_SLOTS, CompanionStatus
 from app.services.companion import pipeline
 from app.services.companion.audio_format import ALLOWED_FORMATS, detect_audio_format
-from app.services.companion.backend_client import BackendUnavailable, fetch_question
 from app.services.companion.dialogue_store import Dialogue, store
 from app.services.companion.face_service import FaceResult, FaceUnavailable, face_service
 from app.services.companion.llm_client import llm_client
@@ -42,11 +41,6 @@ router = APIRouter(
 )
 
 FRAME_MAX_BYTES = 2 * 1024 * 1024  # 프레임 한 장 상한 (JPEG/PNG)
-
-
-def get_question_fetcher():
-    """질문 조회 함수 (테스트에서 바꿔 끼운다)."""
-    return fetch_question
 
 
 def get_transcriber():
@@ -89,6 +83,8 @@ class DialogueOpen(BaseModel):
     wardId: str = Field(min_length=1, max_length=64)
     sessionId: str = Field(min_length=1, max_length=64)
     slot: str
+    question: str = Field(min_length=1, max_length=200)  # 백엔드가 시각에 맞게 고른 질문 문장 (AI는 조회하지 않고 받는다)
+    questionId: str | None = Field(default=None, max_length=64)  # 백엔드가 질문마다 준 ID (결과에 그대로 되돌려 준다)
 
 
 class ReplyText(BaseModel):
@@ -223,25 +219,15 @@ def _turn_response(d: Dialogue, result: dict, transcript: str | None = None, fac
 @router.post(
     "/dialogues",
     summary="시각의 질문으로 대화를 연다",
-    description="시각(09:00·12:00·15:00·18:00·21:00)의 질문을 백엔드 `GET /companion/question`에서 받아 대화를 연다. "
-                "응답의 `dialogueId`를 이후 호출에 쓴다. 오류: 422 SLOT_INVALID, 503 BACKEND_UNAVAILABLE, 404 QUESTION_NOT_SET.",
+    description="시각(09:00·12:00·15:00·18:00·21:00)과 질문 문장(`question`)을 받아 대화를 연다. "
+                "질문은 백엔드가 골라서 보낸다 (AI는 백엔드를 부르지 않는다). 질문 번호(`questionId`)는 결과에 그대로 돌려준다. "
+                "응답의 `dialogueId`를 이후 호출에 쓴다. 오류: 422 SLOT_INVALID.",
 )
-def open_dialogue(
-    body: DialogueOpen,
-    settings: Settings = Depends(get_settings),
-    fetch=Depends(get_question_fetcher),
-) -> dict:
+def open_dialogue(body: DialogueOpen, settings: Settings = Depends(get_settings)) -> dict:
     if body.slot not in TIME_SLOTS:
         raise CompanionError(422, "SLOT_INVALID", "시각 값이 5개 중 하나가 아닙니다.")
-    try:
-        got = fetch(settings, body.wardId, body.slot)
-    except BackendUnavailable as exc:
-        raise CompanionError(503, "BACKEND_UNAVAILABLE", str(exc)) from exc
-    if got is None:
-        raise CompanionError(404, "QUESTION_NOT_SET", "그 시각 질문을 아직 안 적었습니다.")
-    question, question_id = got
-    d = store.create(body.wardId, body.sessionId, body.slot, question, settings.companion_max_turns,
-                     question_id=question_id)
+    d = store.create(body.wardId, body.sessionId, body.slot, body.question, settings.companion_max_turns,
+                     question_id=body.questionId)
     return success_response("대화를 열었습니다.", {
         "dialogueId": d.dialogueId,
         "question": d.question,

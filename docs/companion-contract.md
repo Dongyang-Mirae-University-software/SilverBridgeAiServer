@@ -23,7 +23,7 @@
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | GET | `/companion/status` | 말벗 설정 상태 (키 값은 없음) |
-| POST | `/companion/dialogues` | 시각(09:00·12:00·15:00·18:00·21:00)의 질문으로 대화를 연다. 본문: `wardId`, `sessionId`, `slot` |
+| POST | `/companion/dialogues` | 시각(09:00·12:00·15:00·18:00·21:00)의 질문으로 대화를 연다. 본문: `wardId`, `sessionId`, `slot`, `question`(질문 문장, 백엔드가 고름), `questionId`(질문 번호, 선택). AI는 백엔드를 호출하지 않는다 |
 | POST | `/companion/dialogues/{id}/reply` | 글로 된 대답을 보낸다. 본문: `text` |
 | POST | `/companion/dialogues/{id}/reply/audio` | 음성 대답을 보낸다. multipart: `audio` 1개, `frame` 최대 5개 |
 | POST | `/companion/dialogues/{id}/finish` | 대화를 끝내고 최빈 결과를 받는다 |

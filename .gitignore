@@ -24,3 +24,6 @@ logs/
 *.gguf
 # 모델 파일 저장소 (D19: MODEL_BASE_PATH). 가중치·설정 전부 저장소 밖으로 두지 않고 막아 둔다
 models/
+
+# 가이드·아키텍처 HTML은 개인 검토용이라 Git에 올리지 않는다 (로컬 파일만 유지)
+docs/**/*.html

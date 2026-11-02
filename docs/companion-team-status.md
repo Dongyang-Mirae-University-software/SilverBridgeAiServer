@@ -113,7 +113,7 @@ Written for: 팀원 전체 (BE·FE·관리자 화면·AI 담당). 노션 요구�
 
 | 항목 | 내용 | 상태 |
 |---|---|---|
-| 질문 조회 API | `GET {BE}/companion/question?wardId=&slot=` → `{question, questionId}`. 없으면 404 | 우리 쪽 호출 코드 구현. **백엔드 실제 API 없음** (임시 대역으로만 확인) |
+| 질문 전달 | BE가 `POST /companion/dialogues` 본문에 `question`, `questionId`를 넣어 보냄 (AI는 BE를 호출하지 않음, 2026-11-03 변경). | 우리 쪽 수신 코드 구현. (이전 방식 `GET {BE}/companion/question` 호출은 제거) (임시 대역으로만 확인) |
 | 대화 결과 수신 API | `POST {BE}/companion/dialogue-results` (아래 7-2 필드) | 우리 쪽 전송 구현. **백엔드 수신 API 없음** |
 | 질문 발송 기록 | 질문을 보낸 시각과 질문 ID를 백엔드가 저장 | 백엔드 몫 |
 | 인증 키 | 요청 헤더 `X-API-Key`. 키 값은 환경 변수로만 공유 | 키 발급 필요 |
