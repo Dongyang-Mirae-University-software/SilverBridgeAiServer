@@ -343,6 +343,14 @@ class _EmergencyAction(NamedTuple):
 
 
 _EMERGENCY_ACTIONS = (
+    # 2026-11-02 홀드아웃 v1 E02: 반응·호흡이 없는 사람에게 가슴압박·AED 안내가 한 번도 나가지 않았다(모델 5개 커밋 모두 0/3).
+    # 숨을 쉬는지 모르는 "의식이 없어요"에도 맞게 조건("숨을 제대로 쉬지 않거나 헐떡이면")을 문장에 둔다.
+    # 이 줄이 붙으면 눕혀 두기(collapse_fall)·앉은 자세(breathing) 줄은 내지 않는다(emergency_action_sentences).
+    _EmergencyAction(
+        "cardiac_arrest",
+        chat_keywords.ARREST_SIGNAL,
+        "숨을 제대로 쉬지 않거나 헐떡이기만 하면 119와 통화하면서 바로 가슴압박(가슴 한가운데를 세게, 빠르게 1초에 2번 정도 누르기)을 시작하시고, 근처에 자동심장충격기(AED)가 있으면 가져오게 하세요.",
+    ),
     _EmergencyAction(
         "chest_stroke",
         re.compile(r"가슴이?(아|조|쪼|통증|찢)|가심이|심장이아|말이어눌|발음이(이상|꼬|자꾸)|혀가꼬|한쪽(팔|다리|얼굴|이)|얼굴이한쪽|입이돌아|팔다리에힘|갑자기앞이안보|벼락|갑자기심한두통|망치로맞은"),
@@ -414,9 +422,13 @@ _HYPOGLYCEMIA_RECHECK = "15분쯤 뒤 혈당을 다시 재 보고, 계속 낮거
 # 기간·상황·정도를 말한 문장(공백 뺀 문장)이면 되묻지 않는다 - 이미 답할 재료가 있다.
 _FOLLOWUP_CONTEXT = re.compile(
     r"어제|그제|그저께|오늘|아침|점심|저녁|밤|새벽|며칠|일주일|이주|한주|주일|한달|개월|년|째|부터|동안|요즘|최근|매일|자주|가끔|"
-    r"계속|자꾸|항상|늘|식후|식사|먹고나|먹으면|계단|걸을|걷|일어날|일어나면|누우|누워|앉|운동|너무|심하|심해|많이|조금|약간|살짝|"
-    r"좀|못참|견디|참을|[0-9]|번|때마다|할때|하면|무슨과|어느과|병원|예약|진료"
+    r"계속|자꾸|항상|늘|식후|식사|먹고나|먹으면|계단|걸을|걷|일어날|일어나면|누우|누워|앉|운동|너무|심하|심해|많이|"
+    r"못참|견디|참을|[0-9]|번|때마다|할때|하면|무슨과|어느과|병원|예약|진료"
 )
+# 가벼운 정도 말("좀"·"조금")은 기간·상황을 알려 주지 않는다 - 짧은 말("숨이 좀..", 공백 뺀 12자 이하)에서는 맥락으로 치지 않는다
+# (2026-11-02 홀드아웃 v1 Q02). 그보다 긴 문장에서는 예전처럼 맥락으로 본다.
+_FOLLOWUP_MILD = re.compile(r"조금|약간|살짝|좀")
+_FOLLOWUP_MILD_MAX_LEN = 12
 _FOLLOWUP_SYMPTOM_NOUN = chat_keywords.FOLLOWUP_SYMPTOM_NOUN
 # 감정·괴로움 표현이 섞이면 되묻지 않는다 - 위기 신호일 수 있는 말("다 그만두고 싶어")에 고정 질문으로 답하지 않게.
 _FOLLOWUP_DISTRESS = re.compile(r"그만두|그만하|힘들|힘드|싫어|싫다|우울|죽겠|못살|외로|불안|무서|괴로")
@@ -497,6 +509,7 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_SYMPTOM_RULES.orthostatic_dizziness": ("self", "누웠다 일어나실 때는 천천히 일어나시게 하고, 물을 충분히 드시게 해 주세요."),
     "_SYMPTOM_RULES.sudden_vision_loss": ("neutral", None),
     "_SYMPTOM_RULES.numbness_stroke_sign": ("neutral", None),
+    "_EMERGENCY_ACTIONS.cardiac_arrest": ("neutral", None),  # 쓰러진 사람은 글을 쓸 수 없다 - 늘 곁에 있는 사람에게 하는 말
     "_EMERGENCY_ACTIONS.chest_stroke": ("self", "직접 운전해서 모시고 가지 마시고, 혼자 움직이시게 두지 마세요."),
     "_EMERGENCY_ACTIONS.seizure": ("self", "억지로 붙잡거나 입에 물건을 넣지 마세요."),
     "_EMERGENCY_ACTIONS.breathing": ("self", "편하게 앉은 자세로 숨을 쉬게 하고, 꽉 끼는 옷은 풀어 주세요."),
@@ -545,8 +558,7 @@ class MedicalLlmService:
     @classmethod
     def emergency_signals(cls, message: str) -> list[str]:
         """문장에 든 응급 신호 키워드. 비어 있지 않으면 응급이다. 판단 근거로 meta·로그에 남긴다."""
-        compact = re.sub(r"\s+", "", (message or "").lower())
-        return [keyword for keyword in cls.EMERGENCY_KEYWORDS if keyword in compact]
+        return chat_keywords.emergency_signals(message)  # 오탐 제외(알약 "목에 걸려")까지 단일 출처에서
 
     @classmethod
     def self_harm_signals(cls, message: str) -> list[str]:
@@ -832,16 +844,16 @@ class MedicalLlmService:
             return False
         if cls.emergency_signals(message) or cls.self_harm_signals(message):
             return False
-        # 응급 키워드는 아니어도 위험 신호 단어(가슴·숨이 등)가 있으면 되묻지 않는다 - 위험 신호 119 한 줄이 나가는 답으로 둔다
-        # (2026-10-29 v7 bd.02 "가슴이 답답해요"가 되묻기로 가 119 안내가 빠졌다).
-        # 공백을 뺀 문장으로 본다(2026-10-31 M-1: "숨차요"·"숨 차요"가 되묻기로 가 119 한 줄이 빠졌다).
-        if chat_keywords.has_red_flag(message):
-            return False
+        # 위험 신호 단어(가슴·숨이 등)만 있는 짧은 말("숨이 좀..")도 되묻는다(2026-11-02 홀드아웃 v1 Q02 - 되묻기 없이 119로 갔다).
+        # 그 대신 되묻기 답에 위험 신호 119 한 줄을 넣는다(followup_question_response) - 2026-10-29 bd.02·10-31 M-1 에서
+        # 되묻기로 가 119 안내가 빠졌던 문제는 그대로 막힌다. 응급 키워드 문장은 위에서 이미 빠진다.
         if _MEDICATION_WORD.search(compact) or cls.drug_alcohol_rules(message):
             return False
         if any(rule.ask.search(compact) for rule in _DRUG_DIRECT_RULES + _LIFESTYLE_RULES):
             return False
         if _FOLLOWUP_CONTEXT.search(compact) or _FOLLOWUP_DISTRESS.search(compact):
+            return False
+        if len(compact) > _FOLLOWUP_MILD_MAX_LEN and _FOLLOWUP_MILD.search(compact):
             return False
         nouns = set(_FOLLOWUP_SYMPTOM_NOUN.findall(compact))
         if len(nouns) >= 2:
@@ -854,7 +866,9 @@ class MedicalLlmService:
         department = _symptom_department(message or "")
         lines = [_FOLLOWUP_INTRO, *(_FOLLOWUP_QUESTIONS_PROXY if proxy else _FOLLOWUP_QUESTIONS)]
         lines.append(f"{department} 진료를 생각해 보셔도 좋아요." if department else "가까운 병원 진료를 생각해 보셔도 좋아요.")
-        lines.append(_FOLLOWUP_CLOSING)
+        # 위험 신호 단어가 있는 말이면 마무리를 위험 신호 119 한 줄로(되묻는 동안에도 119 기준은 알도록, 2026-11-02).
+        red_flag = chat_keywords.has_red_flag(message)
+        lines.append(_RED_FLAG_119_SENTENCE if red_flag else _FOLLOWUP_CLOSING)
         return {
             "reply": "\n".join(lines),
             "riskLevel": "medium",
@@ -868,7 +882,7 @@ class MedicalLlmService:
             "homeCare": [],
             "visitHospitalIf": [],
             "emergencyWarning": [],
-            "meta": {"followupAsked": True, "followupProxy": proxy},
+            "meta": {"followupAsked": True, "followupProxy": proxy, "redFlag119": red_flag},
         }
 
     @staticmethod
@@ -896,6 +910,10 @@ class MedicalLlmService:
         compact = re.sub(r"\s+", "", message or "")
         out = [(a.name, a.sentence.pick(proxy)) for a in _EMERGENCY_ACTIONS if a.signal.search(compact)]
         names = {name for name, _ in out}
+        if "cardiac_arrest" in names:
+            # 반응·호흡이 없는 사람에게 눕혀 두기·앉은 자세 안내는 가슴압박과 어긋난다.
+            out = [(n, s) for n, s in out if n not in ("collapse_fall", "breathing")]
+            names = {name for name, _ in out}
         if "breathing" in names and "chest_stroke" not in names:  # 가슴 통증 줄에 이미 운전 금지가 있다
             out.append(("breathing_no_drive", _BREATHING_NO_DRIVE.pick(proxy)))
         if "vomiting_blood" in names:
