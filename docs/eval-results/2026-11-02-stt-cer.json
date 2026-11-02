@@ -1,0 +1,8 @@
+{
+  "date": "2026-11-02",
+  "model": "large-v3",
+  "samples": 100,
+  "mean_cer": 0.4603,
+  "mean_elapsed_ms": 17271,
+  "note": "발화 원문은 저장하지 않음. 점수만 기록."
+}

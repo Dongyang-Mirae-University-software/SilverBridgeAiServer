@@ -16,3 +16,10 @@ python-multipart==0.0.32
 pillow==12.3.0  # 약 봉투 OCR 이미지 정규화(직접 사용). ultralytics·torchvision 이 끌어오던 버전과 같게 고정
 imageio-ffmpeg==0.6.0  # 클립 인코딩용 정적 ffmpeg 7.0.2(libvpx 포함). 시스템 ffmpeg 불필요
 anthropic>=1.0
+
+# 말벗 음성 인식 (S3, D23): faster-whisper large-v3, CTranslate2 기반. 라이선스 MIT (SYSTRAN 저장소)
+faster-whisper==1.2.1
+# faster-whisper 1.2.1 이 av.open(metadata_errors=...) 를 쓰는데 av 19 에서 제거됨 -> 16.x 로 고정 (S3-3)
+av==16.1.0
+# 말벗 표정 분류 (S4, D24): EmotiEffLib 의 HSEmotion enet_b0_8_best_afew (ONNX). 코드 Apache-2.0
+emotiefflib==1.1.1

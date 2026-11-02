@@ -244,3 +244,11 @@ curl -H "X-API-Key: <API_KEY>" "http://localhost:6017/api/v1/live-streams"
   "data": null
 }
 ```
+
+## 말벗 AI (companion) 개발 메모
+
+- 개발용 서버: `.venv/Scripts/python.exe -m uvicorn scripts.companion.dev_app:app --port 9100` (main 서버에는 아직 등록하지 않음)
+- API 문서 (Swagger): 개발용 서버를 띄운 뒤 http://127.0.0.1:9100/api/docs 에서 `/companion/*` 경로의 요청·응답·오류 코드를 본다
+- 시험: `.venv/Scripts/python.exe -m pytest -p no:cacheprovider tests/test_companion_*.py tests/test_fusion*.py tests/test_signals.py tests/test_reply_service.py tests/test_review_store.py tests/test_privacy.py tests/test_text_emotion.py`
+- 계약 문서: `docs/companion-contract.md`, 평가 결과 안내: `docs/eval-results/companion-README.md`
+- 모델 파일과 데이터는 Git에 올리지 않는다 (`models/`, `data/`).

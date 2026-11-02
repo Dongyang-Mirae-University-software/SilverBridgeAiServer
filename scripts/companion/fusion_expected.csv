@@ -1,0 +1,11 @@
+no_response,text_label,text_usable,face_label,face_usable,expected_source,expected_label
+1,,False,,False,NO_RESPONSE,
+0,기쁨,True,,False,TEXT,기쁨
+0,,False,슬픔,True,FACE,슬픔
+0,기쁨,True,슬픔,True,CONFLICT,판단 보류
+0,기쁨,True,기쁨,True,TEXT,기쁨
+0,기쁨,True,평온,True,TEXT,기쁨
+0,슬픔,True,화남,True,TEXT,슬픔
+0,,False,,False,TEXT,판단 보류
+0,슬픔,True,,False,TEXT,슬픔
+0,,False,화남,False,TEXT,판단 보류
