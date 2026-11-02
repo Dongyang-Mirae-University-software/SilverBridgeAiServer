@@ -96,9 +96,13 @@ def test_fallback_low_only_without_symptom_words() -> None:
 # ---- M-1 숨차요 -----------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("message", ["숨차요", "숨 차요", "숨이 차요"])
-def test_short_breath_is_not_a_followup_question(message: str) -> None:
-    assert MedicalLlmService.needs_followup_question(message) is False
+@pytest.mark.parametrize("message", ["숨차요", "숨 차요", "숨이 차요", "가슴이 답답해요", "숨이 좀.."])
+def test_short_breath_is_followup_question_with_one_119_line(message: str) -> None:
+    # 2026-11-02: 위험 신호 단어만 있는 짧은 말은 되묻되, 되묻기 답에 위험 신호 119 한 줄을 둔다(M-1·bd.02 의 119 누락 방지 유지).
+    assert MedicalLlmService.needs_followup_question(message) is True
+    result = MedicalLlmService.followup_question_response(message)
+    assert result["reply"].count("119") == 1
+    assert result["meta"]["redFlag119"] is True
     assert MedicalLlmService.needs_red_flag_sentence(message, "x") is True
 
 
