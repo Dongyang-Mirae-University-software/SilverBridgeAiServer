@@ -349,7 +349,7 @@ _EMERGENCY_ACTIONS = (
     _EmergencyAction(
         "cardiac_arrest",
         chat_keywords.ARREST_SIGNAL,
-        "숨을 제대로 쉬지 않거나 헐떡이기만 하면 119와 통화하면서 바로 가슴 한가운데를 세게, 빠르게(1초에 2번 정도) 눌러 주시고, 근처에 자동심장충격기(AED)가 있으면 가져오게 하세요.",
+        "숨을 제대로 쉬지 않거나 헐떡이기만 하면 119와 통화하면서 바로 가슴압박(가슴 한가운데를 세게, 빠르게 1초에 2번 정도 누르기)을 시작하시고, 근처에 자동심장충격기(AED)가 있으면 가져오게 하세요.",
     ),
     _EmergencyAction(
         "chest_stroke",

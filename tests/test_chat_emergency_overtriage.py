@@ -18,7 +18,7 @@ from app.services import chat_layout
 from app.services.medical_llm_service import DRUG_ALCOHOL_SENTENCES, MedicalLlmService
 
 EMOJI = re.compile(r"[\U0001F000-\U0001FAFF⌀-⏿☀-➿⬀-⯿]️?")
-CPR = re.compile(r"가슴 한가운데를 세게, 빠르게")
+CPR = re.compile(r"가슴압박\(가슴 한가운데를 세게, 빠르게")
 AED = re.compile(r"자동심장충격기\(AED\)")
 
 
