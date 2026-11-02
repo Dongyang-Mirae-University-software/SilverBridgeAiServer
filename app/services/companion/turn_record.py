@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-import json
-import logging
-import urllib.error
-import urllib.request
 from collections import Counter
 
 from app.core.config import Settings
@@ -11,10 +7,7 @@ from app.services.companion.dialogue_store import Dialogue
 from app.services.companion.reply_service import REPLY_PROMPT_VERSION
 from app.services.companion.signals import PROMPT_VERSION as SIGNALS_PROMPT_VERSION
 
-logger = logging.getLogger(__name__)
 
-# 대화 1회 결과를 받는 백엔드 경로 (AI → 백엔드). 턴마다 보내지 않고 대화가 끝날 때 한 번 보낸다 (10/26 합의).
-RESULT_PATH = "/companion/dialogue-results"
 
 # 화면에 쓰는 기분 값 (노션 요구: 기쁨·평온·걱정·우울). 턴 라벨을 이 값으로 묶는다.
 # 제안 매핑: 슬픔·화남 → 걱정. 팀이 정하면 이 표만 고치면 된다.
@@ -48,27 +41,3 @@ def build_dialogue_result(d: Dialogue) -> dict:
         "alertLevel": "URGENT" if d.riskSeen else "INFO",
         "promptVersion": {"reply": REPLY_PROMPT_VERSION, "signals": SIGNALS_PROMPT_VERSION},
     }
-
-
-def send_dialogue_result(settings: Settings, result: dict) -> bool:
-    """대화 결과를 백엔드로 보낸다. 응답을 기다리지 않는 백그라운드 작업으로 쓴다.
-
-    주소가 비어 있으면 아무것도 하지 않는다. 실패해도 대화는 그대로 진행하고, 로그에는 내용을 남기지 않는다.
-    """
-    base = settings.companion_backend_base_url.rstrip("/")
-    if not base:
-        return False
-    req = urllib.request.Request(
-        f"{base}{RESULT_PATH}",
-        data=json.dumps(result, ensure_ascii=False).encode("utf-8"),
-        method="POST",
-        headers={"Content-Type": "application/json"},
-    )
-    if settings.companion_backend_api_key:
-        req.add_header("X-API-Key", settings.companion_backend_api_key)
-    try:
-        with urllib.request.urlopen(req, timeout=settings.companion_record_timeout_sec) as resp:
-            return 200 <= resp.status < 300
-    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-        logger.warning("대화 결과 전송 실패: %s", type(exc).__name__)
-        return False

@@ -17,7 +17,6 @@ from app.services.companion.review_store import review_store
 from app.services.companion.stt_service import SttResult, SttUnavailable, confidence_from_logprobs
 from app.services.companion.text_emotion_service import TextEmotionResult
 from app.services.companion.timeouts import call_with_timeout
-from app.services.companion.turn_record import send_dialogue_result
 from scripts.companion.dev_app import app
 
 KEY = "test-companion-key"

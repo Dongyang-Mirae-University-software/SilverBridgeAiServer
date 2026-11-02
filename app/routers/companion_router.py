@@ -6,7 +6,7 @@ import time
 
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
@@ -29,8 +29,7 @@ from app.services.companion.sensevoice_service import sensevoice_service
 from app.services.companion.stt_service import SttUnavailable
 from app.services.companion.text_emotion_service import text_emotion_service
 from app.services.companion.timeouts import call_with_timeout
-from app.services.companion.fusion import UNDECIDED
-from app.services.companion.turn_record import build_dialogue_result, send_dialogue_result
+from app.services.companion.turn_record import build_dialogue_result
 
 # 말벗 라우터. 모든 경로는 말벗 전용 키로 보호한다 (D4).
 # 경로는 명세 9-1절 기준 (D3 결정): /companion/dialogues 계열.
@@ -128,14 +127,6 @@ def _queue_for_review(d: Dialogue, result: dict) -> None:
     signals = result.get("signals") or {}
     risk = bool(signals.get("riskFlag"))
     review_store.add(d.dialogueId, d.turnNo + 1, result["reply"]["text"], version, risk=risk, ward_id=d.wardId)
-
-
-def _send_result_if_ended(background: BackgroundTasks, settings: Settings, dialogue_id: str) -> None:
-    """대화가 끝났으면 결과 1건을 백엔드로 보내는 작업을 응답 뒤에 건다 (S8-5). 한 번만 보낸다. 주소가 없으면 아무것도 안 한다."""
-    d = store.get(dialogue_id)
-    if d is None or not store.mark_result_sent(dialogue_id):
-        return
-    background.add_task(send_dialogue_result, settings, build_dialogue_result(d))
 
 
 @router.get(
@@ -244,7 +235,6 @@ def open_dialogue(body: DialogueOpen, settings: Settings = Depends(get_settings)
 def reply_text(
     dialogue_id: str,
     body: ReplyText,
-    background: BackgroundTasks,
     settings: Settings = Depends(get_settings),
     classify_text=Depends(get_text_classifier),
     llm=Depends(get_llm),
@@ -255,7 +245,6 @@ def reply_text(
     face = _no_face()
     result = _run_turn(d, body.text, face, classify_text, llm)
     out = _turn_response(d, result)
-    _send_result_if_ended(background, settings, d.dialogueId)
     return success_response("턴 분석 완료", out)
 
 
@@ -269,7 +258,6 @@ def reply_text(
 async def reply_audio(
     dialogue_id: str,
     request: Request,
-    background: BackgroundTasks,
     settings: Settings = Depends(get_settings),
     transcribe=Depends(get_transcriber),
     analyze_face=Depends(get_face_analyzer),
@@ -323,7 +311,6 @@ async def reply_audio(
             face = _no_face()
     result = _run_turn(d, transcript, face, classify_text, llm)
     out = _turn_response(d, result, transcript=transcript, face=face)
-    _send_result_if_ended(background, settings, d.dialogueId)
     return success_response("턴 분석 완료", out)
 
 
@@ -390,24 +377,15 @@ async def speech_to_text(request: Request, settings: Settings = Depends(get_sett
 @router.post(
     "/dialogues/{dialogue_id}/finish",
     summary="대화를 끝내고 결과를 받는다",
-    description="대화를 끝낸다 (`USER_STOP`). 응답에 기분(`mood`)과 종료 시각을 준다. "
-                "대화 결과 1건은 백그라운드에서 백엔드 `POST /companion/dialogue-results`로 한 번 보낸다 (원문 없음). "
+    description="대화를 끝낸다 (`USER_STOP`). 응답 `data`에 대화 결과 전체를 담는다 (기분, 턴 수, 종료 이유, 한 줄 요약, 위험 여부, 알림 등급, 질문 정보). "
+                "백엔드로 따로 보내지 않는다. 원문은 없다. "
                 "오류: 404 DIALOGUE_NOT_FOUND.",
 )
-def finish_dialogue(dialogue_id: str, background: BackgroundTasks, settings: Settings = Depends(get_settings)) -> dict:
+def finish_dialogue(dialogue_id: str) -> dict:
     d = store.get(dialogue_id)
     if d is None:
         raise CompanionError(404, "DIALOGUE_NOT_FOUND", "대화를 찾을 수 없습니다.")
     # D16 (사용자 결정): 중간에 그만두면 그때까지의 턴 수와 결과를 그대로 기록한다. 이미 끝난 대화는 이유를 바꾸지 않는다.
     d = store.finish(dialogue_id, "USER_STOP") or d
-    _send_result_if_ended(background, settings, d.dialogueId)
-    result = build_dialogue_result(d)
-    return success_response("대화를 마쳤습니다.", {
-        "dialogueId": d.dialogueId,
-        "result": result["mood"] or UNDECIDED,  # 이전 응답 형식과 맞추려고 남긴 값. 새 화면은 mood를 쓴다
-        "mood": result["mood"],  # 판단할 수 없으면 null (화면에서는 '확인할 수 없어요')
-        "turnCount": result["turnCount"],
-        "noResponseCount": result["noResponseCount"],
-        "endedAt": result["endedAt"],
-        "endReason": result["endReason"],
-    })
+    # 결과 전체를 응답으로 돌려준다. 백엔드로 따로 보내지 않는다 (백엔드가 finish로 받는다).
+    return success_response("대화를 마쳤습니다.", build_dialogue_result(d))
