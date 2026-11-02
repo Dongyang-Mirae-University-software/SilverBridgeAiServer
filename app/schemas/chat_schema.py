@@ -72,8 +72,10 @@ class ChatReplyData(BaseModel):
     ui: UiPayload | None = None
     tool: str | None = None
     data: Any | None = None
-    # 이어서 물어볼 질문 0~3개(2026-10-30). 응급·자해·예약 선택지 답에는 빈 목록.
+    # 이어서 물어볼 질문 0~3개(2026-10-30), 되묻기 턴은 답 칩 4개(2026-11-02). 응급·자해·예약 선택지 답에는 빈 목록.
     suggestedQuestions: list[str] = Field(default_factory=list)
+    # 칩 종류(2026-11-02): "answer"면 suggestedQuestions 는 되묻기에 눌러서 답하는 고정 칩 4개. 그 밖에는 칸 없음.
+    suggestedKind: str | None = None
     # 답 모양(2026-11-01): headline·body·questions·homeCare·visitHospitalIf. 예약 흐름 답은 null. FE 는 있으면 이것으로 그린다.
     layout: dict[str, Any] | None = None
 

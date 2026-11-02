@@ -20,7 +20,7 @@ from app.services.reservation_credential_service import (
     get_reservation_credential_service, recently_proxy_purged, recently_purged)
 from app.services.chat_deadline import ChatDeadlineExceeded, chat_deadline, tighter_deadline
 from app.services.chat_router_service import ROUTER_RESERVE_SEC, get_chat_router_service
-from app.services import follow_up_questions
+from app.services import follow_up_questions, followup_answer_chips
 from app.services.claude_structured_client import failure_cause
 from app.services import chat_keywords, chat_layout
 from app.services.medical_llm_service import DRUG_ALCOHOL_SENTENCES, MedicalLlmService, get_medical_llm_service
@@ -453,12 +453,18 @@ class ChatService:
             result.setdefault("meta", {})
             if isinstance(result["meta"], dict):
                 result["meta"]["emergencyFollowup"] = True
-        suggested = follow_up_questions.suggested_questions(
-            self._settings, result, route_info, message,
-            proxy=self._is_proxy(payload, proxy_text),
-            emergency_text=bool(message) and bool(MedicalLlmService.emergency_signals(message)),
-            self_harm_text=bool(message) and bool(MedicalLlmService.self_harm_signals(message)),
-        )
+        # 되묻기 턴이면 이어서 물어볼 질문 대신 눌러서 답하는 고정 칩(2026-11-02). 모델을 부르지 않고, 판정은 이미 끝났다.
+        suggested = followup_answer_chips.answer_chips(result, message)
+        suggested_kind = followup_answer_chips.KIND if suggested else None
+        if suggested:
+            _LOG.info("[CHAT-SUGGEST] source=answer count=%s", len(suggested))
+        else:
+            suggested = follow_up_questions.suggested_questions(
+                self._settings, result, route_info, message,
+                proxy=self._is_proxy(payload, proxy_text),
+                emergency_text=bool(message) and bool(MedicalLlmService.emergency_signals(message)),
+                self_harm_text=bool(message) and bool(MedicalLlmService.self_harm_signals(message)),
+            )
         # 답 모양(2026-11-01 가독성): 모든 판정·고정 문장·이어서 물어볼 질문이 끝난 뒤 모양만 바꾼다(문장 뜻·판정 값 그대로).
         chat_layout.apply(result, DRUG_ALCOHOL_SENTENCES)
         post_started = time.perf_counter()
@@ -550,6 +556,8 @@ class ChatService:
             "visitHospitalIf": result.get("visitHospitalIf") or [],
             "emergencyWarning": result.get("emergencyWarning") or [],
             "suggestedQuestions": suggested,
+            # 칩 종류: "answer"(되묻기에 눌러서 답하는 칩)일 때만 둔다. 없으면 이어서 물어볼 질문(옛 FE·BE 그대로).
+            **({"suggestedKind": suggested_kind} if suggested_kind else {}),
             "layout": result.get("layout"),
             "chatLogId": log.id,
             "chatNo": log.chat_no,
