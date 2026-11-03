@@ -92,6 +92,24 @@ _UI_LOG_RE = re.compile(r"^\[선택\] ([^:]+): (.*)$", re.S)
 _EMERGENCY_FOLLOWUP = "증상이 다시 생기거나 심해지면 바로 119에 전화하세요."
 # 되묻기 다음 턴이라도 인사·마무리 말이면 앞 증상과 잇지 않는다(C-1).
 _FOLLOWUP_CLOSE_WORDS = re.compile(r"고마|고맙|감사|괜찮아요|됐어요|안녕|그만")
+# 되묻기 다음 턴의 종료 판단(2026-11-04): 종료 낱말이 있어도 문장 전체가 인사·종료일 때만 종료로 본다.
+# "며칠 됐어요"(기간 답)·"충혈됐어요"·"열은 없고 괜찮아요"(정도 답)·"그만큼 심하진 않아요"는 되묻기에 대한 답이라 앞 질문과 이어 붙인다.
+# 종료 표현과 맞장구·문장부호를 지운 뒤 남는 글자가 없으면 종료다("고마워요"·"이제 됐어요"·"알겠어요 고마워요"·"괜찮아요" 한마디).
+_CLOSING_PHRASES = re.compile(
+    r"고마워요|고마워|고맙\s*습니다|고맙네요|감사\s*합니다|감사해요|감사드려요|감사|됐어요|됐습니다|됐네요|괜찮아요|괜찮습니다|"
+    r"안녕히\s*계세요|안녕히\s*가세요|안녕히|안녕하세요|안녕|"
+    # "그만"은 홀로 쓴 낱말만 - "그만그만해요"(정도 답)·"그만큼"이 지워지지 않게
+    r"(?<![가-힣])그만\s*(할게요|할래요|하겠습니다|해요|요)?(?![가-힣])"
+)
+_CLOSING_FILLERS = re.compile(r"네|예|응|아이고|아|이제|그럼|정말|진짜|너무|많이|알겠어요|알겠습니다|알았어요|잘|ㅎ+|ㅋ+|[\s.,!?~…·^]+")
+
+
+def _is_closing_message(message: str) -> bool:
+    """되묻기 다음 턴 문장이 인사·종료뿐인가 - 그러면 앞 질문과 이어 붙이지 않는다."""
+    if not message or not _FOLLOWUP_CLOSE_WORDS.search(message):
+        return False
+    rest = _CLOSING_FILLERS.sub("", _CLOSING_PHRASES.sub("", message))
+    return not rest
 # 직전 기록 확인 함수에 "아직 안 읽음"을 알리는 값 - 요청 처음에 한 번 읽은 기록을 나눠 쓴다(점검 L-3).
 _FETCH = object()
 
@@ -642,7 +660,7 @@ class ChatService:
         """되묻기 다음 턴이면 "앞 질문 / 이번 답" 문장. 응급·예약·인사(고마워요 등)·앞 질문을 못 찾으면 None(이번 문장 그대로)."""
         if not after_followup or not message or route_info.get("emergency") or route_info.get("route") == "reservation":
             return None
-        if _FOLLOWUP_CLOSE_WORDS.search(message):
+        if _is_closing_message(message):
             return None
         previous_user = next((h.get("content", "") for h in reversed(history or []) if h.get("role") == "user"), "")
         if not previous_user.strip():
