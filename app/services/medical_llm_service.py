@@ -954,7 +954,10 @@ class MedicalLlmService:
         if chat_keywords.has_reservation_word(text):
             return "hospital_reservation"
         # 위험 신호·증상 단어만 있는 문장("숨차요"·"답답해요")도 상담이다 - 라우터 실패 때 일반 대화로 빠져 119 한 줄을 놓치지 않게.
-        if chat_keywords.has_medical_word(text) or chat_keywords.has_symptom_word(text) or chat_keywords.has_red_flag(text):
+        if (
+            chat_keywords.has_medical_word(text) or chat_keywords.has_symptom_word(text) or chat_keywords.has_red_flag(text)
+            or any(word in chat_keywords.compact(text) for word in chat_keywords.MEDICATION_FORM_WORDS)
+        ):
             return "medical_advice"
         return "general_chat"
 
