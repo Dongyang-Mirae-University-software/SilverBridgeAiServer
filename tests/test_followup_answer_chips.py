@@ -12,7 +12,7 @@ from app.models.chat_log import ChatLog
 from app.services import chat_keywords as kw
 from app.services import follow_up_questions as fq
 from app.services import followup_answer_chips as fac
-from app.services.chat_service import _FOLLOWUP_CLOSE_WORDS
+from app.services.chat_service import _is_closing_message
 from app.services.medical_llm_service import MedicalLlmService as M
 from tests.test_chat_followup_question import INTRO, _send, env  # noqa: F401 - 같은 대화 흐름 하네스
 
@@ -30,8 +30,8 @@ def test_every_chip_is_short_plain_and_never_changes_judgment(chip: str) -> None
     assert not kw.has_red_flag(chip)  # 위험 신호 칩은 두지 않는다
     assert not M.drug_alcohol_rules(chip)
     assert not any(k in chip for k in kw.RESERVATION_KEYWORDS)
-    # 종료어("됐어요"·"괜찮아요" 등)가 있으면 다음 턴에 앞 질문과 이어 붙이지 않는다 - "며칠 됐어요"를 쓰지 않은 이유.
-    assert not _FOLLOWUP_CLOSE_WORDS.search(chip)
+    # 인사·종료로만 된 문장이면 다음 턴에 앞 질문과 이어 붙이지 않는다(2026-11-04부터 문장 전체 기준).
+    assert not _is_closing_message(chip)
 
 
 def test_each_group_has_four_distinct_self_and_proxy_chips() -> None:
