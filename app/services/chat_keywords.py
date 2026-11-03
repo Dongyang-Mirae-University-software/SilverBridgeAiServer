@@ -52,27 +52,65 @@ SELF_HARM_KEYWORDS = (
 )
 
 # 응급 키워드에 걸리지만 응급이 아닌 말(2026-11-02 홀드아웃 v1 M08: "알약이 커서 목에 걸려요" → 질식 "목에걸려").
-# 약 제형 낱말이 있고 숨·말·얼굴색 이상이 없으면 "목에걸려" 신호만 뺀다. 음식이 걸린 질식("떡이 목에 걸려")은 그대로다.
-# 약이 걸려 숨을 못 쉬면 "숨을못쉬"·"숨이막" 같은 다른 응급 키워드가 잡는다.
+# 약 제형 낱말이 있고 숨·말·얼굴색·침 삼킴 이상이 없고 음식 낱말이 없을 때만 "목에걸려" 신호를 뺀다.
+# 음식이 걸린 질식("떡이 목에 걸려")·침을 못 삼키거나 흘리는 말은 그대로 응급이다(2026-11-03 점검 H-1).
+# 약이 걸려 숨을 못 쉬면 "숨을못쉬"·"숨이막" 같은 다른 응급 키워드도 잡는다.
 _PILL_FORM = re.compile(r"알약|약이|약을|약알|캡슐|정제|서방정|장용정|가루약|한알|두알")
-_AIRWAY_DISTRESS = re.compile(r"숨|호흡|말을못|말이안|소리가안|목소리가안|얼굴이|입술|파래|파랗|컥컥|켁켁|캑캑")
+_AIRWAY_DISTRESS = re.compile(
+    r"숨|호흡|말을못|말이안|소리가안|목소리가안|얼굴이|입술|파래|파랗|컥컥|켁켁|캑캑|꺽꺽|"
+    r"침(을|도|이)?(못|안)삼|침(을|도|이)?(못|안)넘|침을?흘|침이?흘|못삼키|못삼켜|삼키지못|삼킬수가없|안넘어가|넘어가지않|넘기지못"
+)
+# 목에 걸리는 음식만(한 글자 "면"·"밥"은 "먹으면"·"밥 먹고 약"에 걸려 넣지 않는다).
+_CHOKING_FOOD = re.compile(r"떡|사탕|고기|생선|가시|과자|견과|땅콩|빵|젤리|뼈|음식이|음식물")
+# 비유 표현(2026-11-03 점검 M-1): "숨이 멎을 만큼 놀랐어요"는 응급·심정지 신호가 아니다. 지운 뒤 판정한다.
+_FIGURATIVE = re.compile(r"숨이멎(을|는|을것|을거)(만큼|듯|것같|뻔|줄|정도|같)")
+
+
+def _plain(text: str) -> str:
+    """판정용 공백 뺀 문장에서 비유 표현을 지운 것."""
+    return _FIGURATIVE.sub(" ", compact(text))
 
 
 def emergency_signals(text: str) -> list[str]:
     """문장에 든 응급 키워드(공백 뺀 소문자 문장에 부분 일치). 비어 있지 않으면 응급이다."""
-    c = compact(text)
+    c = _plain(text)
     hits = [keyword for keyword in EMERGENCY_KEYWORDS if keyword in c]
-    if "목에걸려" in hits and _PILL_FORM.search(c) and not _AIRWAY_DISTRESS.search(c):
+    if "목에걸려" in hits and _PILL_FORM.search(c) and not _AIRWAY_DISTRESS.search(c) and not _CHOKING_FOOD.search(c):
         hits.remove("목에걸려")
     return hits
 
 
 # 심정지 의심 신호(응급 행동 줄 cardiac_arrest, 2026-11-02). 반응이 없거나 숨을 쉬지 않는다는 말 - 본인 호흡곤란
 # ("숨이 안 쉬어져요"·"숨을 못 쉬겠어요")은 앉은 자세 줄(breathing)로 두고 여기에 넣지 않는다. 공백 뺀 문장.
-ARREST_SIGNAL = re.compile(
+_ARREST_WORDS = re.compile(
     r"의식이?없|의식을잃|정신을잃|깨어나지|불러도(반응|대답|대꾸)|흔들어도(반응|대답|안깨|눈을)|깨워도(안깨|반응)|꼬집어도반응|눈을안떠|"
     r"숨을안쉬(?!어지|어져)|숨도안쉬|숨을쉬지않|숨을안쉼|호흡이없|숨이멎"
 )
+# 의식이 있는 사람의 추측·회복 표현(2026-11-03 점검 M-2): "정신을 잃을 것 같아요"·"잃었다가 금방 깼어요"·
+# "의식이 없어질 것처럼"은 가슴압박 줄 대상이 아니다(응급 키워드 판정은 그대로 - 쓰러짐·어지럼 줄로 간다).
+_ARREST_NOT_NOW = re.compile(r"^(을|ㄹ)?(것같|것처럼|듯|뻔|까봐|까요)|^을(것|거|까|듯|뻔)|^어질|^어지려|^었다가|^다가|^던")
+# "안 깼어요"·"못 깨어났어요"는 회복이 아니다.
+_ARREST_RECOVERED = re.compile(r"(?<![안못])(깼|깨셨|깨어났|깨어나셨|깨났)|(정신|의식)이?(돌아왔|돌아오셨|들었|드셨|들어요|드세요)")
+
+
+class _ArrestSignal:
+    """ARREST_SIGNAL.search(공백 뺀 문장) - 지금 반응·호흡이 없다는 말이 하나라도 있으면 그 매치를 준다."""
+
+    def search(self, text: str):
+        c = _FIGURATIVE.sub(" ", text or "")
+        if _ARREST_RECOVERED.search(c):
+            return None
+        for m in _ARREST_WORDS.finditer(c):
+            if not _ARREST_NOT_NOW.search(c[m.end():m.end() + 8]):
+                return m
+        return None
+
+
+ARREST_SIGNAL = _ArrestSignal()
+
+# 라우터 실패 때 키워드 분류가 약 질문을 상담으로 보게 하는 약 제형 낱말(2026-11-03 점검 L-1). 판정 낱말 목록(MEDICAL_KEYWORDS)은
+# 위기 이어짐·예약 재개 판정이 함께 쓰므로 넓히지 않고, 분류(classify_intent)에서만 더 본다.
+MEDICATION_FORM_WORDS = ("알약", "서방정", "장용정", "캡슐", "가루약", "물약", "패치", "좌약")
 
 # 위험 신호 단어 - 응급 키워드는 아니지만 119 안내가 필요한 말. 공백을 뺀 문장에 부분 일치시킨다(M-1: "숨차요"·"숨 차요"를 놓쳤다).
 # 생성 경로(되묻기 제외·119 한 줄)와 생성 실패 대체 응답(high)이 같은 목록을 쓴다. 응급 키워드로 올리지 않는다("숨이 차요" 경계 결정 유지).
