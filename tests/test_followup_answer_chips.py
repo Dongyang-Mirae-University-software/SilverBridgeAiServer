@@ -47,6 +47,9 @@ def test_each_group_has_four_distinct_self_and_proxy_chips() -> None:
     ("무릎이 아파요", "joint"), ("허리가 아파요", "joint"), ("손목이 아파요", "joint"), ("어지러워요", "dizzy"),
     ("머리가 어지러워요", "dizzy"), ("손이 저려요", "numb"), ("기침이 나요", "cough"), ("열이 나요", "cough"),
     ("발열이 있어요", "cough"), ("귀가 아파요", "default"), ("피부가 가려워요", "default"),
+    # 2026-11-03 점검 L-1: 손·발 통증·손발가락·목 뻐근함은 관절, 목 통증은 기침·열, 손 떨림·발 부음은 기본
+    ("손이 아파요", "joint"), ("발이 아파요", "joint"), ("발가락이 아파요", "joint"), ("목이 뻐근해요", "joint"),
+    ("목이 결려요", "joint"), ("목이 아파요", "cough"), ("손이 떨려요", "default"), ("발이 부었어요", "default"),
 ])
 def test_group_matching(message: str, group: str) -> None:
     assert fac.group_name(message) == group
@@ -146,3 +149,23 @@ def test_each_guard_blocks_on_its_own() -> None:
     assert fac.answer_chips({**base, "riskLevel": "high"}, "머리가 아파요") == []
     assert fac.answer_chips({**base, "emergencyWarning": ["x"]}, "머리가 아파요") == []
     assert fac.answer_chips({**base, "meta": {}}, "머리가 아파요") == []
+
+
+# 2026-11-03 점검 M-2: 증상 낱말("속·열·배")이 들어 있어도 증상이 아닌 말은 되묻지 않는다 - 엉뚱한 답 칩이 붙지 않게.
+@pytest.mark.parametrize("message", ["속상해요", "너무 속상해", "열받아요", "열이 받쳐요", "배고파요", "배가 고파요", "배불러요", "배가 불러요"])
+def test_not_symptom_words_are_not_followup(message: str) -> None:
+    assert not M.needs_followup_question(message)
+
+
+@pytest.mark.parametrize("message", ["배가 아파요", "속이 쓰려요", "열이 나요", "배아퍼"])
+def test_real_symptoms_still_followup(message: str) -> None:
+    assert M.needs_followup_question(message)
+
+
+def test_no_answer_chips_right_after_emergency_reply(env) -> None:  # noqa: F811
+    env.router.emergency = True
+    _send(env, "갑자기 머리가 깨질 듯 아파요")
+    env.router.emergency = False
+    out = _send(env, "머리가 아파요")  # 응급 답 다음 턴은 되묻지 않으므로 답 칩도 없다
+    assert "suggestedKind" not in out
+    assert not set(out["suggestedQuestions"]) & set(fac.all_chips())

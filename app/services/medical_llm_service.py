@@ -431,7 +431,9 @@ _FOLLOWUP_MILD = re.compile(r"조금|약간|살짝|좀")
 _FOLLOWUP_MILD_MAX_LEN = 12
 _FOLLOWUP_SYMPTOM_NOUN = chat_keywords.FOLLOWUP_SYMPTOM_NOUN
 # 감정·괴로움 표현이 섞이면 되묻지 않는다 - 위기 신호일 수 있는 말("다 그만두고 싶어")에 고정 질문으로 답하지 않게.
-_FOLLOWUP_DISTRESS = re.compile(r"그만두|그만하|힘들|힘드|싫어|싫다|우울|죽겠|못살|외로|불안|무서|괴로")
+_FOLLOWUP_DISTRESS = re.compile(r"그만두|그만하|힘들|힘드|싫어|싫다|우울|죽겠|못살|외로|불안|무서|괴로|속상|열받|열이받")
+# 증상 낱말("배")이 들어 있어도 증상이 아닌 말 - 되묻기·답 칩("먹고 나면 더 아파요")이 어색하다(2026-11-03 답 칩 점검 M-2).
+_FOLLOWUP_NOT_SYMPTOM = re.compile(r"배가?(고프|고파|불러|부르)")
 _FOLLOWUP_INTRO = "말씀해 주셔서 고마워요. 더 정확히 안내해 드리려고 몇 가지 여쭤볼게요."
 _FOLLOWUP_QUESTIONS = (
     "· 언제부터 그러셨나요?",
@@ -851,7 +853,7 @@ class MedicalLlmService:
             return False
         if any(rule.ask.search(compact) for rule in _DRUG_DIRECT_RULES + _LIFESTYLE_RULES):
             return False
-        if _FOLLOWUP_CONTEXT.search(compact) or _FOLLOWUP_DISTRESS.search(compact):
+        if _FOLLOWUP_CONTEXT.search(compact) or _FOLLOWUP_DISTRESS.search(compact) or _FOLLOWUP_NOT_SYMPTOM.search(compact):
             return False
         if len(compact) > _FOLLOWUP_MILD_MAX_LEN and _FOLLOWUP_MILD.search(compact):
             return False
