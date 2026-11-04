@@ -17,6 +17,14 @@ import pytest  # noqa: E402
 def _create_tables():
     """lifespan 의 create_all 을 거치지 않는 테스트도 DB 테이블(예: 예약 토큰 선점)을 쓸 수 있게 한다."""
     import app.models.reservation_token_claim  # noqa: F401
+    # 외래키가 가리키는 테이블(cameras, ai_models 등)도 먼저 등록해야 create_all 이 순서를 정할 수 있다
+    import app.models.ai_model  # noqa: F401
+    import app.models.analysis_result  # noqa: F401
+    import app.models.camera  # noqa: F401
+    import app.models.chat_log  # noqa: F401
+    import app.models.game  # noqa: F401
+    import app.models.reservation_credential  # noqa: F401
+    import app.models.stream_session  # noqa: F401
     from app.database.base import Base
     from app.database.session import engine
 
