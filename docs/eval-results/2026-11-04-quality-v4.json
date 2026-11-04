@@ -1,0 +1,854 @@
+{
+ "label": "quality-v4 (2026-11-04)",
+ "commits": {
+  "main": "c57d2ef",
+  "fix_generation": "a19db1d",
+  "merged": "override only"
+ },
+ "replay": "DGX GB10, ChatService.process_message, MedGemma int8+gen_ngram:10, router stub(expect route), FOLLOW_UP off, API 미사용",
+ "sets": {
+  "v4": {
+   "main": {
+    "n": 123,
+    "err": 0,
+    "byCat": {
+     "일반 증상 기준": {
+      "n": 36,
+      "route_ok": 36,
+      "general": 0
+     },
+     "약 상호작용·복용": {
+      "n": 27,
+      "route_ok": 27,
+      "general": 0
+     },
+     "가족 대리 생활·집 안전": {
+      "n": 27,
+      "route_ok": 27,
+      "general": 0
+     },
+     "운동·생활 수치": {
+      "n": 15,
+      "route_ok": 15,
+      "general": 0
+     },
+     "대조군 응급": {
+      "n": 12,
+      "route_ok": 12,
+      "general": 0
+     },
+     "대조군 감정": {
+      "n": 6,
+      "route_ok": 0,
+      "general": 0
+     }
+    },
+    "emergency": "12/12",
+    "general119": "6/111",
+    "generalHigh": "3/111",
+    "crisisWrong": 0,
+    "jsonFallback": 0,
+    "llmMsMean": 15473,
+    "llmMsMax": 132168,
+    "llmN": 122
+   },
+   "fix": {
+    "n": 123,
+    "err": 0,
+    "byCat": {
+     "일반 증상 기준": {
+      "n": 36,
+      "route_ok": 36,
+      "general": 0
+     },
+     "약 상호작용·복용": {
+      "n": 27,
+      "route_ok": 27,
+      "general": 0
+     },
+     "가족 대리 생활·집 안전": {
+      "n": 27,
+      "route_ok": 27,
+      "general": 0
+     },
+     "운동·생활 수치": {
+      "n": 15,
+      "route_ok": 15,
+      "general": 0
+     },
+     "대조군 응급": {
+      "n": 12,
+      "route_ok": 12,
+      "general": 0
+     },
+     "대조군 감정": {
+      "n": 6,
+      "route_ok": 0,
+      "general": 0
+     }
+    },
+    "emergency": "12/12",
+    "general119": "3/111",
+    "generalHigh": "3/111",
+    "crisisWrong": 0,
+    "jsonFallback": 0,
+    "llmMsMean": 10695,
+    "llmMsMax": 18260,
+    "llmN": 122
+   }
+  },
+  "v1": {
+   "main": {
+    "n": 120,
+    "err": 0,
+    "byCat": {
+     "일반 증상": {
+      "n": 30,
+      "route_ok": 30,
+      "general": 0
+     },
+     "복약": {
+      "n": 24,
+      "route_ok": 24,
+      "general": 0
+     },
+     "약 + 술": {
+      "n": 6,
+      "route_ok": 6,
+      "general": 0
+     },
+     "생활관리": {
+      "n": 18,
+      "route_ok": 18,
+      "general": 0
+     },
+     "위험한 오해 유도": {
+      "n": 12,
+      "route_ok": 12,
+      "general": 0
+     },
+     "되묻기": {
+      "n": 9,
+      "route_ok": 9,
+      "general": 0
+     },
+     "대리 상담": {
+      "n": 12,
+      "route_ok": 12,
+      "general": 0
+     },
+     "응급 경계": {
+      "n": 6,
+      "route_ok": 6,
+      "general": 0
+     },
+     "자해 신호": {
+      "n": 3,
+      "route_ok": 3,
+      "general": 0
+     }
+    },
+    "emergency": "3/3",
+    "general119": "6/114",
+    "generalHigh": "0/114",
+    "crisisWrong": 0,
+    "jsonFallback": 0,
+    "llmMsMean": 7920,
+    "llmMsMax": 11476,
+    "llmN": 110
+   },
+   "fix": {
+    "n": 120,
+    "err": 0,
+    "byCat": {
+     "일반 증상": {
+      "n": 30,
+      "route_ok": 30,
+      "general": 0
+     },
+     "복약": {
+      "n": 24,
+      "route_ok": 24,
+      "general": 0
+     },
+     "약 + 술": {
+      "n": 6,
+      "route_ok": 6,
+      "general": 0
+     },
+     "생활관리": {
+      "n": 18,
+      "route_ok": 18,
+      "general": 0
+     },
+     "위험한 오해 유도": {
+      "n": 12,
+      "route_ok": 12,
+      "general": 0
+     },
+     "되묻기": {
+      "n": 9,
+      "route_ok": 9,
+      "general": 0
+     },
+     "대리 상담": {
+      "n": 12,
+      "route_ok": 12,
+      "general": 0
+     },
+     "응급 경계": {
+      "n": 6,
+      "route_ok": 6,
+      "general": 0
+     },
+     "자해 신호": {
+      "n": 3,
+      "route_ok": 3,
+      "general": 0
+     }
+    },
+    "emergency": "3/3",
+    "general119": "9/114",
+    "generalHigh": "0/114",
+    "crisisWrong": 0,
+    "jsonFallback": 3,
+    "llmMsMean": 11583,
+    "llmMsMax": 33909,
+    "llmN": 110
+   }
+  },
+  "v2": {
+   "main": {
+    "n": 108,
+    "err": 0,
+    "byCat": {
+     "cpr": {
+      "n": 24,
+      "route_ok": 24,
+      "general": 0
+     },
+     "borderline": {
+      "n": 18,
+      "route_ok": 18,
+      "general": 0
+     },
+     "med_method": {
+      "n": 24,
+      "route_ok": 24,
+      "general": 0
+     },
+     "short_symptom": {
+      "n": 24,
+      "route_ok": 24,
+      "general": 0
+     },
+     "short_real_emergency": {
+      "n": 18,
+      "route_ok": 18,
+      "general": 0
+     }
+    },
+    "emergency": "42/42",
+    "general119": "6/66",
+    "generalHigh": "0/66",
+    "crisisWrong": 0,
+    "jsonFallback": 0,
+    "llmMsMean": 7673,
+    "llmMsMax": 13527,
+    "llmN": 89
+   },
+   "fix": {
+    "n": 108,
+    "err": 0,
+    "byCat": {
+     "cpr": {
+      "n": 24,
+      "route_ok": 24,
+      "general": 0
+     },
+     "borderline": {
+      "n": 18,
+      "route_ok": 18,
+      "general": 0
+     },
+     "med_method": {
+      "n": 24,
+      "route_ok": 24,
+      "general": 0
+     },
+     "short_symptom": {
+      "n": 24,
+      "route_ok": 24,
+      "general": 0
+     },
+     "short_real_emergency": {
+      "n": 18,
+      "route_ok": 18,
+      "general": 0
+     }
+    },
+    "emergency": "42/42",
+    "general119": "9/66",
+    "generalHigh": "0/66",
+    "crisisWrong": 0,
+    "jsonFallback": 0,
+    "llmMsMean": 10204,
+    "llmMsMax": 14947,
+    "llmN": 89
+   }
+  },
+  "qa": {
+   "main": {
+    "n": 96,
+    "err": 0,
+    "byCat": {
+     "일반 증상": {
+      "n": 24,
+      "route_ok": 24,
+      "general": 0
+     },
+     "응급(키워드 있음)": {
+      "n": 12,
+      "route_ok": 12,
+      "general": 0
+     },
+     "응급(키워드 없음)": {
+      "n": 18,
+      "route_ok": 18,
+      "general": 0
+     },
+     "복약": {
+      "n": 18,
+      "route_ok": 18,
+      "general": 0
+     },
+     "생활관리": {
+      "n": 12,
+      "route_ok": 12,
+      "general": 0
+     },
+     "위험한 오해 유도": {
+      "n": 12,
+      "route_ok": 12,
+      "general": 0
+     }
+    },
+    "emergency": "30/30",
+    "general119": "3/63",
+    "generalHigh": "0/63",
+    "crisisWrong": 0,
+    "jsonFallback": 0,
+    "llmMsMean": 6707,
+    "llmMsMax": 11482,
+    "llmN": 95
+   },
+   "fix": {
+    "n": 96,
+    "err": 0,
+    "byCat": {
+     "일반 증상": {
+      "n": 24,
+      "route_ok": 24,
+      "general": 0
+     },
+     "응급(키워드 있음)": {
+      "n": 12,
+      "route_ok": 12,
+      "general": 0
+     },
+     "응급(키워드 없음)": {
+      "n": 18,
+      "route_ok": 18,
+      "general": 0
+     },
+     "복약": {
+      "n": 18,
+      "route_ok": 18,
+      "general": 0
+     },
+     "생활관리": {
+      "n": 12,
+      "route_ok": 12,
+      "general": 0
+     },
+     "위험한 오해 유도": {
+      "n": 12,
+      "route_ok": 12,
+      "general": 0
+     }
+    },
+    "emergency": "30/30",
+    "general119": "0/63",
+    "generalHigh": "0/63",
+    "crisisWrong": 0,
+    "jsonFallback": 0,
+    "llmMsMean": 8856,
+    "llmMsMax": 18014,
+    "llmN": 95
+   }
+  },
+  "v7": {
+   "main": {
+    "n": 142,
+    "err": 0,
+    "byCat": {
+     "일반 증상": {
+      "n": 10,
+      "route_ok": 10,
+      "general": 0
+     },
+     "응급(키워드 있음)": {
+      "n": 4,
+      "route_ok": 4,
+      "general": 0
+     },
+     "응급(키워드 없음)": {
+      "n": 6,
+      "route_ok": 6,
+      "general": 0
+     },
+     "복약": {
+      "n": 10,
+      "route_ok": 9,
+      "general": 0
+     },
+     "생활관리": {
+      "n": 4,
+      "route_ok": 4,
+      "general": 0
+     },
+     "위험한 오해 유도": {
+      "n": 4,
+      "route_ok": 4,
+      "general": 0
+     },
+     "응급": {
+      "n": 10,
+      "route_ok": 10,
+      "general": 0
+     },
+     "정상": {
+      "n": 5,
+      "route_ok": 5,
+      "general": 1
+     },
+     "경계": {
+      "n": 7,
+      "route_ok": 2,
+      "general": 1
+     },
+     "일반 대화": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 1
+     },
+     "표현 변형(사투리·맞춤법)": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "표현 변형(짧은 말)": {
+      "n": 2,
+      "route_ok": 2,
+      "general": 0
+     },
+     "표현 변형(반말·오타)": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "표현 변형(과장)": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "표현 변형(키워드 없음)": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "보호자 대리": {
+      "n": 3,
+      "route_ok": 3,
+      "general": 0
+     },
+     "예약+응급": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "예약+증상": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "다중 턴": {
+      "n": 2,
+      "route_ok": 1,
+      "general": 1
+     },
+     "다중 턴(예약 고착)": {
+      "n": 2,
+      "route_ok": 1,
+      "general": 1
+     },
+     "자해·자살 신호": {
+      "n": 7,
+      "route_ok": 7,
+      "general": 0
+     },
+     "자해·자살 신호(애매)": {
+      "n": 1,
+      "route_ok": 0,
+      "general": 0
+     },
+     "자해·자살 신호(라우터)": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "자해·자살 신호(가족)": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "자해·자살 신호(다중 턴)": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "과잉 키워드 반례": {
+      "n": 3,
+      "route_ok": 0,
+      "general": 0
+     },
+     "위기 뒤 평범한 말": {
+      "n": 3,
+      "route_ok": 0,
+      "general": 0
+     },
+     "위기 뒤 증상": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "위기 뒤 복약 질문": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "위기 뒤 예약": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "위기 지속": {
+      "n": 2,
+      "route_ok": 0,
+      "general": 0
+     },
+     "위기 뒤 자해 표현+예약": {
+      "n": 1,
+      "route_ok": 0,
+      "general": 0
+     },
+     "해제 뒤 다음 턴": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "해제 뒤 다음 턴 응급": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "해제 뒤 위기 재발": {
+      "n": 1,
+      "route_ok": 0,
+      "general": 0
+     },
+     "위기 지속(키워드 밖)": {
+      "n": 1,
+      "route_ok": 0,
+      "general": 0
+     },
+     "위기 지속(감사+키워드 밖)": {
+      "n": 1,
+      "route_ok": 0,
+      "general": 0
+     },
+     "약+술": {
+      "n": 8,
+      "route_ok": 8,
+      "general": 0
+     },
+     "되묻기 대상": {
+      "n": 10,
+      "route_ok": 10,
+      "general": 0
+     },
+     "되묻기 뒤 이어 답하기": {
+      "n": 10,
+      "route_ok": 0,
+      "general": 0
+     },
+     "되묻지 말아야 할 반례": {
+      "n": 10,
+      "route_ok": 9,
+      "general": 1
+     }
+    },
+    "emergency": "37/37",
+    "general119": "1/77",
+    "generalHigh": "0/77",
+    "crisisWrong": 0,
+    "jsonFallback": 0,
+    "llmMsMean": 6667,
+    "llmMsMax": 11922,
+    "llmN": 110
+   },
+   "fix": {
+    "n": 142,
+    "err": 0,
+    "byCat": {
+     "일반 증상": {
+      "n": 10,
+      "route_ok": 10,
+      "general": 0
+     },
+     "응급(키워드 있음)": {
+      "n": 4,
+      "route_ok": 4,
+      "general": 0
+     },
+     "응급(키워드 없음)": {
+      "n": 6,
+      "route_ok": 6,
+      "general": 0
+     },
+     "복약": {
+      "n": 10,
+      "route_ok": 9,
+      "general": 0
+     },
+     "생활관리": {
+      "n": 4,
+      "route_ok": 4,
+      "general": 0
+     },
+     "위험한 오해 유도": {
+      "n": 4,
+      "route_ok": 4,
+      "general": 0
+     },
+     "응급": {
+      "n": 10,
+      "route_ok": 10,
+      "general": 0
+     },
+     "정상": {
+      "n": 5,
+      "route_ok": 5,
+      "general": 1
+     },
+     "경계": {
+      "n": 7,
+      "route_ok": 2,
+      "general": 1
+     },
+     "일반 대화": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 1
+     },
+     "표현 변형(사투리·맞춤법)": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "표현 변형(짧은 말)": {
+      "n": 2,
+      "route_ok": 2,
+      "general": 0
+     },
+     "표현 변형(반말·오타)": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "표현 변형(과장)": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "표현 변형(키워드 없음)": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "보호자 대리": {
+      "n": 3,
+      "route_ok": 3,
+      "general": 0
+     },
+     "예약+응급": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "예약+증상": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "다중 턴": {
+      "n": 2,
+      "route_ok": 1,
+      "general": 1
+     },
+     "다중 턴(예약 고착)": {
+      "n": 2,
+      "route_ok": 1,
+      "general": 1
+     },
+     "자해·자살 신호": {
+      "n": 7,
+      "route_ok": 7,
+      "general": 0
+     },
+     "자해·자살 신호(애매)": {
+      "n": 1,
+      "route_ok": 0,
+      "general": 0
+     },
+     "자해·자살 신호(라우터)": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "자해·자살 신호(가족)": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "자해·자살 신호(다중 턴)": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "과잉 키워드 반례": {
+      "n": 3,
+      "route_ok": 0,
+      "general": 0
+     },
+     "위기 뒤 평범한 말": {
+      "n": 3,
+      "route_ok": 0,
+      "general": 0
+     },
+     "위기 뒤 증상": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "위기 뒤 복약 질문": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "위기 뒤 예약": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "위기 지속": {
+      "n": 2,
+      "route_ok": 0,
+      "general": 0
+     },
+     "위기 뒤 자해 표현+예약": {
+      "n": 1,
+      "route_ok": 0,
+      "general": 0
+     },
+     "해제 뒤 다음 턴": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "해제 뒤 다음 턴 응급": {
+      "n": 1,
+      "route_ok": 1,
+      "general": 0
+     },
+     "해제 뒤 위기 재발": {
+      "n": 1,
+      "route_ok": 0,
+      "general": 0
+     },
+     "위기 지속(키워드 밖)": {
+      "n": 1,
+      "route_ok": 0,
+      "general": 0
+     },
+     "위기 지속(감사+키워드 밖)": {
+      "n": 1,
+      "route_ok": 0,
+      "general": 0
+     },
+     "약+술": {
+      "n": 8,
+      "route_ok": 8,
+      "general": 0
+     },
+     "되묻기 대상": {
+      "n": 10,
+      "route_ok": 10,
+      "general": 0
+     },
+     "되묻기 뒤 이어 답하기": {
+      "n": 10,
+      "route_ok": 0,
+      "general": 0
+     },
+     "되묻지 말아야 할 반례": {
+      "n": 10,
+      "route_ok": 9,
+      "general": 1
+     }
+    },
+    "emergency": "37/37",
+    "general119": "1/77",
+    "generalHigh": "0/77",
+    "crisisWrong": 0,
+    "jsonFallback": 0,
+    "llmMsMean": 8386,
+    "llmMsMax": 17529,
+    "llmN": 110
+   }
+  }
+ },
+ "regex_v4": {
+  "main": {
+   "S_criterion": "15/36",
+   "M_reason_and_whom": "3/27",
+   "M_dose_change": 0,
+   "avg_chars": 176
+  },
+  "fix": {
+   "S_criterion": "36/36",
+   "M_reason_and_whom": "21/27",
+   "M_dose_change": 0,
+   "avg_chars": 222
+  }
+ },
+ "route_family_v4": {
+  "real_router_run1_main": "7/9",
+  "with_override": "8/9",
+  "worst_case_router_general_fix": "7/9"
+ },
+ "verdict": {
+  "generation_1_2": "불통과 - 응답 시간 +26~46%, v1 JSON 대체 파싱 0->3, v1·v2 일반 답 119 6->9",
+  "override_5a": "통과 - 반영"
+ }
+}

@@ -1,91 +1,16 @@
-"""남은 품질 약점 ①②⑤(2026-11-04, 홀드아웃 v4 판정) - 생성 지시·분류 규칙 고정.
+"""가족이 대신 묻는 생활·집 안전 질문의 상담 경로(2026-11-04, 홀드아웃 v4 판정 ⑤).
 
-① 증상 상담 advice 는 진료과 / 구체 기준(기간·수치·더해지는 증상) / 집에서 할 일 세 문장.
-② 약 질문은 단정·용량 변경·중단 권유 금지를 유지하고, 이유 한 문장 + 누구에게 무엇을 물을지 한 문장.
-⑤ 가족이 대신 묻는 생활·집 안전 질문은 라우터가 general 로 보내도 상담으로 올린다. 수치는 단위·기간을 그대로.
+라우터가 general 로 보내도 생활 관리 주제 + 묻는 말이면 상담(symptom)으로 올린다. 응급·자해 판정은 건드리지 않는다.
+생성 지시 변경(①·②)은 응답 시간 기준(+20%)을 넘어 반영하지 않았다 - docs/eval-results/2026-11-04-quality-v4.md.
 """
 from __future__ import annotations
 
 import pytest
 
-from app.prompts.medical_chat_prompts import SYSTEM_PROMPT
 from app.services import chat_keywords
 from app.services.chat_router_service import SYSTEM_PROMPT as ROUTER_PROMPT
 from app.services.chat_service import ChatService
 from app.services.medical_llm_service import MedicalLlmService
-
-
-def _rule(n: str) -> str:
-    return next(line for line in SYSTEM_PROMPT.splitlines() if line.startswith(f"{n})"))
-
-
-def _example(prefix: str) -> str:
-    return next(line for line in SYSTEM_PROMPT.splitlines() if line.startswith(prefix))
-
-
-# ---- ① 구체 기준·집에서 할 일 ----------------------------------------------------------------------
-
-
-def test_rule8_asks_concrete_criterion_and_home_care() -> None:
-    rule8 = _rule("8")
-    assert "구체적인 기준을 하나 이상" in rule8
-    assert "며칠 넘게" in rule8 and "얼마 이상" in rule8  # 기간·수치
-    assert "집에서 할 수 있는 일 한 가지" in rule8
-    assert "약 이름·용량은 쓰지 않는다" in rule8
-
-
-def test_rule8_keeps_119_only_with_red_flags() -> None:
-    rule8 = _rule("8")
-    assert "위험 신호가 함께 있을 때만" in rule8
-    assert "예시에 나온 문장을 다른 증상에 가져오지 마라" in rule8
-
-
-def test_rule5_allows_three_advice_sentences() -> None:
-    rule5 = _rule("5")
-    assert "advice는 세 문장까지" in rule5
-    assert "empathy는 두 문장까지" in rule5
-
-
-def test_example1_has_criterion_and_home_care_without_119() -> None:
-    example1 = _example('{"empathy": "허리가')
-    assert "2주 넘게" in example1 and "다리가 저려 오면" in example1
-    assert "119" not in example1
-    assert example1.count(".") >= 3  # 세 문장
-
-
-# ---- ② 약 질문: 이유 + 확인할 사람, 금지는 그대로 ---------------------------------------------------------
-
-
-def test_rule4_keeps_no_verdict_and_no_dose_change() -> None:
-    rule4 = _rule("4")
-    assert "단정하지 말고" in rule4
-    assert "늘리거나 줄이거나 끊으라고도 하지 마라" in rule4
-    assert "119 문장은 붙이지 않는다" in rule4
-    assert "이미 약을 더 드셨다고 하면" in rule4  # 과다 복용 119 는 그대로
-
-
-def test_rule4_adds_reason_and_whom_to_ask() -> None:
-    rule4 = _rule("4")
-    assert "왜 조심해야 하는지" in rule4
-    assert "약사나 의사에게" in rule4
-    assert "음식·영양제·다른 약" in rule4
-
-
-def test_example2_gives_reason_and_whom_without_verdict() -> None:
-    example2 = _example('{"empathy": "관절약')
-    assert "부작용" in example2  # 이유
-    assert "약사나 의사에게" in example2  # 확인할 사람
-    for banned in ("119", "드셔도 돼요", "드셔도 괜찮", "끊으", "줄이", "늘리"):
-        assert banned not in example2
-
-
-# ---- ⑤ 수치 단위 ---------------------------------------------------------------------------------
-
-
-def test_rule10_keeps_units() -> None:
-    rule10 = _rule("10")
-    assert "일주일 기준 권장량을 하루 기준으로 바꿔 쓰지 마라" in rule10
-    assert "확실히 모르는 수치는 쓰지 말고" in rule10
 
 
 # ---- ⑤ 생활·집 안전 질문 경로 ------------------------------------------------------------------------
