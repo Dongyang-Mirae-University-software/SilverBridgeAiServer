@@ -27,6 +27,10 @@ _HEADLINE_CALL = re.compile(r"전화|연락")
 # 따옴표 안 낱말은 안내할 말의 예시다("병원 찾아줘"라고 말씀해 주세요) - 병원 문장·핵심 줄 판단에서 뺀다(2026-11-01 점검 M-2).
 _QUOTED = re.compile(r"\"[^\"]*\"|“[^”]*”|'[^']*'|‘[^’]*’")
 BODY_MAX_LINES = 4
+# 피보호자(WARD) 본인 답(2026-11-04): 모델이 쓴 문장은 핵심 줄 포함 3문장·공백 포함 120자까지.
+# 119·109 문장과 서버 고정 문장(약·약 + 술·진료 권유 보장·위험 신호)은 세지 않고 늘 남긴다.
+WARD_MODEL_MAX_SENTENCES = 3
+WARD_MODEL_MAX_CHARS = 120
 
 
 def _sentences(line: str) -> list[str]:
@@ -76,7 +80,9 @@ def _emoji(sentence: str) -> str:
     return f"{kw.layout_emoji(sentence)} {sentence}"
 
 
-def _urgent_layout(reply: str, marker: re.Pattern[str], parts: dict[str, Any] | None = None) -> dict[str, Any]:
+def _urgent_layout(
+    reply: str, marker: re.Pattern[str], parts: dict[str, Any] | None = None, concise: bool = False
+) -> dict[str, Any]:
     """응급·자해·위기: marker(119/109) 전화 문장 하나를 🚨 핵심 줄로, 나머지는 순서대로 이모지 없이 본문."""
     lines: list[str] = []
     for line in reply.split("\n"):
@@ -99,7 +105,8 @@ def _urgent_layout(reply: str, marker: re.Pattern[str], parts: dict[str, Any] | 
     summary = [s for s in lines if re.match(r"^(증상|특징): ", s)]
     empathy = [s for s in lines if s not in summary and _in(s, empathy_pool)]
     rest = [s for s in lines if s not in summary and s not in empathy]
-    return {"headline": headline, "body": rest + empathy + summary, "questions": [], "homeCare": [], "visitHospitalIf": []}
+    # 피보호자 본인 응급 답은 공감·증상 줄만 뺀다 - 119 줄·행동 문장·경고 박스는 그대로(concise).
+    return {"headline": headline, "body": rest if concise else rest + empathy + summary, "questions": [], "homeCare": [], "visitHospitalIf": []}
 
 
 def _followup_layout(reply: str) -> dict[str, Any]:
@@ -139,7 +146,51 @@ def _fixed_patterns() -> list[re.Pattern[str]]:
 _MULTI_FIXED = _fixed_patterns()
 
 
-def _general_layout(reply: str, parts: dict[str, Any], drug_alcohol: list[str]) -> dict[str, Any]:
+def _single_fixed_patterns() -> list[re.Pattern[str]]:
+    """서버 고정 문장(약 + 술 포함, 본인·대리 말투 모두)을 한 문장씩 - 피보호자 답 줄이기에서 지우지 않을 문장."""
+    out = []
+    for f in _mls.FIXED_SENTENCES:
+        for text in filter(None, (str(f), f.proxy)):
+            for sentence in _sentences(text):
+                out.append(re.compile("^" + re.escape(sentence).replace(re.escape("{department}"), "[가-힣]+") + "$"))
+    return out
+
+
+_SINGLE_FIXED = _single_fixed_patterns()
+
+
+def _protected(sentence: str, drug_alcohol: list[str]) -> bool:
+    """피보호자 답에서도 남길 문장: 119·109 안내, 서버 고정 문장, 약 + 술 문장."""
+    return bool(
+        _CALL_119.search(sentence) or _CALL_109.search(sentence)
+        or any(p.match(sentence) for p in _SINGLE_FIXED) or _in(sentence, drug_alcohol)
+    )
+
+
+def _ward_trim(placed: list[tuple[str, str]], headline: str | None, drug_alcohol: list[str]) -> tuple[list[tuple[str, str]], int]:
+    """피보호자 본인 답: 공감·증상·특징 줄을 빼고, 모델 문장은 핵심 줄을 포함해 3문장·120자까지(넘치면 뒤에서부터 뺀다).
+    지키는 문장(_protected)은 세지 않고 자리 그대로 둔다. 핵심 줄(과 안내)은 길이와 상관없이 남긴다."""
+    count = 1 if headline else 0
+    chars = len(headline) if headline else 0
+    kept: list[tuple[str, str]] = []
+    dropped = 0
+    for where, s in placed:
+        if where in ("empathy", "summary"):
+            dropped += 1
+            continue
+        if _protected(s, drug_alcohol):
+            kept.append((where, s))
+            continue
+        if count < WARD_MODEL_MAX_SENTENCES and (chars + len(s) <= WARD_MODEL_MAX_CHARS or count == 0):
+            kept.append((where, s))
+            count += 1
+            chars += len(s)
+        else:
+            dropped += 1
+    return kept, dropped
+
+
+def _general_layout(reply: str, parts: dict[str, Any], drug_alcohol: list[str], concise: bool = False) -> dict[str, Any]:
     empathy = _sentences(str(parts.get("empathy") or ""))
     advice = _sentences(str(parts.get("advice") or ""))
     body: list[str] = []
@@ -184,6 +235,9 @@ def _general_layout(reply: str, parts: dict[str, Any], drug_alcohol: list[str]) 
         headline = min(headline_candidates, key=lambda x: x[0])[1]
         idx = next(i for i, (_, s) in enumerate(placed) if s == headline)
         placed.pop(idx)
+    ward_dropped = 0
+    if concise:
+        placed, ward_dropped = _ward_trim(placed, headline, drug_alcohol)
 
     tagged: list[tuple[str, str]] = []  # 본문 (자리표, 줄)
     for where, s in placed:
@@ -212,6 +266,7 @@ def _general_layout(reply: str, parts: dict[str, Any], drug_alcohol: list[str]) 
         "questions": [],
         "homeCare": home,
         "visitHospitalIf": hospital,
+        **({"_wardDropped": ward_dropped} if concise else {}),
     }
 
 
@@ -231,9 +286,11 @@ def split_warning(items: list[str] | None) -> list[str]:
     return out
 
 
-def apply(result: dict[str, Any], drug_alcohol_sentences: list[str] | None = None) -> dict[str, Any]:
+def apply(result: dict[str, Any], drug_alcohol_sentences: list[str] | None = None, concise: bool = False) -> dict[str, Any]:
     """result 의 reply 를 새 모양으로 바꾸고 layout 을 붙인다(제자리 수정 후 반환). 판정 값은 건드리지 않는다.
-    result["layoutParts"](생성 경로의 공감·권고 칸)은 여기서 꺼내 버린다 - 기록·응답에 남기지 않는다."""
+    result["layoutParts"](생성 경로의 공감·권고 칸)은 여기서 꺼내 버린다 - 기록·응답에 남기지 않는다.
+    concise: 피보호자 본인(WARD) 답 - 일반 답은 모델 문장을 줄이고, 응급 답은 공감·증상 줄만 뺀다.
+    위기(109)·되묻기·예약 답은 concise 여도 그대로다(질문·전화 안내가 답의 전부라 줄일 것이 없다)."""
     parts = result.pop("layoutParts", None) or {}
     kind = _kind(result)
     if kind is None:
@@ -242,7 +299,7 @@ def apply(result: dict[str, Any], drug_alcohol_sentences: list[str] | None = Non
     reply = _without_emoji(result["reply"])
     parts = {**parts, **{k: _without_emoji(str(parts.get(k) or "")) for k in ("empathy", "advice")}}
     if kind == "emergency":
-        layout = _urgent_layout(reply, _CALL_119, parts)
+        layout = _urgent_layout(reply, _CALL_119, parts, concise=concise)
         result["emergencyWarning"] = split_warning(result.get("emergencyWarning"))
     elif kind == "crisis":
         layout = _urgent_layout(reply, _CALL_109)
@@ -251,7 +308,15 @@ def apply(result: dict[str, Any], drug_alcohol_sentences: list[str] | None = Non
         layout = _followup_layout(reply)
     else:
         pool = [x for sentence in (drug_alcohol_sentences or []) for x in _sentences(str(sentence))]
-        layout = _general_layout(reply, parts, pool)
+        layout = _general_layout(reply, parts, pool, concise=concise)
+    ward_dropped = layout.pop("_wardDropped", None)
+    if concise:
+        before = len([s for line in reply.split("\n") for s in _sentences(line) if not _FILLER.match(s)])
+        after = len(_sentences(flatten(layout).replace("\n", " ")))
+        result.setdefault("meta", {})
+        if isinstance(result["meta"], dict):
+            # 기록용(문장 수만, 본문 없음) - 측정·점검에서 줄어든 정도를 본다.
+            result["meta"]["wardConcise"] = {"kind": kind, "dropped": ward_dropped if ward_dropped is not None else max(0, before - after)}
     result["layout"] = layout
     result["reply"] = flatten(layout)
     return result

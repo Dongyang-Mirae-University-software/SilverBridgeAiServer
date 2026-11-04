@@ -1122,7 +1122,9 @@ class MedicalLlmService:
         intent: str | None = None,
         processed_symptom: str | None = None,
         proxy: bool = False,
+        concise: bool = False,
     ) -> dict[str, Any]:
+        # concise: 피보호자(WARD) 본인 상담 - 프롬프트에 쉬운 말·짧은 문장 한 줄만 더한다(답 줄이기는 chat_layout 이 맡는다).
         # proxy: 보호자가 가족 대신 묻는 대리 상담(chat_service 가 wardId·가족 주어로 정한다) - 고정 문장을 대리 문장으로 고른다(L-3).
         intent = intent or self.classify_intent(message)
         signals = self.emergency_signals(message)
@@ -1146,6 +1148,7 @@ class MedicalLlmService:
             emergency_hint=emergency_hint,
             processed_symptom=processed_symptom,
             department_hint=department_hint,
+            concise=concise,
         )
 
         if not self._settings.chat_enable_llm:
