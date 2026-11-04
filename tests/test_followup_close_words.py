@@ -46,3 +46,20 @@ def test_closing_after_followup_is_not_joined(env, closing: str) -> None:  # noq
     _send(env, closing)
     call = env.llm.calls[-1]
     assert call["message"] == closing and call["intent"] == "general_chat"
+
+
+# 2026-11-04 기능 점검 M-1(#167 퇴행)·L-1: 반말·사투리·이모지 인사도 종료, 인사에 증상이 섞이면 이어 붙인다.
+CASUAL_CLOSINGS = ["고마워", "고마웡", "고마워유", "고맙구먼", "감사해유", "알았어 고마워", "됐어", "됐다", "괜찮아", "이제 괜찮아",
+                   "그만해", "수고하세요", "잘 있어요", "고마워요 :)", "감사합니다🙏", "고마워요ㅠㅠ", "ㅇㅋ 고마워요", "네 감사합니다^^", "감사 ok"]
+MIXED_ANSWERS = ["네 열도 나요", "감사합니다 그런데 아직 아파요", "괜찮아요 근데 어지러워요", "아니요 괜찮아요 열은 없어요",
+                 "됐어요 이제 안 아파요", "감사 열나요", "그만 아프면 좋겠어요", "안녕하세요 머리가 아파요", "아파서 잠을 못 자요 고마워요", "고마워요 2"]
+
+
+@pytest.mark.parametrize("message", CASUAL_CLOSINGS)
+def test_casual_and_emoji_greetings_are_closing(message: str) -> None:
+    assert _is_closing_message(message)
+
+
+@pytest.mark.parametrize("message", MIXED_ANSWERS)
+def test_greeting_with_symptom_is_not_closing(message: str) -> None:
+    assert not _is_closing_message(message)
