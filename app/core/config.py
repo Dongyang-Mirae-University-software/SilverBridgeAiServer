@@ -329,11 +329,11 @@ class Settings(BaseModel):
     companion_llm_base_url: str = os.getenv("COMPANION_LLM_BASE_URL", "http://127.0.0.1:11434")  # D7: Ollama
     companion_llm_model: str = os.getenv("COMPANION_LLM_MODEL", "exaone3.5:2.4b")  # 표시용 이름 (D7: transformers 직접 로드)
     companion_llm_subdir: str = os.getenv("COMPANION_LLM_SUBDIR", "companion/llm/exaone-3.5-2.4b")  # MODEL_BASE_PATH 아래 폴더 (D19)
-    companion_llm_timeout_sec: int = _as_int("COMPANION_LLM_TIMEOUT_SEC", 120)
+    companion_llm_timeout_sec: int = _as_int("COMPANION_LLM_TIMEOUT_SEC", 30)  # 한 턴 90초 예산 안에 맞춘다 (tests/test_turn_budget.py)
     companion_llm_dtype: str = os.getenv("COMPANION_LLM_DTYPE", "bfloat16")  # 메모리 절약 (가중치는 float32 저장)
     companion_llm_num_predict: int = _as_int("COMPANION_LLM_NUM_PREDICT", 256)
     companion_llm_temperature: float = _as_float("COMPANION_LLM_TEMPERATURE", 0.1)
-    companion_llm_retry: int = _as_int("COMPANION_LLM_RETRY", 1)  # D20 c: 1회 재시도 후 대체 문장
+    companion_llm_retry: int = _as_int("COMPANION_LLM_RETRY", 0)  # D20 c: 1회 재시도 후 대체 문장
     companion_pseudonym_salt: str = os.getenv("COMPANION_PSEUDONYM_SALT", "")  # 비면 개선 DB 적재 끔
     companion_log_transcript: bool = _as_bool("COMPANION_LOG_TRANSCRIPT", False)  # D10
     companion_log_database_url: str = os.getenv("COMPANION_LOG_DATABASE_URL", "")  # D11 결정(2026-11-02): 턴 기록은 백엔드 DB. 이 값은 비워 둔다
@@ -342,7 +342,7 @@ class Settings(BaseModel):
     companion_log_retention_days: int = _as_int("COMPANION_LOG_RETENTION_DAYS", 30)  # D18 (사용자 결정 30일)
     companion_no_response_limit: int = _as_int("COMPANION_NO_RESPONSE_LIMIT", 3)  # D15 (사용자 결정 2026-11-02: 3번 연속이면 종료)
     # D16 (사용자 결정 2026-11-02): 중간에 그만두면 그때까지의 턴을 그대로 기록한다. 최소 턴 기준 없음.
-    companion_stt_timeout_sec: float = _as_float("COMPANION_STT_TIMEOUT_SEC", 60.0)  # S9-1
+    companion_stt_timeout_sec: float = _as_float("COMPANION_STT_TIMEOUT_SEC", 40.0)  # S9-1
     companion_face_timeout_sec: float = _as_float("COMPANION_FACE_TIMEOUT_SEC", 10.0)  # S9-1
     companion_text_timeout_sec: float = _as_float("COMPANION_TEXT_TIMEOUT_SEC", 5.0)  # S9-1
     companion_record_timeout_sec: float = _as_float("COMPANION_RECORD_TIMEOUT_SEC", 5.0)  # S8-5 턴 기록 전송
