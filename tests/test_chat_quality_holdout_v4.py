@@ -168,7 +168,6 @@ def test_fall_emergency_still_emergency() -> None:
     assert forced["route"] == "symptom" and forced["emergency"] is True
 
 
-def test_router_prompt_lists_lifestyle_as_symptom() -> None:
-    assert "낙상 예방·집 안전" in ROUTER_PROMPT
-    assert "가족이 대신 물어도 symptom" in ROUTER_PROMPT
-    assert "건강과 상관없는 그 외" in ROUTER_PROMPT
+def test_router_prompt_unchanged_by_this_work() -> None:
+    # 라우터(Opus) 지시문은 API 없이 검증할 수 없어 바꾸지 않았다(2026-11-04) - ⑤는 키워드 덮어쓰기로만 푼다.
+    assert "낙상 예방·집 안전" not in ROUTER_PROMPT
