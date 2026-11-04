@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor
+from typing import Callable
+
+from app.core.config import get_settings
+from app.services.companion.fusion import GGARA_TO_TURN, HSEMOTION_TO_TURN, UNDECIDED, fuse_turn
+from app.services.companion.llm_client import LlmClient
+from app.services.companion.reply_service import generate_reply, no_response_reply
+from app.services.companion.signals import extract_signals
+from app.services.companion.text_emotion_service import TextEmotionResult, TextEmotionUnavailable
+from app.services.companion.timeouts import call_with_timeout
+
+
+def analyze_turn_result(
+    transcript: str,
+    face: dict,
+    classify_text: Callable[[str], TextEmotionResult],
+) -> dict:
+    """말(GGARA02)과 표정(HSEmotion)을 아키텍처 08 결합 표로 합쳐 턴 결과를 만든다.
+
+    텍스트 모델을 못 쓰면 텍스트는 빠지고 표정만으로 판단한다.
+    """
+    s = get_settings()
+    text = transcript.strip()
+    text_label = None
+    text_usable = False
+    if text:
+        try:
+            r = call_with_timeout(classify_text, s.companion_text_timeout_sec, text)
+        except (TextEmotionUnavailable, TimeoutError):  # 시간 초과면 말은 빼고 표정만으로 판단 (S9-1)
+            r = None
+        if r is not None:
+            text_label = GGARA_TO_TURN.get(r.label)
+            # 발화 10자 이상이고 확신도가 기준 이상일 때만 말을 채택한다 (아키텍처 08)
+            text_usable = bool(r.usable and text_label and len(text) >= s.companion_min_text_chars)
+    face_label = HSEMOTION_TO_TURN.get(face["label"]) if face.get("label") else None
+    face_usable = bool(face.get("usable") and face_label)
+    fused = fuse_turn(
+        no_response=not text,
+        text_label=text_label,
+        text_usable=text_usable,
+        face_label=face_label,
+        face_usable=face_usable,
+    )
+    return {"label": fused.label, "source": fused.source}
+
+
+def run_turn(
+    transcript: str,
+    face: dict,
+    classify_text: Callable[[str], TextEmotionResult],
+    llm: LlmClient,
+    question: str,
+    prev_signals: dict | None,
+    is_last_turn: bool,
+    turn_no: int,
+) -> dict:
+    """한 턴을 처리한다 (S6-4, S7-7). 신호 추출과 응답 생성은 같은 시점에 함께 돌린다.
+
+    응답은 직전 턴 신호만 쓰므로 이번 턴 신호를 기다리지 않는다 (아키텍처 6번 단계).
+    """
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        signal_future = pool.submit(extract_signals, transcript, llm, get_settings().companion_llm_retry)
+        reply_future = pool.submit(generate_reply, llm, question, transcript, prev_signals, is_last_turn, turn_no)
+        signals = signal_future.result()
+        reply = reply_future.result()
+    return {
+        "turnResult": analyze_turn_result(transcript, face, classify_text),
+        "reply": {"text": reply.text, "isFollowUp": reply.isFollowUp},
+        "signals": signals,
+        "replySource": reply.source,
+    }
+
+
+def run_no_response_turn(turn_no: int, is_last_turn: bool) -> dict:
+    """어르신이 답하지 않은 턴. 분석 없이 턴 결과를 NO_RESPONSE 로 남기고 미리 정한 문장으로 답한다 (S7-8)."""
+    reply = no_response_reply(turn_no, is_last_turn)
+    return {
+        "turnResult": {"label": None, "source": "NO_RESPONSE"},
+        "reply": {"text": reply.text, "isFollowUp": reply.isFollowUp},
+        "signals": None,
+        "replySource": reply.source,
+    }
+
+
+FAKE_LABEL = UNDECIDED  # 대화 결과 집계가 비었을 때 쓰는 값 (판단 보류)

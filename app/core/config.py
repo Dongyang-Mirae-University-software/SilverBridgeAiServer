@@ -301,6 +301,58 @@ class Settings(BaseModel):
     collect_random_session_ids: str = os.getenv("COLLECT_RANDOM_SESSION_IDS", "")
     collect_random_daily_max: int = _as_int("COLLECT_RANDOM_DAILY_MAX", 300)
 
+    # ---- 말벗·정서 분석 (companion). 결정: docs/ai-part/AI파트-가이드.html 의 D1~D24 ----
+    companion_api_key: str = os.getenv("COMPANION_API_KEY", "")  # D4: 말벗 전용 키 (빈 값이면 모든 요청 거부)
+    companion_session_limit_sec: int = _as_int("COMPANION_SESSION_LIMIT_SEC", 0)  # D1: 0 = 시간 제한 없음
+    companion_max_turns: int = _as_int("COMPANION_MAX_TURNS", 8)  # D1: 답변 8번이면 종료
+    companion_frame_interval_sec: float = _as_float("COMPANION_FRAME_INTERVAL_SEC", 2.0)  # D5 (사용자 결정 2026-11-01)
+    companion_frame_max: int = _as_int("COMPANION_FRAME_MAX", 5)  # D5 (말풍선당 최대 5장)
+    companion_face_min_rate: float = _as_float("COMPANION_FACE_MIN_RATE", 0.5)  # D6
+    companion_confidence_min: float = _as_float("COMPANION_CONFIDENCE_MIN", 0.6)  # 확신도 0.6 기준
+    companion_min_text_chars: int = _as_int("COMPANION_MIN_TEXT_CHARS", 10)  # 발화 최소 글자 수
+    companion_upload_max_mb: int = _as_int("COMPANION_UPLOAD_MAX_MB", 10)  # 명세 Q12
+    companion_reply_max_chars: int = _as_int("COMPANION_REPLY_MAX_CHARS", 140)  # D21 (사용자 결정 140자 이내)
+    companion_fusion_rule: str = os.getenv("COMPANION_FUSION_RULE", "plan41")  # D9: plan41 | arch8
+    companion_stt_subdir: str = os.getenv("COMPANION_STT_SUBDIR", "companion/stt")  # D19: MODEL_BASE_PATH 하위
+    companion_stt_model: str = os.getenv("COMPANION_STT_MODEL", "large-v3")  # D23
+    # 받아쓰기 엔진: sensevoice(팀 합의 10/26, 기본) | whisper(faster-whisper, 비교용)
+    companion_stt_engine: str = os.getenv("COMPANION_STT_ENGINE", "sensevoice")
+    companion_sensevoice_subdir: str = os.getenv("COMPANION_SENSEVOICE_SUBDIR", "companion/stt-sensevoice")
+    companion_stt_api_max_sec: float = _as_float("COMPANION_STT_API_MAX_SEC", 30.0)  # 챗봇 공유 음성 인식 API 길이 상한
+    companion_stt_api_concurrency: int = _as_int("COMPANION_STT_API_CONCURRENCY", 2)  # 동시에 돌릴 음성 인식 수
+    companion_stt_api_wait_sec: float = _as_float("COMPANION_STT_API_WAIT_SEC", 5.0)  # 자리가 날 때까지 기다리는 시간
+    companion_stt_device: str = os.getenv("COMPANION_STT_DEVICE", "cpu")
+    companion_stt_compute: str = os.getenv("COMPANION_STT_COMPUTE", "int8")
+    companion_text_emotion_subdir: str = os.getenv("COMPANION_TEXT_EMOTION_SUBDIR", "companion/text-emotion")
+    companion_face_model_subdir: str = os.getenv("COMPANION_FACE_MODEL_SUBDIR", "companion/face-emotion")  # D24
+    companion_face_detect_subdir: str = os.getenv("COMPANION_FACE_DETECT_SUBDIR", "companion/face-detect")  # YuNet (검출)
+    companion_llm_base_url: str = os.getenv("COMPANION_LLM_BASE_URL", "http://127.0.0.1:11434")  # D7: Ollama
+    companion_llm_model: str = os.getenv("COMPANION_LLM_MODEL", "exaone3.5:2.4b")  # 표시용 이름 (D7: transformers 직접 로드)
+    companion_llm_subdir: str = os.getenv("COMPANION_LLM_SUBDIR", "companion/llm/exaone-3.5-2.4b")  # MODEL_BASE_PATH 아래 폴더 (D19)
+    companion_llm_timeout_sec: int = _as_int("COMPANION_LLM_TIMEOUT_SEC", 30)  # 한 턴 90초 예산 안에 맞춘다 (tests/test_turn_budget.py)
+    companion_llm_dtype: str = os.getenv("COMPANION_LLM_DTYPE", "bfloat16")  # 메모리 절약 (가중치는 float32 저장)
+    companion_llm_num_predict: int = _as_int("COMPANION_LLM_NUM_PREDICT", 256)
+    companion_llm_temperature: float = _as_float("COMPANION_LLM_TEMPERATURE", 0.1)
+    companion_llm_retry: int = _as_int("COMPANION_LLM_RETRY", 0)  # D20 c: 1회 재시도 후 대체 문장
+    companion_pseudonym_salt: str = os.getenv("COMPANION_PSEUDONYM_SALT", "")  # 비면 개선 DB 적재 끔
+    companion_log_transcript: bool = _as_bool("COMPANION_LOG_TRANSCRIPT", False)  # D10
+    companion_log_database_url: str = os.getenv("COMPANION_LOG_DATABASE_URL", "")  # D11 결정(2026-11-02): 턴 기록은 백엔드 DB. 이 값은 비워 둔다
+    # 검수 목록 전용 (명세 9-1 5·6번). AI가 만든 문장과 질문만 담고 대답 원문은 담지 않는다
+    companion_review_database_url: str = os.getenv("COMPANION_REVIEW_DATABASE_URL", "sqlite:///./data/companion_review.db")
+    companion_log_retention_days: int = _as_int("COMPANION_LOG_RETENTION_DAYS", 30)  # D18 (사용자 결정 30일)
+    companion_no_response_limit: int = _as_int("COMPANION_NO_RESPONSE_LIMIT", 3)  # D15 (사용자 결정 2026-11-02: 3번 연속이면 종료)
+    # D16 (사용자 결정 2026-11-02): 중간에 그만두면 그때까지의 턴을 그대로 기록한다. 최소 턴 기준 없음.
+    companion_stt_timeout_sec: float = _as_float("COMPANION_STT_TIMEOUT_SEC", 40.0)  # S9-1
+    companion_face_timeout_sec: float = _as_float("COMPANION_FACE_TIMEOUT_SEC", 10.0)  # S9-1
+    companion_text_timeout_sec: float = _as_float("COMPANION_TEXT_TIMEOUT_SEC", 5.0)  # S9-1
+    companion_record_timeout_sec: float = _as_float("COMPANION_RECORD_TIMEOUT_SEC", 5.0)  # S8-5 턴 기록 전송
+    companion_baseline_ratio: float = _as_float("COMPANION_BASELINE_RATIO", 2.0)  # D22
+    companion_baseline_window_days: int = _as_int("COMPANION_BASELINE_WINDOW_DAYS", 30)  # D22 (사용자 결정 2026-11-02: 최근 30일)
+    companion_baseline_min_days: int = _as_int("COMPANION_BASELINE_MIN_DAYS", 20)  # D22 (사용자 결정 2026-11-02: 30일 중 20일 이상)
+    companion_backend_base_url: str = os.getenv("COMPANION_BACKEND_BASE_URL", "")  # 질문 조회 (GET /companion/question)
+    companion_backend_api_key: str = os.getenv("COMPANION_BACKEND_API_KEY", "")  # 백엔드 호출용 키
+    companion_backend_timeout_sec: int = _as_int("COMPANION_BACKEND_TIMEOUT_SEC", 5)
+
 
 @lru_cache
 def get_settings() -> Settings:
