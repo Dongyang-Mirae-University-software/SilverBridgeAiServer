@@ -354,6 +354,28 @@ class ReservationApiClient:
         _LOG.info("[예약검색결과] region=%s department=%s rows=%s", log_len(reg), dept or "(empty)", len(rows))
         return {"success": True, "rows": rows}
 
+    def list_regions(self, department: str = "", *, api_key_override: str | None = None) -> list[str] | None:
+        """병원이 있는 지역("서울 강남구" 형태) - 챗봇 지역 선택지용(2026-11-04, 키보드 없이 고르기).
+        진료과를 주면 그 과가 있는 병원의 지역만 센다. 병원 수가 많은 순(같으면 이름순). 조회 실패면 None."""
+        auth_mode = "api_key" if self._resolve_api_key(api_key_override) else "none"
+        st, raw = self._request("GET", "/hospitals", auth=auth_mode, token_override=api_key_override)
+        if st != 200 or not isinstance(raw, list):
+            _LOG.warning("[예약지역실패] http_status=%s raw_type=%s", st, type(raw).__name__)
+            return None
+        dept = (department or "").strip()
+        counts: dict[str, int] = {}
+        for h in raw:
+            if not isinstance(h, dict):
+                continue
+            region = re.sub(r"\s+", " ", str(h.get("region") or "").strip())
+            if not region:
+                continue
+            depts = h.get("departments") or []
+            if dept and not _department_matches(dept, depts if isinstance(depts, list) else [], str(h.get("name") or "")):
+                continue
+            counts[region] = counts.get(region, 0) + 1
+        return sorted(counts, key=lambda r: (-counts[r], r))
+
     def resolve_hospital_id(self, name_query: str, *, api_key_override: str | None = None) -> int | None:
         return self.resolve_hospital(name_query, api_key_override=api_key_override)[0]
 

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from app.models.chat_log import ChatLog
 from app.core.config import get_settings
-from app.schemas.chat_schema import ChatHistoryItem, ChatRequest
+from app.schemas.chat_schema import ChatHistoryItem, ChatRequest, UiOption, UiPayload
 from app.services.reservation_api_client import get_reservation_api_client
 from app.services.reservation_credential_service import (
     get_reservation_credential_service, recently_proxy_purged, recently_purged)
@@ -219,6 +219,7 @@ class ChatService:
                 "phone",
                 "location",
                 "location_confirm",
+                "location_sido",
                 "reservation_followup",
                 "reservation_id",
             } | CONFIRM_FIELDS
@@ -988,7 +989,15 @@ class ChatService:
         if not department:
             return None
         return {
-            "reply": f"{department}로 가시면 돼요. 가까운 {department}를 찾아드릴까요? \"병원 찾아줘\"라고 말씀해 주세요.",
+            # 글로 "병원 찾아줘"를 치게 하지 않고 버튼으로 바로 예약 흐름에 들어가게 한다(2026-11-04, 키보드 없이 고르기).
+            # 버튼은 department 선택이라 예약 흐름이 프로필 지역으로 병원을 찾는다(지역이 없으면 지역 선택지).
+            "reply": f"{department}로 가시면 돼요. 가까운 {department}를 찾아드릴까요?",
+            "ui": UiPayload(
+                kind="select",
+                field="department",
+                label="아래 버튼을 눌러 주세요",
+                options=[UiOption(value=department, label=f"가까운 {department} 찾기")],
+            ),
             "riskLevel": "medium",
             "recommendedAction": "guardian_contact",
             "reservationRequired": False,
