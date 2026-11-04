@@ -121,6 +121,7 @@ def arrest_conscious(text: str) -> bool:
 # 오늘 진료가 필요한 경계 질환(라우터 urgent_condition 칸의 허용 값, 2026-11-04 사용자 승인 - 고정 문장 예외).
 # 라우터는 이 중 하나 또는 ""만 낼 수 있다(스키마 enum). 문장은 medical_llm_service._URGENT_CONDITIONS 에 있다.
 # 값을 더하면 라우터 지시문(chat_router_service)·고정 문장 표·테스트를 함께 바꾼다.
+# 갑자기 생긴 혼란(섬망)은 넣지 않는다 - NHS 가 바로 999 로 분류하고, 넣었더니 라우터가 응급 대신 이 칸을 골랐다(2026-11-04 v3 판정).
 URGENT_CONDITIONS: dict[str, str] = {
     "dvt": "한쪽 다리(주로 종아리)만 붓고 아프거나 색이 변함 - 다리 혈전",
     "cellulitis": "피부 한 곳이 붉게 붓고 뜨겁고 아프며 퍼짐 - 봉와직염",
@@ -130,7 +131,6 @@ URGENT_CONDITIONS: dict[str, str] = {
     "head_injury_anticoagulant": "피를 묽게 하는 약(와파린 등)을 먹는 중 머리를 부딪힘",
     "acute_glaucoma": "갑자기 한쪽 눈이 아프고 충혈·흐려짐, 불빛 주위 무지개 - 급성 녹내장",
     "urinary_retention": "소변이 마려운데 전혀 나오지 않음 - 급성 요폐",
-    "delirium": "어르신이 갑자기(몇 시간~며칠 사이) 헷갈려하거나 엉뚱한 말·행동 - 섬망",
 }
 
 # 라우터 실패 때 키워드 분류가 약 질문을 상담으로 보게 하는 약 제형 낱말(2026-11-03 점검 L-1). 판정 낱말 목록(MEDICAL_KEYWORDS)은

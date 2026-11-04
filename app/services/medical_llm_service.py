@@ -390,7 +390,6 @@ _URGENT_CONDITIONS = (
     _UrgentCondition("head_injury_anticoagulant", "피를 묽게 하는 약을 드시는 중에 머리를 부딪혔다면 겉으로 괜찮아도 머릿속 출혈이 있을 수 있어 오늘 응급실에서 진료를 받아 보세요. 토하거나 자꾸 졸리거나 머리가 심하게 아프면 바로 119에 연락하세요."),
     _UrgentCondition("acute_glaucoma", "갑자기 한쪽 눈이 아프고 충혈되며 흐려 보이면 급성 녹내장일 수 있어 바로 응급실이나 안과에서 진료를 받아 보세요. 두통이나 구토가 함께 있어도 미루지 마세요."),
     _UrgentCondition("urinary_retention", "소변이 마려운데 전혀 나오지 않으면 소변길이 막힌 것(급성 요폐)일 수 있어 오늘 응급실에서 진료를 받아 보세요. 아랫배가 심하게 아프면 미루지 마세요."),
-    _UrgentCondition("delirium", "갑자기 헷갈려하거나 엉뚱한 말을 하시면 감염 같은 원인으로 생기는 섬망일 수 있어 오늘 안에 진료를 받아 보세요. 깨우기 어렵거나 숨이 가빠지면 바로 119에 연락하세요."),
 )
 # 2026-10-30 J-3: 응급 답의 설명 한 줄(판정자 6명 공통 지적 - B2 운전 금지·C5 출혈 신호·F3 심근경색 가능성).
 _BREATHING_NO_DRIVE = "직접 운전해서 병원에 가지 마세요."
@@ -529,7 +528,7 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_SYMPTOM_RULES.orthostatic_dizziness": ("self", "누웠다 일어나실 때는 천천히 일어나시게 하고, 물을 충분히 드시게 해 주세요."),
     "_SYMPTOM_RULES.sudden_vision_loss": ("neutral", None),
     "_SYMPTOM_RULES.numbness_stroke_sign": ("neutral", None),
-    "_EMERGENCY_ACTIONS.cardiac_arrest": ("neutral", None),
+    "_EMERGENCY_ACTIONS.cardiac_arrest": ("neutral", None),  # 쓰러진 사람은 글을 쓸 수 없다 - 늘 곁에 있는 사람에게 하는 말
     "_URGENT_CONDITIONS.dvt": ("neutral", None),
     "_URGENT_CONDITIONS.cellulitis": ("neutral", None),
     "_URGENT_CONDITIONS.kidney_infection": ("neutral", None),
@@ -538,7 +537,6 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_URGENT_CONDITIONS.head_injury_anticoagulant": ("neutral", None),
     "_URGENT_CONDITIONS.acute_glaucoma": ("neutral", None),
     "_URGENT_CONDITIONS.urinary_retention": ("neutral", None),
-    "_URGENT_CONDITIONS.delirium": ("neutral", None),  # 쓰러진 사람은 글을 쓸 수 없다 - 늘 곁에 있는 사람에게 하는 말
     "_EMERGENCY_ACTIONS.chest_stroke": ("self", "직접 운전해서 모시고 가지 마시고, 혼자 움직이시게 두지 마세요."),
     "_EMERGENCY_ACTIONS.seizure": ("self", "억지로 붙잡거나 입에 물건을 넣지 마세요."),
     "_EMERGENCY_ACTIONS.breathing": ("self", "편하게 앉은 자세로 숨을 쉬게 하고, 꽉 끼는 옷은 풀어 주세요."),
