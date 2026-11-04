@@ -59,7 +59,7 @@
 
 ## 표정 프레임 규칙
 
-- 한 턴에 최대 5장, 장당 2MB 이하 (JPEG·PNG).
+- 한 턴에 최대 5장, 장당 2MB 이하. JPEG·PNG만 받는다 (파일 머리로 판별, 아니면 422 FRAME_FORMAT_UNSUPPORTED).
 - 얼굴이 없거나 모델을 못 쓰면 `face.usable=false`이고, 대화는 계속된다.
 - 영상은 저장하지 않는다 (명세 Q13).
 
@@ -75,6 +75,7 @@
 | 413 | AUDIO_TOO_LARGE | 음성이 너무 큼 |
 | 413 | FRAMES_TOO_MANY | 프레임이 5장을 넘음 |
 | 413 | FRAME_TOO_LARGE | 프레임 한 장이 2MB를 넘음 |
+| 422 | FRAME_FORMAT_UNSUPPORTED | 얼굴 사진이 JPEG·PNG가 아님 (파일 머리로 판별, 확장자는 보지 않음) |
 | 422 | SLOT_INVALID | 시각 값이 5개 중 하나가 아님 |
 | 422 | ANSWER_EMPTY | 글 대답이 비어 있음 |
 | 422 | AUDIO_MISSING | 음성 파일이 없음 |
