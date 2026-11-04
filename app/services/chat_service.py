@@ -974,6 +974,17 @@ class ChatService:
         if route_info and route_info.get("route") == "reservation" and ReservationOrchestrator._is_new_request(message):
             # 새 요청은 라우터 규격화 문장(이전 병원·시간이 딸려옴) 대신 원문을 넘긴다. 다음 턴의 상태 기억도 원문 기준.
             route_info = {**route_info, "normalized_message": message}
+        # 생활 관리·집 안전 질문(낙상 예방·운동량 등)을 라우터가 general 로 보내면 상담으로 올린다(2026-11-04 v1 L05 4회 중 2회 general -
+        # 한두 문장 답만 나갔다). 응급·자해 판정 칸은 건드리지 않는다.
+        if (
+            route_info
+            and route_info.get("route") == "general"
+            and not route_info.get("emergency")
+            and not route_info.get("self_harm")
+            and chat_keywords.is_health_lifestyle_question(message)
+        ):
+            route_info = {**route_info, "route": "symptom", "symptom_summary": route_info.get("symptom_summary") or message,
+                          "reason": "health-lifestyle-override"}
         return route_info
 
     @staticmethod

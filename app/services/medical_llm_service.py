@@ -995,6 +995,7 @@ class MedicalLlmService:
         if (
             chat_keywords.has_medical_word(text) or chat_keywords.has_symptom_word(text) or chat_keywords.has_red_flag(text)
             or any(word in chat_keywords.compact(text) for word in chat_keywords.MEDICATION_FORM_WORDS)
+            or chat_keywords.is_health_lifestyle_question(text)  # 생활 관리·집 안전 질문(2026-11-04 v1 L02·L03·L06)
         ):
             return "medical_advice"
         return "general_chat"
