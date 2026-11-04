@@ -13,6 +13,7 @@ from app.services import chat_keywords
 from app.core.reservation_prompts import EXTRACTION_SCHEMA, SYSTEM_PROMPT, build_user_prompt
 from app.schemas.chat_schema import ChatRequest, UiOption, UiPayload
 from app.services.claude_structured_client import ClaudeStructuredClient, failure_cause
+from app.services.chat_deadline import ChatDeadlineExceeded
 from app.services.reservation_api_client import ReservationApiClient
 from app.services.reservation_common import _date_label, _digits, _phone_last4, _trace, with_demo_notice
 from app.services.reservation_confirm_flow import (
@@ -478,6 +479,8 @@ class ReservationOrchestrator(ReservationFlowMixin):
         """병원이 있는 지역 목록(진료과가 있으면 그 과 기준). 조회 실패·빈 목록이면 [] - 부르는 쪽이 글 입력으로 묻는다."""
         try:
             regions = self._reservation.list_regions(department or "", api_key_override=api_key)
+        except ChatDeadlineExceeded:
+            raise  # 챗 마감은 다른 예약 호출과 같은 폴백으로(2026-11-04 점검 L-3)
         except Exception as exc:  # noqa: BLE001 - 선택지는 보조 수단이라 실패해도 글 입력으로 계속한다
             _trace(meta, "region_options_failed", error=type(exc).__name__)
             return []
@@ -513,6 +516,13 @@ class ReservationOrchestrator(ReservationFlowMixin):
             if department
             else "어느 지역에서 병원을 찾을까요?"
         )
+        # 시·도를 고른 뒤·다른 지역을 고르러 온 길에는 첫 질문을 되풀이하지 않는다(2026-11-04 점검 L-2).
+        if sido:
+            reply = f"{sido}에서 어느 지역으로 찾을까요?"
+        elif sido_list:
+            reply = "어느 시·도에서 찾을까요?"
+        elif exclude is not None:
+            reply = "다른 지역 어디에서 찾을까요?"
         text_ui = UiPayload(kind="text", field="location", label="지역을 입력해 주세요", placeholder="예: 서울 강남구")
         if typed:
             return self._ui_reply(meta, "찾으실 지역을 입력해 주세요.", text_ui)
@@ -1031,6 +1041,14 @@ class ReservationOrchestrator(ReservationFlowMixin):
                 if dept_in_message:
                     draft.department = dept_in_message
                 _trace(meta, "new_request_reset", hospital=draft.hospital_name, time=draft.reservation_time, date=draft.reservation_date, department=draft.department)
+            elif ui_field == "department":
+                # 저장 초안 없이 들어온 진료과 버튼(진료과 답 [가까운 ○○ 찾기] 등)은 새 요청이다 - 이력에서 다시 뽑은
+                # 지난 예약의 병원·날짜·시간을 버리고 고른 진료과로 병원부터 찾는다(2026-11-04 점검 M-1).
+                draft.hospital_name = None
+                draft.hospital_id = None
+                draft.reservation_date = None
+                draft.reservation_time = None
+                _trace(meta, "new_request_reset", hospital=None, time=None, date=None, department=draft.department)
 
         if not in_flow:
             # 저장 초안 없이 다시 만든 초안: 이 상담에서 버튼으로 입력했던 환자 이름·전화로 빈 칸만 채운다(2026-10-29 점검 L-2).

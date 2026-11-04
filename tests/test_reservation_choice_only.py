@@ -252,3 +252,67 @@ def test_client_list_regions_counts_department_hospitals(monkeypatch) -> None:
     assert client.list_regions("신경과") == ["경기 성남시", "서울 서초구"]  # 같은 수면 이름순
     monkeypatch.setattr(client, "_request", lambda *a, **k: (500, None), raising=False)
     assert client.list_regions("내과") is None
+
+
+# ---- 2026-11-04 기능 점검 반영 (M-1 · L-1 · L-2 · L-3) ------------------------------------------
+
+
+def test_department_button_without_stored_draft_drops_old_hospital_and_time() -> None:
+    """M-1: 저장 초안 없이 누른 진료과 버튼은 새 요청이다 - 같은 세션 이력의 지난 예약 병원·시간을 되살리지 않고 병원부터 찾는다."""
+    hist = [
+        {"role": "user", "content": "강남메디내과 내과 예약해줘"},
+        {"role": "assistant", "content": "예약 시간을 선택해 주세요."},
+        {"role": "user", "content": "14:00"},
+        {"role": "assistant", "content": "알겠습니다. 예약은 그대로 둘게요."},
+        {"role": "user", "content": "무슨 과로 가야 해?"},
+        {"role": "assistant", "content": "정형외과로 가시면 돼요. 가까운 정형외과를 찾아드릴까요?"},
+    ]
+    fake = _fake()
+    out = make_orchestrator(fake, {}).handle(
+        make_request("병원 예약: / 정형외과", ui=("department", "정형외과"), history=hist, context={**SELF_NO_ADDRESS, "location": "서울 강남구"}),
+        {"storedFlow": {}, "rawMessage": ""},
+    )
+    assert out is not None and out["tool"] == "search_hospital"  # 옛 병원으로 바로 날짜를 묻지 않는다
+    draft = out["meta"]["flowState"]["draft"]
+    assert draft["department"] == "정형외과" and draft.get("reservation_time") is None and draft.get("hospital_name") is None
+
+
+def test_navigation_button_values_stay_out_of_server_history() -> None:
+    """L-1: 화면 이동 버튼 값은 다음 턴 라우터·예약 추출(Claude) 이력에 사용자 말로 들어가지 않는다. 고른 지역은 들어간다."""
+    from app.services.chat_service import ChatService
+
+    for field, value in (
+        ("time", RETRY_SLOTS_OPTION), ("location", TYPE_LOCATION_OPTION), ("location", MORE_SIDO_OPTION),
+        ("location_confirm", OTHER_DEPARTMENT_OPTION), ("location_confirm", OTHER_REGION_OPTION), ("time", CHANGE_DATE_OPTION),
+    ):
+        assert ChatService._history_user_text(f"[선택] {field}: {value}") is None, (field, value)
+    assert ChatService._history_user_text("[선택] location: 서울 서초구") == "서울 서초구"
+
+
+def test_follow_up_region_questions_do_not_repeat_first_question() -> None:
+    """L-2: 시·도를 고른 뒤·다른 시·도·다른 지역 단계는 첫 질문("○○과로 가시면 돼요…")을 되풀이하지 않는다."""
+    fake = _fake()
+    s = _Session(fake, SELF_NO_ADDRESS)
+    first = s.say("신경과 예약해줘")
+    assert first["reply"].startswith("신경과로 가시면 돼요.")
+    assert s.pick("location_sido", "서울")["reply"] == "서울에서 어느 지역으로 찾을까요?"
+    assert s.pick("location", MORE_SIDO_OPTION)["reply"] == "어느 시·도에서 찾을까요?"
+    s.pick("location_sido", "서울")
+    s.pick("location", "서울 서초구")
+    assert s.pick("location_confirm", OTHER_REGION_OPTION)["reply"] == "다른 지역 어디에서 찾을까요?"
+
+
+def test_region_lookup_lets_chat_deadline_through() -> None:
+    """L-3: 지역 조회 중 챗 마감은 삼키지 않는다 - 다른 예약 호출처럼 chat_service 의 마감 폴백으로 간다."""
+    import pytest
+
+    from app.services.chat_deadline import ChatDeadlineExceeded
+
+    fake = _fake()
+
+    def deadline(*_a, **_k):
+        raise ChatDeadlineExceeded("reservation_api")
+
+    fake.list_regions = deadline  # type: ignore[method-assign]
+    with pytest.raises(ChatDeadlineExceeded):
+        make_orchestrator(fake, {}).handle(make_request("신경과 예약해줘", context=SELF_NO_ADDRESS), {"rawMessage": "신경과 예약해줘"})
