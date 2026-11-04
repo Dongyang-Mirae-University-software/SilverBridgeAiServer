@@ -193,6 +193,8 @@ class ChatService:
 
         session_id = (payload.sessionId or "").strip() or f"chat-{uuid4().hex[:12]}"
         user_context = self._build_user_context(payload)
+        # 피보호자 본인 상담이면 답을 짧게(2026-11-04). role 은 BE 가 서버 값으로 넣는다 - 보호자(대리 상담 포함)·없음은 그대로.
+        ward_reader = self._is_ward_reader(user_context)
         ward_id = (payload.context.wardId or "").strip() if payload.context and payload.context.wardId else ""
         # 대리 상담 판정에 쓸 문장 - 되묻기에 답한 턴은 "앞 질문 / 이번 답"으로 바꾼다(2026-11-01 점검 M-1).
         proxy_text = message
@@ -448,6 +450,8 @@ class ChatService:
                         intent=llm_intent,
                         processed_symptom=processed_symptom,
                         proxy=self._is_proxy(payload, proxy_text),
+                        # WARD 일 때만 넘긴다 - 보호자·role 없음 호출은 이전과 글자 그대로(인자 모양도 같다).
+                        **({"concise": True} if ward_reader else {}),
                     )
                     timing["llmMs"] = _elapsed_ms(llm_started)
                 except Exception as exc:
@@ -501,7 +505,8 @@ class ChatService:
                 self_harm_text=bool(message) and bool(MedicalLlmService.self_harm_signals(message)),
             )
         # 답 모양(2026-11-01 가독성): 모든 판정·고정 문장·이어서 물어볼 질문이 끝난 뒤 모양만 바꾼다(문장 뜻·판정 값 그대로).
-        chat_layout.apply(result, DRUG_ALCOHOL_SENTENCES)
+        # 피보호자 본인(WARD)이면 같은 자리에서 모델 문장만 줄인다 - 119·109·고정 문장·과 안내 핵심 줄·되묻기는 그대로.
+        chat_layout.apply(result, DRUG_ALCOHOL_SENTENCES, concise=ward_reader)
         post_started = time.perf_counter()
         if route_info:
             result.setdefault("meta", {})
@@ -865,6 +870,11 @@ class ChatService:
         if gender in _MEDGEMMA_GENDERS:
             ctx["gender"] = gender
         return ctx
+
+    @staticmethod
+    def _is_ward_reader(user_context: dict[str, object]) -> bool:
+        """피보호자 본인이 읽는 상담인가(context.role == WARD). 보호자 대리 상담은 role=GUARDIAN 이라 해당 없다."""
+        return str(user_context.get("role") or "").strip().upper() == "WARD"
 
     @staticmethod
     def _build_user_context(payload: ChatRequest) -> dict[str, object]:
