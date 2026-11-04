@@ -11,6 +11,8 @@ from app.utils.conversation import remove_personal_info
 
 # 시간 선택지에 붙는 "다른 날짜 선택" 버튼 값
 CHANGE_DATE_OPTION = "__change_date__"
+# 빈 시간 조회가 실패했을 때 같은 날짜로 다시 불러오는 시간 버튼 값(2026-11-04).
+RETRY_SLOTS_OPTION = "__retry__"
 _SEOUL_TZ = ZoneInfo("Asia/Seoul")
 
 _PHONE_RE = re.compile(r"(?<!\d)(01\d[-\s]?\d{3,4}[-\s]?\d{4})(?!\d)")
@@ -55,6 +57,9 @@ class ReservationDraft:
         """시간 버튼 값 적용. 값은 "HH:mm" 또는 자동으로 넘긴 날짜를 담은 "YYYY-MM-DD HH:mm"이고, 날짜 변경 버튼이면 날짜·시간을 비운다."""
         if value == CHANGE_DATE_OPTION:
             self.reservation_date = None
+            self.reservation_time = None
+            return
+        if value == RETRY_SLOTS_OPTION:
             self.reservation_time = None
             return
         parts = value.split()

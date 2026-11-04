@@ -142,10 +142,11 @@ def test_profile_region_search_offers_other_region_button() -> None:
     assert asked["ui"].field == "location" and "지역" in asked["reply"]
 
 
-def test_region_the_user_typed_does_not_get_other_region_button() -> None:
+def test_region_the_user_typed_also_gets_other_region_button() -> None:
+    """2026-11-04: 사용자가 말한(또는 버튼으로 고른) 지역의 결과에도 [다른 지역으로 찾기]를 붙인다 - 글을 치지 않고 넘어갈 길."""
     orch = make_orchestrator(FakeReservation(), {"department": "내과", "location": "서울 송파구"})
     out = orch.handle(make_request("송파구 내과 예약해줘"), {})
-    assert out["tool"] == "search_hospital" and out["ui"] is None
+    assert out["tool"] == "search_hospital" and out["ui"].field == "location_confirm"
 
 
 # ---- R-3 취소 ---------------------------------------------------------------------

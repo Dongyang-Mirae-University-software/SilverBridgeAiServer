@@ -424,16 +424,16 @@ def test_strip_keeps_line_breaks_after_line_end_emoji() -> None:
 
 
 def test_quoted_hospital_word_does_not_become_headline() -> None:
-    """M-2: "무슨 과로 가야 해?" 규칙 답 - 따옴표 안 "병원 찾아줘"가 핵심 줄로 올라가 진료과 안내보다 앞서지 않는다."""
+    """M-2: "무슨 과로 가야 해?" 규칙 답 - 진료과 안내가 첫 문장이다.
+    2026-11-04부터 따옴표 안내("병원 찾아줘"라고 말씀해 주세요) 대신 버튼(ui)을 붙여, ui 가 있는 답처럼 layout 없이 문장 그대로 나간다."""
     from app.services.chat_service import ChatService
 
     history = [{"role": "user", "content": "무릎이 아파요"}, {"role": "assistant", "content": "정형외과 진료를 권해드려요."}]
     raw = ChatService._department_question_reply("무슨 과로 가야 해?", history)
     assert raw is not None
     out = _apply(raw)
-    assert out["layout"]["headline"] is None
-    assert _new_sentences(out["reply"]) == _sentences(raw["reply"])  # 문장 순서 그대로
-    assert "정형외과" in _new_sentences(out["reply"])[0]
+    assert out["layout"] is None and out["reply"] == raw["reply"]
+    assert out["reply"].startswith("정형외과로 가시면 돼요.") and '"' not in out["reply"]
 
 
 def test_quoted_word_still_counts_outside_quotes() -> None:

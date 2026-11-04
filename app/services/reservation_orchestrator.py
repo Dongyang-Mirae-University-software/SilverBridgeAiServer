@@ -24,6 +24,7 @@ from app.services.reservation_confirm_flow import (
 )
 from app.services.reservation_intake import (
     CHANGE_DATE_OPTION,
+    RETRY_SLOTS_OPTION,
     ReservationDraft,
     _find_date,
     _find_department,
@@ -84,6 +85,49 @@ def coarse_region(text: str) -> str | None:
 
 
 _symptom_department = chat_keywords.symptom_department
+
+# 지역 선택지(2026-11-04, 피보호자가 키보드 없이 고르기만 하도록).
+# 좌표·인접 구 자료가 없어 "같은 시·도"를 가까운 곳으로 본다. 선택지는 예약 서비스에 병원이 있는 지역에서만 뽑는다.
+MAX_REGION_OPTIONS = 6
+OTHER_REGION_OPTION = "__other__"  # 다른 지역으로 찾기(location_confirm)
+OTHER_DEPARTMENT_OPTION = "__department__"  # 다른 진료과 고르기(location_confirm, 검색 결과 0건)
+MORE_SIDO_OPTION = "__more_sido__"  # 다른 시·도 고르기(location)
+TYPE_LOCATION_OPTION = "__type__"  # 직접 입력(location·location_sido) - 선택지에 원하는 곳이 없을 때만
+_LOCATION_SPECIAL = {OTHER_REGION_OPTION, OTHER_DEPARTMENT_OPTION, MORE_SIDO_OPTION, TYPE_LOCATION_OPTION}
+_SIDO_LONG = {
+    "충청북도": "충북", "충청남도": "충남", "전라북도": "전북", "전라남도": "전남", "경상북도": "경북", "경상남도": "경남",
+    "경기도": "경기", "강원도": "강원",
+}
+
+
+def _sido_of(text: str | None) -> str | None:
+    """주소·지역의 첫 칸을 짧은 시·도 이름으로("서울특별시 강남구" -> "서울", "경기도 성남시" -> "경기"). 모르면 None."""
+    first = re.sub(r"\s+", " ", (text or "").strip()).split(" ")[0] if (text or "").strip() else ""
+    if not first:
+        return None
+    if first in _SIDO_SHORT:
+        return first
+    if first in _SIDO_LONG:
+        return _SIDO_LONG[first]
+    short = re.sub(r"(특별자치시|특별자치도|특별시|광역시)$", "", first)
+    return short if short in _SIDO_SHORT else None
+
+
+def _region_key(text: str | None) -> str | None:
+    """지역 비교용 값 - 시·도를 짧게 바꾼 시·군·구까지("서울특별시 강남구 테헤란로 1" -> "서울 강남구")."""
+    coarse = coarse_region(text or "")
+    sido = _sido_of(coarse)
+    if not coarse or not sido:
+        return None
+    return " ".join([sido, *coarse.split(" ")[1:]])
+
+
+def _same_region(region: str, other: str | None) -> bool:
+    """병원 지역("경기 성남시")이 주소("경기도 성남시 분당구 …")와 같은 곳인가 - 짧은 쪽이 긴 쪽의 앞부분이면 같다."""
+    a, b = _region_key(region), _region_key(other)
+    if not a or not b:
+        return False
+    return a == b or b.startswith(a + " ") or a.startswith(b + " ")
 
 
 class _DepartmentNotOffered(Exception):
@@ -385,6 +429,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
             "phone",
             "location",
             "location_confirm",
+            "location_sido",
             "reservation_followup",
             "reservation_id",
         } or field in CONFIRM_FIELDS
@@ -416,33 +461,51 @@ class ReservationOrchestrator(ReservationFlowMixin):
             "decisionTrace": meta.get("decisionTrace") or [],
         }
 
-    def _other_region_ui(self, req: ChatRequest, searched_location: str | None) -> UiPayload | None:
-        """프로필 주소로 찾은 결과에만 "다른 지역으로 찾기"를 붙인다(사용자가 직접 말한 지역이면 이미 원하는 곳이다)."""
-        profile = {
-            re.sub(r"\s+", " ", str(value).strip())
-            for value in (req.context.location if req.context else None, req.context.address if req.context else None)
-            if value and str(value).strip()
-        }
-        _, loc = self._conversation_context(req)
-        hint = self._normalize_location_hint(loc)
-        profile |= {v for v in (hint,) if v}
+    def _other_region_ui(self, req: ChatRequest, searched_location: str | None) -> UiPayload | None:  # noqa: ARG002 - req 는 예전 판단(프로필 지역인가)용, 호출부 그대로
+        """병원 목록에 "다른 지역으로 찾기"를 붙인다. 2026-11-04부터는 지역을 어떻게 정했든 항상 붙인다 -
+        버튼으로 고른 지역에서 마음에 드는 병원이 없을 때 글을 치지 않고 다른 지역으로 넘어갈 길이 있어야 한다
+        (예전에는 프로필 주소로 찾은 결과에만 붙였다, 2026-10-29 L-2·L-3)."""
         if not searched_location:
-            return None
-        searched = re.sub(r"\s+", " ", searched_location.strip())
-        # 추출이 지역을 시·구로 줄여 돌려줘도 프로필 지역과 같은 곳으로 본다(2026-10-29 점검 L-3).
-        # 다만 시·구보다 자세한 지역(동 등)은 사용자가 직접 말한 것이라 버튼을 붙이지 않는다(2026-10-29 재점검 L-2).
-        coarse_profile = {coarse_region(v) for v in profile} - {None}
-        is_profile_coarse = coarse_region(searched) == searched and searched in coarse_profile
-        if searched not in profile and not is_profile_coarse:
             return None
         return UiPayload(
             kind="select",
             field="location_confirm",
             label="다른 지역에서 찾으시려면 눌러 주세요",
-            options=[UiOption(value="__other__", label="다른 지역으로 찾기")],
+            options=[UiOption(value=OTHER_REGION_OPTION, label="다른 지역으로 찾기")],
         )
 
-    def _ask_location(self, meta: dict[str, Any], department: str | None = None) -> dict[str, Any]:
+    def _regions(self, department: str | None, api_key: str | None, meta: dict[str, Any]) -> list[str]:
+        """병원이 있는 지역 목록(진료과가 있으면 그 과 기준). 조회 실패·빈 목록이면 [] - 부르는 쪽이 글 입력으로 묻는다."""
+        try:
+            regions = self._reservation.list_regions(department or "", api_key_override=api_key)
+        except Exception as exc:  # noqa: BLE001 - 선택지는 보조 수단이라 실패해도 글 입력으로 계속한다
+            _trace(meta, "region_options_failed", error=type(exc).__name__)
+            return []
+        return [r for r in regions or [] if isinstance(r, str) and r.strip()]
+
+    @staticmethod
+    def _profile_address(req: ChatRequest | None) -> str | None:
+        if not req or not req.context:
+            return None
+        value = str(req.context.location or req.context.address or "").strip()
+        return value or None
+
+    def _ask_location(
+        self,
+        meta: dict[str, Any],
+        department: str | None = None,
+        *,
+        req: ChatRequest | None = None,
+        api_key: str | None = None,
+        exclude: str | None = None,
+        sido: str | None = None,
+        sido_list: bool = False,
+        typed: bool = False,
+    ) -> dict[str, Any]:
+        """지역을 묻는다(2026-11-04: 글 입력 대신 선택지).
+        - 프로필 주소(또는 고른 시·도)가 있으면 같은 시·도에서 그 진료과 병원이 있는 지역 최대 6개 + [다른 시·도] + [직접 입력]
+        - 시·도를 모르면(또는 [다른 시·도]) 시·도 선택지(location_sido) + [직접 입력]
+        - [직접 입력]을 눌렀거나 병원 목록 조회가 실패하면 예전처럼 글 입력."""
         _trace(meta, "reservation_gap", missing="location")
         # "병원 어디로 가야 돼요?"에는 먼저 어느 과인지 답하고, 가까운 곳을 찾으려 지역을 묻는다(예약 양식처럼 보이지 않게).
         reply = (
@@ -450,11 +513,34 @@ class ReservationOrchestrator(ReservationFlowMixin):
             if department
             else "어느 지역에서 병원을 찾을까요?"
         )
-        return self._ui_reply(
-            meta,
-            reply,
-            UiPayload(kind="text", field="location", label="지역을 입력해 주세요", placeholder="예: 서울 강남구"),
-        )
+        text_ui = UiPayload(kind="text", field="location", label="지역을 입력해 주세요", placeholder="예: 서울 강남구")
+        if typed:
+            return self._ui_reply(meta, "찾으실 지역을 입력해 주세요.", text_ui)
+        regions = self._regions(department, api_key, meta)
+        if not regions:
+            return self._ui_reply(meta, reply, text_ui)
+        type_option = UiOption(value=TYPE_LOCATION_OPTION, label="직접 입력")
+        profile = self._profile_address(req)
+        base_sido = None if sido_list else (sido or _sido_of(profile))
+        if base_sido:
+            in_sido = [r for r in regions if _sido_of(r) == base_sido and not _same_region(r, exclude)]
+            # 프로필 주소의 시·군·구를 맨 앞에(다른 지역을 고르러 온 길이면 위에서 이미 빠졌다).
+            in_sido.sort(key=lambda r: 0 if _same_region(r, profile) else 1)
+            if in_sido:
+                _trace(meta, "region_options", sido=base_sido, count=min(len(in_sido), MAX_REGION_OPTIONS))
+                options = [UiOption(value=r, label=r) for r in in_sido[:MAX_REGION_OPTIONS]]
+                options += [UiOption(value=MORE_SIDO_OPTION, label="다른 시·도"), type_option]
+                return self._ui_reply(meta, reply, UiPayload(kind="select", field="location", label="지역을 선택해 주세요", options=options))
+        sidos: list[str] = []
+        for r in regions:  # 병원 많은 지역 순서 그대로 - 병원이 많은 시·도가 앞에 온다
+            s_ = _sido_of(r)
+            if s_ and s_ not in sidos:
+                sidos.append(s_)
+        if not sidos:
+            return self._ui_reply(meta, reply, text_ui)
+        _trace(meta, "region_options", sido=None, count=len(sidos))
+        options = [UiOption(value=s_, label=s_) for s_ in sidos] + [type_option]
+        return self._ui_reply(meta, reply, UiPayload(kind="select", field="location_sido", label="시·도를 선택해 주세요", options=options))
 
     @staticmethod
     def _location_candidates(req: ChatRequest, draft_location: str | None) -> list[str]:
@@ -636,8 +722,8 @@ class ReservationOrchestrator(ReservationFlowMixin):
         parts = [part for part in (hospital, date, time, status) if part]
         return " · ".join(parts) if parts else "예약 항목"
 
-    def _apply_ui_selection(self, draft: ReservationDraft, field: str, value: str) -> bool:
-        """선택값을 초안에 반영한다. 지역을 다시 물어야 하면(__other__) True."""
+    def _apply_ui_selection(self, draft: ReservationDraft, field: str, value: str) -> dict[str, Any] | None:
+        """선택값을 초안에 반영한다. 지역을 다시 물어야 하면 _ask_location 에 넘길 인자(dict), 아니면 None."""
         if field in {"hospital", "hospital_confirm"}:
             draft.hospital_name = value or draft.hospital_name
         elif field == "department":
@@ -651,12 +737,32 @@ class ReservationOrchestrator(ReservationFlowMixin):
         elif field == "phone":
             draft.phone = value or draft.phone
         elif field == "location":
+            if value == MORE_SIDO_OPTION:
+                return {"sido_list": True}
+            if value == TYPE_LOCATION_OPTION:
+                return {"typed": True}
+            if value in _LOCATION_SPECIAL:
+                return {}
             draft.location = value or draft.location
+            # 지역을 새로 골랐으면 그 지역에서 다시 찾는다(이어 쓰는 초안에 옛 병원이 남아 있지 않게).
+            if value:
+                draft.hospital_name = None
+                draft.hospital_id = None
+        elif field == "location_sido":
+            if value == TYPE_LOCATION_OPTION or not value:
+                return {"typed": True}
+            return {"sido": value}
         elif field == "location_confirm":
-            if value == "__other__":
-                return True
+            if value == OTHER_REGION_OPTION:
+                return {"exclude": draft.location}
+            if value == OTHER_DEPARTMENT_OPTION:
+                # 검색 결과 0건에서 [다른 진료과 고르기] - 진료과·병원을 비우면 _advance 가 진료과 선택지를 다시 낸다.
+                draft.department = None
+                draft.hospital_name = None
+                draft.hospital_id = None
+                return None
             draft.location = value or draft.location
-        return False
+        return None
 
     def handle(self, req: ChatRequest, meta: dict[str, Any]) -> dict[str, Any] | None:
         reservation_api_key = str(meta.get("reservationApiKey") or "").strip() or None
@@ -933,8 +1039,10 @@ class ReservationOrchestrator(ReservationFlowMixin):
             draft.patient_name = draft.patient_name or (str(contact.get("patient_name") or "").strip() or None)
             draft.phone = draft.phone or (str(contact.get("phone") or "").strip() or None)
         ward_id = self._ward_id(req)
-        if req.uiSelection and self._apply_ui_selection(draft, req.uiSelection.field, req.uiSelection.value.strip()):
-            return self._remember_flow(self._ask_location(meta, draft.department), meta, draft, replaces, ward_id)
+        ask = self._apply_ui_selection(draft, req.uiSelection.field, req.uiSelection.value.strip()) if req.uiSelection else None
+        if ask is not None:
+            asked = self._ask_location(meta, draft.department, req=req, api_key=reservation_api_key, **ask)
+            return self._remember_flow(asked, meta, draft, replaces, ward_id)
         if before is not None:
             _clear_stale_links(before, draft, meta)
 
@@ -989,7 +1097,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
                     ),
                 )
             if not draft.location:
-                return self._ask_location(meta, draft.department)
+                return self._ask_location(meta, draft.department, req=req, api_key=reservation_api_key)
             # 프로필 지역은 되묻지 않고 바로 쓴다(한 턴 절약). 어느 지역으로 찾았는지는 결과 문구에 적고,
             # 다른 지역을 원하면 사용자가 말한 지역이 현재 문장 우선 규칙으로 덮어쓴다.
 
@@ -1024,7 +1132,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
             if not unique_rows:
                 _trace(meta, "hospital_search_exhausted", tried_regions=tried_regions, department=draft.department)
                 return {
-                    "reply": "조건에 맞는 병원을 찾지 못했습니다. 지역이나 진료과를 조금 더 자세히 알려주세요.",
+                    "reply": "조건에 맞는 병원을 찾지 못했습니다. 다른 지역이나 다른 진료과로 찾아볼까요?",
                     "riskLevel": "medium",
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,
@@ -1032,7 +1140,16 @@ class ReservationOrchestrator(ReservationFlowMixin):
                     "engine": "claude",
                     "modelName": self._loader.state.model_name,
                     "type": "message",
-                    "ui": None,
+                    # 글을 치지 않고 다음으로 넘어갈 길(2026-11-04).
+                    "ui": UiPayload(
+                        kind="select",
+                        field="location_confirm",
+                        label="어떻게 찾아볼까요?",
+                        options=[
+                            UiOption(value=OTHER_REGION_OPTION, label="다른 지역으로 찾기"),
+                            UiOption(value=OTHER_DEPARTMENT_OPTION, label="다른 진료과 고르기"),
+                        ],
+                    ),
                     "tool": None,
                     "data": None,
                     "summary": None,
@@ -1175,6 +1292,21 @@ class ReservationOrchestrator(ReservationFlowMixin):
                     "meta": meta,
                     "decisionTrace": meta.get("decisionTrace") or [],
                 }
+            # 빈 시간 조회 자체가 실패 - 예전에는 선택지 없는 시간 칸으로 떨어져 막혔다. 다시 불러오기·다른 날짜를 준다(2026-11-04).
+            _trace(meta, "slot_lookup_unavailable", hospital_id=draft.hospital_id)
+            return self._ui_reply(
+                meta,
+                "예약 가능한 시간을 불러오지 못했어요. 다시 불러오거나 다른 날짜를 골라 주세요.",
+                UiPayload(
+                    kind="select",
+                    field="time",
+                    label="어떻게 할까요?",
+                    options=[
+                        UiOption(value=RETRY_SLOTS_OPTION, label="다시 불러오기"),
+                        UiOption(value=CHANGE_DATE_OPTION, label="다른 날짜 선택"),
+                    ],
+                ),
+            )
 
         gap = draft.required_gap()
         if gap:
