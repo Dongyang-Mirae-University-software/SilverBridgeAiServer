@@ -452,6 +452,7 @@ class ChatService:
                         proxy=self._is_proxy(payload, proxy_text),
                         # WARD 일 때만 넘긴다 - 보호자·role 없음 호출은 이전과 글자 그대로(인자 모양도 같다).
                         **({"concise": True} if ward_reader else {}),
+                        **self._router_hints(route_info),
                     )
                     timing["llmMs"] = _elapsed_ms(llm_started)
                 except Exception as exc:
@@ -515,6 +516,10 @@ class ChatService:
                 # 라우터가 자해로 봤는지(점검 L-1). 라우터를 거치지 않은 턴(키워드·규칙·UI)은 None - 모르는 값을 false로 채우지 않는다.
                 router_self_harm = route_info.get("self_harm")
                 result["meta"]["router"]["self_harm"] = router_self_harm if isinstance(router_self_harm, bool) else None
+                # 심정지·경계 질환 칸(2026-11-04) - 측정용 기록. 라우터를 거치지 않은 턴은 None.
+                router_arrest = route_info.get("cardiac_arrest")
+                result["meta"]["router"]["cardiac_arrest"] = router_arrest if isinstance(router_arrest, bool) else None
+                result["meta"]["router"]["urgent_condition"] = route_info.get("urgent_condition") or None
                 # 라우터 기억은 이 상담의 피보호자에게 묶는다 - 다른 피보호자 상담에서 앞 사람의 병원·날짜를 이어 쓰지 않게.
                 result["meta"]["router"]["wardId"] = ward_id
 
@@ -913,6 +918,18 @@ class ChatService:
         if payload.context.role:
             ctx["role"] = payload.context.role.strip()
         return ctx
+
+    @staticmethod
+    def _router_hints(route_info: dict) -> dict[str, Any]:
+        """라우터 칸(2026-11-04)을 생성 인자로 - 심정지 의심이면 가슴압박 줄, 경계 질환이면 그 병의 오늘 진료 문장.
+        값이 있을 때만 넘긴다(칸이 없는 옛 라우터·키워드 분류 턴은 지금과 같은 호출)."""
+        hints: dict[str, Any] = {}
+        if route_info.get("cardiac_arrest") is True:
+            hints["arrest_hint"] = True
+        urgent = route_info.get("urgent_condition")
+        if route_info.get("route") == "symptom" and isinstance(urgent, str) and urgent in chat_keywords.URGENT_CONDITIONS:
+            hints["urgent_condition"] = urgent
+        return hints
 
     @staticmethod
     def _force_emergency(route_info: dict, message: str) -> dict:

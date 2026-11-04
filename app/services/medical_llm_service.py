@@ -374,6 +374,23 @@ _EMERGENCY_ACTIONS = (
         "무리하게 일어나지 마시고 편한 자세로 누워 계세요.",
     ),
 )
+# 2026-11-04 오늘 진료가 필요한 경계 질환(라우터 urgent_condition 칸, 사용자 승인 고정 문장 예외). 일반 상담 답에만 붙인다.
+# 의심 병 이름 + 오늘 진료 + 그 병이 위험해지는 신호(119·응급실) 한 줄. 키는 chat_keywords.URGENT_CONDITIONS 와 같아야 한다.
+class _UrgentCondition(NamedTuple):
+    name: str
+    sentence: str
+
+
+_URGENT_CONDITIONS = (
+    _UrgentCondition("dvt", "한쪽 다리만 붓고 아픈 것은 다리 혈관이 막히는 혈전(심부정맥혈전증)일 수 있어 오늘 안에 진료를 받아 보세요. 숨이 차거나 가슴이 아프면 바로 119에 연락하세요."),
+    _UrgentCondition("cellulitis", "피부가 붉게 붓고 뜨겁게 퍼지면 피부 속 세균 감염(봉와직염)일 수 있어 오늘 안에 진료를 받아 보세요. 열이 나며 몸이 떨리거나 정신이 흐려지면 바로 119에 연락하세요."),
+    _UrgentCondition("kidney_infection", "열과 함께 옆구리나 허리 한쪽이 아프면 콩팥 감염(신우신염)일 수 있어 오늘 안에 진료를 받아 보세요. 정신이 흐려지거나 숨이 가빠지면 바로 119에 연락하세요."),
+    _UrgentCondition("shingles_eye", "눈 주변이나 이마 한쪽에 물집과 통증이 생기면 눈까지 번질 수 있는 대상포진일 수 있어 오늘 안에 진료를 받아 보세요. 눈이 아프거나 잘 안 보이면 바로 응급실로 가세요."),
+    _UrgentCondition("giant_cell_arteritis", "관자놀이 쪽 새 두통에 머리 피부나 씹을 때 턱이 아프면 혈관 염증(거대세포동맥염)일 수 있어 오늘 안에 진료를 받아 보세요. 앞이 흐려지거나 안 보이면 바로 응급실로 가세요."),
+    _UrgentCondition("head_injury_anticoagulant", "피를 묽게 하는 약을 드시는 중에 머리를 부딪혔다면 겉으로 괜찮아도 머릿속 출혈이 있을 수 있어 오늘 응급실에서 진료를 받아 보세요. 토하거나 자꾸 졸리거나 머리가 심하게 아프면 바로 119에 연락하세요."),
+    _UrgentCondition("acute_glaucoma", "갑자기 한쪽 눈이 아프고 충혈되며 흐려 보이면 급성 녹내장일 수 있어 바로 응급실이나 안과에서 진료를 받아 보세요. 두통이나 구토가 함께 있어도 미루지 마세요."),
+    _UrgentCondition("urinary_retention", "소변이 마려운데 전혀 나오지 않으면 소변길이 막힌 것(급성 요폐)일 수 있어 오늘 응급실에서 진료를 받아 보세요. 아랫배가 심하게 아프면 미루지 마세요."),
+)
 # 2026-10-30 J-3: 응급 답의 설명 한 줄(판정자 6명 공통 지적 - B2 운전 금지·C5 출혈 신호·F3 심근경색 가능성).
 _BREATHING_NO_DRIVE = "직접 운전해서 병원에 가지 마세요."
 _VOMIT_BLOOD_INFO = "커피색이나 검은색으로 토하는 것은 위나 장의 출혈일 수 있어요."
@@ -512,6 +529,14 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_SYMPTOM_RULES.sudden_vision_loss": ("neutral", None),
     "_SYMPTOM_RULES.numbness_stroke_sign": ("neutral", None),
     "_EMERGENCY_ACTIONS.cardiac_arrest": ("neutral", None),  # 쓰러진 사람은 글을 쓸 수 없다 - 늘 곁에 있는 사람에게 하는 말
+    "_URGENT_CONDITIONS.dvt": ("neutral", None),
+    "_URGENT_CONDITIONS.cellulitis": ("neutral", None),
+    "_URGENT_CONDITIONS.kidney_infection": ("neutral", None),
+    "_URGENT_CONDITIONS.shingles_eye": ("neutral", None),
+    "_URGENT_CONDITIONS.giant_cell_arteritis": ("neutral", None),
+    "_URGENT_CONDITIONS.head_injury_anticoagulant": ("neutral", None),
+    "_URGENT_CONDITIONS.acute_glaucoma": ("neutral", None),
+    "_URGENT_CONDITIONS.urinary_retention": ("neutral", None),
     "_EMERGENCY_ACTIONS.chest_stroke": ("self", "직접 운전해서 모시고 가지 마시고, 혼자 움직이시게 두지 마세요."),
     "_EMERGENCY_ACTIONS.seizure": ("self", "억지로 붙잡거나 입에 물건을 넣지 마세요."),
     "_EMERGENCY_ACTIONS.breathing": ("self", "편하게 앉은 자세로 숨을 쉬게 하고, 꽉 끼는 옷은 풀어 주세요."),
@@ -532,11 +557,13 @@ _DRUG_DIRECT_RULES = tuple(r._replace(sentence=_fixed(f"_DRUG_DIRECT_RULES.{r.na
 _LIFESTYLE_RULES = tuple(r._replace(sentence=_fixed(f"_LIFESTYLE_RULES.{r.name}", r.sentence)) for r in _LIFESTYLE_RULES)
 _SYMPTOM_RULES = tuple(r._replace(sentence=_fixed(f"_SYMPTOM_RULES.{r.name}", r.sentence)) for r in _SYMPTOM_RULES)
 _EMERGENCY_ACTIONS = tuple(a._replace(sentence=_fixed(f"_EMERGENCY_ACTIONS.{a.name}", a.sentence)) for a in _EMERGENCY_ACTIONS)
+_URGENT_CONDITIONS = tuple(u._replace(sentence=_fixed(f"_URGENT_CONDITIONS.{u.name}", u.sentence)) for u in _URGENT_CONDITIONS)
 del _name
 # 고정 문장 전부(표 순서). 테스트·점검은 이 목록만 본다.
 FIXED_SENTENCES: tuple[FixedSentence, ...] = tuple(
     [globals()[k] for k in _SENTENCE_TABLE if "." not in k]
     + [r.sentence for r in _DRUG_ALCOHOL_RULES + _DRUG_DIRECT_RULES + _LIFESTYLE_RULES + _SYMPTOM_RULES + _EMERGENCY_ACTIONS]
+    + [u.sentence for u in _URGENT_CONDITIONS]
 )
 assert len(FIXED_SENTENCES) == len(_SENTENCE_TABLE)
 # 약 + 술 고정 문장(본인·대리 둘 다) - 답 모양에서 이 문장의 "상의" 문장을 핵심 한 줄로 고른다(chat_layout).
@@ -907,10 +934,14 @@ class MedicalLlmService:
         return "\n".join(lines), removed
 
     @staticmethod
-    def emergency_action_sentences(message: str, proxy: bool = False) -> list[tuple[str, str]]:
-        """응급 답에 덧붙일 유형별 행동 (이름, 문장). 질문에 그 유형의 신호가 없으면 빈 목록(지금 응급 답 그대로)."""
+    def emergency_action_sentences(message: str, proxy: bool = False, arrest_hint: bool = False) -> list[tuple[str, str]]:
+        """응급 답에 덧붙일 유형별 행동 (이름, 문장). 질문에 그 유형의 신호가 없으면 빈 목록(지금 응급 답 그대로).
+        arrest_hint: 라우터가 심정지로 봤는가(2026-11-04) - 키워드 밖 표현에도 가슴압박 줄. 의식 있다는 말이 있으면 따르지 않는다."""
         compact = re.sub(r"\s+", "", message or "")
         out = [(a.name, a.sentence.pick(proxy)) for a in _EMERGENCY_ACTIONS if a.signal.search(compact)]
+        if arrest_hint and not any(n == "cardiac_arrest" for n, _ in out) and not chat_keywords.arrest_conscious(compact):
+            arrest = next(a for a in _EMERGENCY_ACTIONS if a.name == "cardiac_arrest")
+            out.insert(0, (arrest.name, arrest.sentence.pick(proxy)))
         names = {name for name, _ in out}
         if "cardiac_arrest" in names:
             # 반응·호흡이 없는 사람에게 눕혀 두기·앉은 자세 안내는 가슴압박과 어긋난다.
@@ -927,6 +958,11 @@ class MedicalLlmService:
             out.append(("hypoglycemia", _HYPOGLYCEMIA_SENTENCE.pick(proxy)))
             out.append(("hypoglycemia_recheck", _HYPOGLYCEMIA_RECHECK.pick(proxy)))
         return out
+
+    @staticmethod
+    def urgent_condition_sentence(name: str | None) -> str | None:
+        """라우터 urgent_condition 값의 고정 문장. 허용 목록 밖·빈 값이면 None."""
+        return next((str(u.sentence) for u in _URGENT_CONDITIONS if u.name == name), None) if name else None
 
     @staticmethod
     def clinic_guarantee_sentence(message: str, reply: str, hint: str | None) -> str | None:
@@ -1124,6 +1160,8 @@ class MedicalLlmService:
         processed_symptom: str | None = None,
         proxy: bool = False,
         concise: bool = False,
+        arrest_hint: bool = False,
+        urgent_condition: str | None = None,
     ) -> dict[str, Any]:
         # concise: 피보호자(WARD) 본인 상담 - 프롬프트에 쉬운 말·짧은 문장 한 줄만 더한다(답 줄이기는 chat_layout 이 맡는다).
         # proxy: 보호자가 가족 대신 묻는 대리 상담(chat_service 가 wardId·가족 주어로 정한다) - 고정 문장을 대리 문장으로 고른다(L-3).
@@ -1226,7 +1264,7 @@ class MedicalLlmService:
                     _LOG.info("[CHAT-SAFETY] drug_direct=%s", ",".join(name for name, _ in direct))
         else:
             # 응급 답: 119 안내(advice 줄)는 그대로 두고 그 뒤에 유형별 행동 한 줄. 경고 박스(emergencyWarning)는 바꾸지 않는다.
-            actions = self.emergency_action_sentences(message, carer)
+            actions = self.emergency_action_sentences(message, carer, arrest_hint=arrest_hint)
             for _, sentence in actions:
                 reply = f"{reply}\n{sentence}"
             if actions:
@@ -1240,6 +1278,11 @@ class MedicalLlmService:
         medication_119 = 0
         if quality:
             reply, medication_119 = self.drop_medication_119(message, reply)
+            urgent = self.urgent_condition_sentence(urgent_condition)
+            if urgent:
+                # 라우터가 고른 경계 질환(허용 목록) - 병 이름·오늘 진료·악화 신호 한 줄(2026-11-04). 뒤의 병원 권유 보장은 이 문장으로 채워진다.
+                reply = f"{reply}\n{urgent}"
+                _LOG.info("[CHAT-QUALITY] urgent_condition=%s", urgent_condition)
             persisting = self.persisting_visit_sentence(message, reply, department_hint)
             if persisting:
                 reply = f"{reply}\n{persisting}"
