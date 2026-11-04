@@ -164,6 +164,25 @@ ANY_SYMPTOM_WORDS = tuple(dict.fromkeys(
 _RED_FLAG_FALSE = re.compile(r"커피가")
 
 
+# 건강을 지키는 생활 관리·집 안전 질문(2026-11-04 홀드아웃 v1 L05 - 가족이 "집에 안 넘어지게 뭘 손봐 드리면" 하고 물으면
+# 라우터가 증상 단어가 없다고 4회 중 2회 general 로 보내 한두 문장만 나갔다). 주제 낱말과 묻는 말이 함께 있을 때만 상담으로 올린다 -
+# "산책 다녀왔어요"·"식사하셨어요?" 같은 잡담은 그대로 둔다. MEDICAL_KEYWORDS(위기 이어짐 판정과 공유)는 넓히지 않는다.
+_LIFESTYLE_TOPIC = re.compile(
+    r"낙상|넘어지|넘어질|넘어져|미끄러|욕실|문턱|손잡이|난간|운동|걷기|근력|스트레칭|식단|반찬|소금|싱겁|짜게|"
+    r"물을|물은|물몇|수분|낮잠|잠을|수면|더위|폭염|열사병|추위|한파|난방|보일러|치매|기억력|깜빡깜빡"
+)
+_LIFESTYLE_ASK = re.compile(
+    r"얼마나|어떻게|어떤|뭘|뭐를|뭐가|무엇을|몇|해야|하면좋|좋을까|좋은지|좋나요|괜찮을까|괜찮나|되나|될까|되는지|"
+    r"손봐|조심|예방|챙겨|챙길|방법|대비"
+)
+
+
+def is_health_lifestyle_question(text: str) -> bool:
+    """생활 관리·집 안전을 묻는 말인가(라우터 general -> 상담으로 올리는 근거, 라우터 실패 때 키워드 분류)."""
+    c = compact(text)
+    return bool(_LIFESTYLE_TOPIC.search(c) and _LIFESTYLE_ASK.search(c))
+
+
 def has_red_flag(text: str) -> bool:
     c = _RED_FLAG_FALSE.sub(" ", compact(text))
     return any(keyword in c for keyword in RED_FLAG_KEYWORDS)
