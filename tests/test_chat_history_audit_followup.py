@@ -72,7 +72,8 @@ def _button(context: dict[str, Any], extracted_location: str) -> bool:
 def test_other_region_button_not_for_user_given_detailed_region() -> None:
     profile = {"location": "서울 강남구"}
     assert _button(profile, "서울 강남구") is True  # 프로필 지역 그대로
-    assert _button(profile, "서울 강남구 역삼동") is False  # 사용자가 동네까지 말함
+    # 2026-11-04: 사용자가 말한 지역이어도 버튼을 붙인다(키보드 없이 다른 지역으로 넘어갈 길)
+    assert _button(profile, "서울 강남구 역삼동") is True
     assert _button({"location": None, "address": "서울특별시 강남구 테헤란로 123"}, "서울특별시 강남구") is True
 
 

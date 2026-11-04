@@ -42,6 +42,12 @@ class FakeReservation:
         self.slot_departments: list[str | None] = []  # 빈 시간 조회에 넘긴 진료과(시간 칸은 진료과별)
         # 병원 id -> 진료과. 정해 두면 진짜 예약 서비스처럼 병원에 없는 진료과의 빈 시간 조회를 400 INVALID_DEPARTMENT 로 답한다
         self.departments_by_hospital: dict[int, list[str]] | None = None
+        # 병원이 있는 지역(지역 선택지 출처, 2026-11-04). None 이면 조회 실패와 같다 - 지역은 예전처럼 글 입력으로 묻는다.
+        self.regions: list[str] | None = None
+        self.region_departments: list[str] = []  # 지역 조회에 넘긴 진료과
+        self.searched_regions: list[str | None] = []  # 병원 검색에 넘긴 지역(calls 에는 넣지 않는다 - 기존 단언 유지)
+        self.search_rows: list[dict[str, Any]] | None = None  # 정하면 병원 검색이 이 결과를 돌려준다
+        self.slots_fail = False  # True 면 빈 시간 조회가 500(조회 실패)
 
     def names(self) -> list[str]:
         return [c[0] for c in self.calls]
@@ -50,7 +56,14 @@ class FakeReservation:
         return 1, "강남메디내과"
 
     def search_hospitals(self, *a, **k):  # noqa: ARG002
+        self.searched_regions.append(k.get("region"))
+        if self.search_rows is not None:
+            return {"success": True, "rows": list(self.search_rows)}
         return {"success": True, "rows": [{"hospital": "강남메디내과"}, {"hospital": "서초내과"}]}
+
+    def list_regions(self, department: str = "", *, api_key_override=None):  # noqa: ARG002
+        self.region_departments.append(department)
+        return None if self.regions is None else list(self.regions)
 
     def list_departments(self, hospital_id: int, *, api_key_override=None):  # noqa: ARG002
         names = (self.departments_by_hospital or {}).get(hospital_id, ["내과"])
@@ -58,6 +71,8 @@ class FakeReservation:
 
     def get_available_slots(self, hospital_id: int, day: str, *, api_key_override=None, department=None):  # noqa: ARG002
         self.slot_departments.append(department)
+        if self.slots_fail:
+            return {"httpStatus": 500, "data": None}
         offered = (self.departments_by_hospital or {}).get(hospital_id)
         if offered is not None and department and department not in offered:
             return {"httpStatus": 400, "data": {"success": False, "code": "INVALID_DEPARTMENT", "message": "선택한 진료과가 병원에 없습니다."}}

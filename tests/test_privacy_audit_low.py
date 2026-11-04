@@ -34,7 +34,7 @@ ADDR = {"location": None, "address": "서울특별시 강남구 테헤란로 123
 
 @pytest.mark.parametrize(
     ("extracted_location", "button"),
-    [("", True), ("서울특별시 강남구", True), ("서울특별시 강남구 테헤란로 123", True), ("부산 해운대구", False)],
+    [("", True), ("서울특별시 강남구", True), ("서울특별시 강남구 테헤란로 123", True), ("부산 해운대구", True)],  # 2026-11-04: 프로필과 다른 지역에도 항상
 )
 def test_other_region_button_compares_at_city_district_level(extracted_location: str, button: bool) -> None:
     orch = make_orchestrator(FakeReservation(), {"reservation_date": FUTURE, "location": extracted_location})
