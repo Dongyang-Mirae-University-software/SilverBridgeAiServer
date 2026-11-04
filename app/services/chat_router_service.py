@@ -5,6 +5,7 @@ from functools import lru_cache
 from typing import Any
 
 from app.core.config import get_settings
+from app.services import chat_keywords
 from app.services.claude_structured_client import ClaudeStructuredClient, StructuredCallError
 from app.utils.conversation import format_recent_history, mask_personal_info, normalize_history
 from app.utils.json_extract import extract_json_object
@@ -36,9 +37,17 @@ emergency: 호흡곤란·의식 저하·실신·심한 가슴 통증·대량 출
 
 self_harm: 사용자 본인이나 가족의 자살·자해 생각·의도·계획(죽고 싶다, 사라지고 싶다, 다 끝내고 싶다, 약을 모아 먹겠다 등)이 이번 문장에 드러나면 true. 직전 대화에 위기가 있었고 이번 문장이 그 위기를 이어 말하면("어떻게 해야 할지 모르겠어", "아직도 너무 힘들어") true. 이번 문장이 다른 화제로 넘어가면(감사, 나아졌다는 말, 증상·복약 질문, 일상 이야기, 예약) 직전 대화의 위기와 상관없이 false. 과장 표현("아파 죽겠어", "배고파 죽겠다")·부정("그런 생각은 없어요")·일·숙제를 끝내고 싶다는 뜻은 false. true면 emergency도 true다.
 
+cardiac_arrest: 누군가 지금 반응이 없고 숨을 쉬지 않거나 헐떡이기만 하는(심정지가 의심되는) 상황이면 true. 표현이 달라도(축 늘어짐, 꼼짝 않음, 숨소리가 안 들림, 맥이 안 잡힘 등) 같은 뜻이면 true. 지금 의식이 있는 사람(본인이 숨이 차다고 말함, 쓰러졌다가 깨어남, 쓰러질 것 같다는 말)과 비유 표현은 false. true면 emergency도 true다.
+
+urgent_condition: emergency가 false인 증상 상담에서, 아래 질환의 전형적인 신호가 문장에 분명히 있을 때만 그 이름 하나를 쓴다. 확실하지 않거나 해당 없으면 "". emergency가 true면 "".
+__URGENT_LIST__
+
 출력 형식(키 고정, JSON 외 텍스트 금지):
-{"route":"reservation|symptom|general","normalized_message":"","symptom_summary":"","emergency":false,"self_harm":false,"reason":""}
+{"route":"reservation|symptom|general","normalized_message":"","symptom_summary":"","emergency":false,"self_harm":false,"cardiac_arrest":false,"urgent_condition":"","reason":""}
 """
+SYSTEM_PROMPT = SYSTEM_PROMPT.replace(
+    "__URGENT_LIST__", "\n".join(f"- {key}: {desc}" for key, desc in chat_keywords.URGENT_CONDITIONS.items())
+)
 
 
 # SYSTEM_PROMPT의 출력 형식과 같은 JSON 스키마. Claude 구조화 출력으로 강제한다.
@@ -50,9 +59,13 @@ ROUTE_SCHEMA = {
         "symptom_summary": {"type": "string"},
         "emergency": {"type": "boolean"},
         "self_harm": {"type": "boolean"},
+        "cardiac_arrest": {"type": "boolean"},
+        "urgent_condition": {"type": "string", "enum": ["", *chat_keywords.URGENT_CONDITIONS]},
         "reason": {"type": "string"},
     },
-    "required": ["route", "normalized_message", "symptom_summary", "emergency", "self_harm", "reason"],
+    "required": [
+        "route", "normalized_message", "symptom_summary", "emergency", "self_harm", "cardiac_arrest", "urgent_condition", "reason",
+    ],
     "additionalProperties": False,
 }
 
@@ -98,12 +111,25 @@ class ChatRouterService:
             "symptom_summary": str(parsed.get("symptom_summary") or "").strip() or message,
             # 자해 신호는 요약 문구에 기대지 않고 별도 칸으로 받는다(가벼운 모델은 응급으로 보고도 요약에 자해를 빠뜨렸다).
             # true면 응급으로도 본다 - 모델이 두 칸을 어긋나게 줘도 위기 응답 쪽으로.
-            "emergency": bool(parsed.get("emergency")) or parsed.get("self_harm") is True,
+            "emergency": bool(parsed.get("emergency")) or parsed.get("self_harm") is True or parsed.get("cardiac_arrest") is True,
             "self_harm": parsed.get("self_harm") is True,
+            # 심정지 의심(2026-11-04): 가슴압박 줄을 키워드 밖 표현에도 붙이는 근거. true면 응급으로도 본다.
+            "cardiac_arrest": parsed.get("cardiac_arrest") is True,
+            # 오늘 진료가 필요한 경계 질환 - 허용 목록 밖 값·응급 턴은 버린다(서버 고정 문장만 나간다).
+            "urgent_condition": _urgent_condition(parsed),
             "reason": str(parsed.get("reason") or "").strip(),
             "engine": "claude",
             "modelName": self._loader.state.model_name,
         }
+
+
+def _urgent_condition(parsed: dict[str, Any]) -> str | None:
+    value = parsed.get("urgent_condition")
+    if not isinstance(value, str) or value not in chat_keywords.URGENT_CONDITIONS:
+        return None
+    if parsed.get("emergency") is True or parsed.get("self_harm") is True or parsed.get("cardiac_arrest") is True:
+        return None
+    return value
 
 
 @lru_cache

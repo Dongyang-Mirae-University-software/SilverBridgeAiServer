@@ -108,6 +108,31 @@ class _ArrestSignal:
 
 ARREST_SIGNAL = _ArrestSignal()
 
+
+def arrest_conscious(text: str) -> bool:
+    """의식이 있다는 말(추측·회복)이 있는가 - 라우터가 심정지로 봐도 가슴압박 줄을 붙이지 않는 근거(2026-11-04).
+    공백 뺀 문장을 받는다."""
+    c = _FIGURATIVE.sub(" ", text or "")
+    if _ARREST_RECOVERED.search(c):
+        return True
+    return any(_ARREST_NOT_NOW.search(c[m.end():m.end() + 8]) for m in _ARREST_WORDS.finditer(c))
+
+
+# 오늘 진료가 필요한 경계 질환(라우터 urgent_condition 칸의 허용 값, 2026-11-04 사용자 승인 - 고정 문장 예외).
+# 라우터는 이 중 하나 또는 ""만 낼 수 있다(스키마 enum). 문장은 medical_llm_service._URGENT_CONDITIONS 에 있다.
+# 값을 더하면 라우터 지시문(chat_router_service)·고정 문장 표·테스트를 함께 바꾼다.
+URGENT_CONDITIONS: dict[str, str] = {
+    "dvt": "한쪽 다리(주로 종아리)만 붓고 아프거나 색이 변함 - 다리 혈전",
+    "cellulitis": "피부 한 곳이 붉게 붓고 뜨겁고 아프며 퍼짐 - 봉와직염",
+    "kidney_infection": "열·오한과 함께 옆구리나 허리 한쪽 통증, 소변 이상 - 신우신염",
+    "shingles_eye": "이마·눈 주변 한쪽에 물집·띠 모양 통증 - 눈 주변 대상포진",
+    "giant_cell_arteritis": "50세 이상의 새 관자놀이 두통·머리 피부 통증·씹을 때 턱 통증 - 거대세포동맥염",
+    "head_injury_anticoagulant": "피를 묽게 하는 약(와파린 등)을 먹는 중 머리를 부딪힘",
+    "acute_glaucoma": "갑자기 한쪽 눈이 아프고 충혈·흐려짐, 불빛 주위 무지개 - 급성 녹내장",
+    "urinary_retention": "소변이 마려운데 전혀 나오지 않음 - 급성 요폐",
+    "delirium": "어르신이 갑자기(몇 시간~며칠 사이) 헷갈려하거나 엉뚱한 말·행동 - 섬망",
+}
+
 # 라우터 실패 때 키워드 분류가 약 질문을 상담으로 보게 하는 약 제형 낱말(2026-11-03 점검 L-1). 판정 낱말 목록(MEDICAL_KEYWORDS)은
 # 위기 이어짐·예약 재개 판정이 함께 쓰므로 넓히지 않고, 분류(classify_intent)에서만 더 본다.
 MEDICATION_FORM_WORDS = ("알약", "서방정", "장용정", "캡슐", "가루약", "물약", "패치", "좌약")
