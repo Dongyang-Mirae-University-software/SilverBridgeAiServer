@@ -16,6 +16,7 @@ from app.core.config import Settings, get_settings
 from app.core.response import success_response
 from app.schemas.companion_schema import TIME_SLOTS, CompanionStatus
 from app.services.companion import pipeline
+from app.services.companion.image_format import detect_image_format
 from app.services.companion.audio_format import ALLOWED_FORMATS, detect_audio_format
 from app.services.companion.dialogue_store import Dialogue, store
 from app.services.companion.face_service import FaceResult, FaceUnavailable, face_service
@@ -253,7 +254,7 @@ def reply_text(
     summary="음성 대답을 보낸다 (WAV·webm·mp3)",
     description="음성 1턴을 처리한다 (multipart: `audio` 1개 10MB 이하, `frame` 최대 5장 장당 2MB 이하, JPEG·PNG). "
                 "응답에 받아 적은 글(`transcript`)을 넣는다. 글자가 없으면 무응답 턴. 얼굴이 없으면 `face.usable=false`. "
-                "오류: 422 AUDIO_MISSING·AUDIO_FORMAT_UNSUPPORTED, 413 AUDIO_TOO_LARGE·FRAMES_TOO_MANY·FRAME_TOO_LARGE, 503 STT_UNAVAILABLE.",
+                "오류: 422 AUDIO_MISSING·AUDIO_FORMAT_UNSUPPORTED·FRAME_FORMAT_UNSUPPORTED, 413 AUDIO_TOO_LARGE·FRAMES_TOO_MANY·FRAME_TOO_LARGE, 503 STT_UNAVAILABLE.",
 )
 async def reply_audio(
     dialogue_id: str,
@@ -291,6 +292,8 @@ async def reply_audio(
         raise CompanionError(413, "FRAMES_TOO_MANY", f"프레임은 한 턴에 {settings.companion_frame_max}장까지입니다.")
     if any(len(f.data) > FRAME_MAX_BYTES for f in frames):
         raise CompanionError(413, "FRAME_TOO_LARGE", "프레임 한 장은 2MB 이하여야 합니다.")
+    if any(detect_image_format(f.data) is None for f in frames):
+        raise CompanionError(422, "FRAME_FORMAT_UNSUPPORTED", "얼굴 사진은 JPEG·PNG만 받습니다.")
     if detect_audio_format(part.data) is None:
         raise CompanionError(422, "AUDIO_FORMAT_UNSUPPORTED", f"{'·'.join(ALLOWED_FORMATS)} 파일만 받습니다.")
     try:
