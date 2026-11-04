@@ -25,8 +25,15 @@ from app.services.claude_structured_client import failure_cause
 from app.services import chat_keywords, chat_layout
 from app.services.medical_llm_service import DRUG_ALCOHOL_SENTENCES, MedicalLlmService, get_medical_llm_service
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS
-from app.services.reservation_intake import CHANGE_DATE_OPTION, _find_department
-from app.services.reservation_orchestrator import ReservationOrchestrator, get_reservation_orchestrator
+from app.services.reservation_intake import CHANGE_DATE_OPTION, RETRY_SLOTS_OPTION, _find_department
+from app.services.reservation_orchestrator import (
+    MORE_SIDO_OPTION,
+    OTHER_DEPARTMENT_OPTION,
+    OTHER_REGION_OPTION,
+    TYPE_LOCATION_OPTION,
+    ReservationOrchestrator,
+    get_reservation_orchestrator,
+)
 
 _KST = ZoneInfo("Asia/Seoul")
 _MEDGEMMA_GENDERS = frozenset({"MALE", "FEMALE"})
@@ -85,7 +92,10 @@ _SERVER_HISTORY_SCAN_ROWS = 60
 # 버튼 턴은 FE 화면처럼 선택값을 사용자 말로 넣는다. 확인·취소·목록 버튼(토큰·ID 값)과 "다른 지역"·"다른 날짜"는 뺀다.
 # 환자 이름·전화(patient_name·phone)는 넣지 않는다 - 저장 초안에 이미 있고, 이력은 라우터·추출(Claude)로 나간다(2026-10-29 점검 L-1).
 _HISTORY_UI_FIELDS = frozenset({"hospital", "hospital_confirm", "department", "date", "time", "location", "location_confirm"})
-_HISTORY_SKIP_VALUES = frozenset({"__other__", CHANGE_DATE_OPTION})
+# 화면 이동용 버튼 값(다른 지역·다른 시·도·직접 입력·다른 진료과·다시 불러오기)도 사용자 말이 아니라 뺀다(2026-11-04 점검 L-1).
+_HISTORY_SKIP_VALUES = frozenset({
+    OTHER_REGION_OPTION, CHANGE_DATE_OPTION, MORE_SIDO_OPTION, TYPE_LOCATION_OPTION, OTHER_DEPARTMENT_OPTION, RETRY_SLOTS_OPTION,
+})
 _CONTACT_UI_FIELDS = frozenset({"patient_name", "phone"})
 _UI_LOG_RE = re.compile(r"^\[선택\] ([^:]+): (.*)$", re.S)
 # 직전 턴이 응급(high)이었는데 이번 턴은 일반 답일 때 끝에 붙이는 한 줄(2026-10-29, 시험지 mt.01 "이제 좀 괜찮아졌어요" - 사용자 결정 (b)).
@@ -183,6 +193,8 @@ class ChatService:
 
         session_id = (payload.sessionId or "").strip() or f"chat-{uuid4().hex[:12]}"
         user_context = self._build_user_context(payload)
+        # 피보호자 본인 상담이면 답을 짧게(2026-11-04). role 은 BE 가 서버 값으로 넣는다 - 보호자(대리 상담 포함)·없음은 그대로.
+        ward_reader = self._is_ward_reader(user_context)
         ward_id = (payload.context.wardId or "").strip() if payload.context and payload.context.wardId else ""
         # 대리 상담 판정에 쓸 문장 - 되묻기에 답한 턴은 "앞 질문 / 이번 답"으로 바꾼다(2026-11-01 점검 M-1).
         proxy_text = message
@@ -262,7 +274,7 @@ class ChatService:
                 # UI 블록 선택 턴: 직전 규격화 문장에 선택값을 붙여 상태를 이어간다.
                 prev = self._last_reservation_state(db, payload.userId, session_id, ward_id, latest=latest_log) or "병원 예약:"
                 value = ui_selection["value"]
-                carry = ui_selection["field"] in {"location", "location_confirm", "department", "hospital", "hospital_confirm", "date", "time"} and value != "__other__"
+                carry = ui_selection["field"] in {"location", "location_confirm", "department", "hospital", "hospital_confirm", "date", "time"} and value not in _HISTORY_SKIP_VALUES
                 route_info = {
                     "route": "reservation",
                     "normalized_message": f"{prev} / {value}" if carry else prev,
@@ -438,6 +450,8 @@ class ChatService:
                         intent=llm_intent,
                         processed_symptom=processed_symptom,
                         proxy=self._is_proxy(payload, proxy_text),
+                        # WARD 일 때만 넘긴다 - 보호자·role 없음 호출은 이전과 글자 그대로(인자 모양도 같다).
+                        **({"concise": True} if ward_reader else {}),
                     )
                     timing["llmMs"] = _elapsed_ms(llm_started)
                 except Exception as exc:
@@ -491,7 +505,8 @@ class ChatService:
                 self_harm_text=bool(message) and bool(MedicalLlmService.self_harm_signals(message)),
             )
         # 답 모양(2026-11-01 가독성): 모든 판정·고정 문장·이어서 물어볼 질문이 끝난 뒤 모양만 바꾼다(문장 뜻·판정 값 그대로).
-        chat_layout.apply(result, DRUG_ALCOHOL_SENTENCES)
+        # 피보호자 본인(WARD)이면 같은 자리에서 모델 문장만 줄인다 - 119·109·고정 문장·과 안내 핵심 줄·되묻기는 그대로.
+        chat_layout.apply(result, DRUG_ALCOHOL_SENTENCES, concise=ward_reader)
         post_started = time.perf_counter()
         if route_info:
             result.setdefault("meta", {})
@@ -855,6 +870,11 @@ class ChatService:
         if gender in _MEDGEMMA_GENDERS:
             ctx["gender"] = gender
         return ctx
+
+    @staticmethod
+    def _is_ward_reader(user_context: dict[str, object]) -> bool:
+        """피보호자 본인이 읽는 상담인가(context.role == WARD). 보호자 대리 상담은 role=GUARDIAN 이라 해당 없다."""
+        return str(user_context.get("role") or "").strip().upper() == "WARD"
 
     @staticmethod
     def _build_user_context(payload: ChatRequest) -> dict[str, object]:

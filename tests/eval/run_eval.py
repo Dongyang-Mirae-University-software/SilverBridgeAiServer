@@ -101,6 +101,9 @@ def auto_checks(q: str, data: dict, forbidden: list[re.Pattern]) -> dict:
         "forbidden_hint": any(p.search(reply) for p in forbidden),
         "symptom_block": SYMPTOM_BLOCK in reply,
         "emergency_warning": bool(data.get("emergencyWarning")),
+        # 기록용(판정에 쓰지 않음): 답 길이(공백 포함 글자 수·줄 수, 2026-11-04 WARD 간결화).
+        "reply_chars": len(reply),
+        "reply_lines": len([x for x in reply.split("\n") if x.strip()]),
         # 기록용(판정에 쓰지 않음): 답에 나온 진료과 이름(본문 아님).
         "departments": sorted(set(DEPARTMENT_RE.findall(reply))),
     }
@@ -155,11 +158,16 @@ def judge(expect: dict, row: dict) -> tuple[bool | None, list[str]]:
 # ---- 실행 --------------------------------------------------------------------------------------------
 
 
+# --role: 요청 context.role(WARD|GUARDIAN). BE 가 서버 값으로 넣는 칸이라 실서비스와 같게 role 하나만 싣는다(2026-11-04).
+EVAL_ROLE: str | None = None
+
+
 def send_turn(api: Api, user_id: str, session_id: str, message: str, history: list[dict]) -> tuple[int, dict | None, int]:
     started = time.perf_counter()
-    status, body = api.call("POST", "/api/v1/chat", body={
-        "userId": user_id, "message": message, "sessionId": session_id, "history": history,
-    })
+    body_out = {"userId": user_id, "message": message, "sessionId": session_id, "history": history}
+    if EVAL_ROLE:
+        body_out["context"] = {"role": EVAL_ROLE}
+    status, body = api.call("POST", "/api/v1/chat", body=body_out)
     elapsed = int((time.perf_counter() - started) * 1000)
     data = body.get("data") if isinstance(body, dict) and isinstance(body.get("data"), dict) else None
     return status, data, elapsed
@@ -311,6 +319,13 @@ def summarize(rows: list[dict], items: list[dict]) -> dict:
                       "warning": sum(r["checks"].get("emergency_warning", False) for r in emergency_rows),
                       "high": sum(r["riskLevel"] == "high" for r in emergency_rows)},
         "riskOverHigh": len(over_high),
+        # 기록용: 답 길이(200 응답 전체, 경로별) - WARD·GUARDIAN 비교.
+        "replyChars": _stats([r["checks"].get("reply_chars") for r in rows if r["status"] == 200]),
+        "replyLines": _stats([r["checks"].get("reply_lines") for r in rows if r["status"] == 200]),
+        "replyCharsByRoute": {
+            route: _stats([r["checks"].get("reply_chars") for r in rows if r["status"] == 200 and str(r["route"]) == route])
+            for route in sorted({str(r["route"]) for r in rows})
+        },
         "engines": _count(r["engine"] for r in rows),
         "routeEngines": _count(r["routeEngine"] for r in rows),
         "forbiddenHintRows": [f"{r['id']}#r{r['run']}" for r in rows if r["checks"].get("forbidden_hint")],
@@ -389,9 +404,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out-dir", default=str(REPO_ROOT / "docs" / "eval-results"))
     ap.add_argument("--only", default="", help="쉼표로 구분한 문항 id 만 실행(스모크용)")
     ap.add_argument("--bodies-out", default="", help="답변 본문 jsonl 경로(저장소 밖만, 판정자 채점용)")
+    ap.add_argument("--role", default="", choices=["", "WARD", "GUARDIAN"],
+                    help="요청 context.role (비우면 context 없이 - 옛 측정과 같음)")
     ap.add_argument("--replay-history", action="store_true",
                     help="history 가 있는 모든 문항의 사용자 턴을 같은 sessionId 로 먼저 보낸다(서버 이력 기준 측정)")
     args = ap.parse_args(argv)
+    global EVAL_ROLE
+    EVAL_ROLE = args.role or None
 
     api_key = os.getenv("AI_EVAL_API_KEY", "")
     if not api_key:
@@ -431,6 +450,7 @@ def main(argv: list[str] | None = None) -> int:
     result = {
         "meta": {
             "label": args.label,
+            "role": args.role or None,
             "startedAt": started_at.strftime("%Y-%m-%d %H:%M"),
             "finishedAt": datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
             "setVersion": spec.get("version"),

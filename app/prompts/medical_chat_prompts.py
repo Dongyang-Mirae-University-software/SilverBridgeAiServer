@@ -44,6 +44,12 @@ SYSTEM_PROMPT = """너는 노인 돌봄 서비스의 의료 보조 AI다. 어르
 """
 
 
+_WARD_CONCISE_LINE = (
+    "- 이 답은 어르신 본인이 읽는다. 모든 문장을 쉬운 말로 짧게 쓰고, 어려운 의학 용어와 괄호 설명은 쓰지 않는다. "
+    "advice는 해야 할 일을 먼저 쓴다.\n"
+)
+
+
 def build_user_prompt(
     message: str,
     user_context: dict[str, str | int | float | None] | None,
@@ -52,8 +58,12 @@ def build_user_prompt(
     emergency_hint: bool,
     processed_symptom: str | None = None,
     department_hint: str | None = None,
+    concise: bool = False,
 ) -> str:
     symptom = (processed_symptom or "").strip() or message
+    # concise: 피보호자(WARD) 본인 상담 - 어르신이 읽는 답이라 쉬운 말·짧은 문장 한 줄만 더한다(2026-11-04).
+    # 보호자·대리 상담 프롬프트는 글자 하나 다르지 않다(WARD 일 때만 이 줄이 붙는다). 예시 문장은 두지 않는다(베끼기 방지).
+    ward_line = _WARD_CONCISE_LINE if concise else ""
     return f"""[의도]
 {intent}
 
@@ -80,4 +90,4 @@ def build_user_prompt(
 - 의도가 medical_advice·emergency_guidance면 empathy·symptoms·advice를 채우고 reply는 ""로 둔다.
 - 의도가 general_chat이면 reply만 채우고 나머지는 ""로 둔다.
 - 권장 진료과 힌트가 있으면 advice에서 그 과를 권한다(예약 안내와 같은 과여야 한다).
-"""
+{ward_line}"""
