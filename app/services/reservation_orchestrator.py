@@ -15,7 +15,7 @@ from app.schemas.chat_schema import ChatRequest, UiOption, UiPayload
 from app.services.claude_structured_client import ClaudeStructuredClient, failure_cause
 from app.services.chat_deadline import ChatDeadlineExceeded
 from app.services.reservation_api_client import ReservationApiClient
-from app.services.reservation_common import _date_label, _digits, _phone_last4, _trace, with_demo_notice
+from app.services.reservation_common import _date_choice_label, _date_label, _digits, _phone_last4, _trace, with_demo_notice
 from app.services.reservation_confirm_flow import (
     CONFIRM_FIELDS,
     DEPARTMENT_NOT_OFFERED_FLAG,
@@ -25,6 +25,7 @@ from app.services.reservation_confirm_flow import (
 )
 from app.services.reservation_intake import (
     CHANGE_DATE_OPTION,
+    PICK_CALENDAR_OPTION,
     RETRY_SLOTS_OPTION,
     ReservationDraft,
     _find_date,
@@ -180,9 +181,37 @@ def _gap_label(field: str) -> str:
     return _GAP_PROMPTS.get(field, ("아래에서 값을 선택하거나 입력해 주세요.", None))[0]
 
 
+# 날짜 단계에서 버튼으로 주는 날 수(오늘부터). 그 밖의 날은 [달력에서 다른 날 고르기] - 피보호자 화면은 키보드·달력 없이 고른다(2026-11-04).
+DATE_CHOICE_DAYS = 7
+
+
+def _date_select_ui(label: str, placeholder: str | None = None) -> UiPayload:
+    """날짜 선택지(kind=select). 값은 YYYY-MM-DD, 글자는 "오늘 11월 4일(수)". 고른 날에 빈 시간이 없으면 _find_slots 가 며칠 뒤까지 찾는다."""
+    today = datetime.now(_SEOUL_TZ).date()
+    days = [(today + timedelta(days=i)).isoformat() for i in range(DATE_CHOICE_DAYS)]
+    options = [UiOption(value=d, label=_date_choice_label(d, today)) for d in days]
+    options.append(UiOption(value=PICK_CALENDAR_OPTION, label="달력에서 다른 날 고르기"))
+    return UiPayload(kind="select", field="date", label=label, placeholder=placeholder, options=options)
+
+
+def _calendar_ui(label: str, placeholder: str | None = None) -> UiPayload:
+    return UiPayload(kind="date", field="date", label=label, placeholder=placeholder)
+
+
+def _valid_choice_date(value: str) -> bool:
+    """버튼·달력으로 받은 날짜 - YYYY-MM-DD 이고 오늘 이후만."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value or ""):
+        return False
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return False
+    return not _is_past_date(value)
+
+
 def _ui_for_field(field: str) -> UiPayload:
     if field == "date":
-        return UiPayload(kind="date", field="date", label="달력에서 진료 날짜를 선택해 주세요")
+        return _date_select_ui("진료 날짜를 골라 주세요")
     if field == "time":
         return UiPayload(kind="select", field="time", label="예약 시간을 선택해 주세요")
     label, placeholder = _GAP_PROMPTS.get(field, ("아래에서 값을 선택하거나 입력해 주세요.", None))
@@ -717,7 +746,8 @@ class ReservationOrchestrator(ReservationFlowMixin):
         parts = [
             str(draft.hospital_name or "").strip(),
             str(draft.department or "").strip(),
-            str(draft.reservation_date or "").strip(),
+            # 사람에게 보이는 문장이라 "11월 5일(목)"로 쓴다(내부 값은 ISO 그대로 - 2026-11-04).
+            _date_label(str(draft.reservation_date or "").strip()) if draft.reservation_date else "",
             str(draft.reservation_time or "").strip(),
         ]
         readable = [part for part in parts if part]
@@ -727,6 +757,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
     def _reservation_choice_label(item: dict[str, Any]) -> str:
         hospital = str(item.get("hospitalName") or item.get("hospital") or "병원").strip()
         date = str(item.get("reservationDate") or item.get("date") or "").strip()
+        date = _date_label(date) if date else ""
         time = str(item.get("reservationTime") or item.get("time") or "").strip()
         status = str(item.get("status") or "").strip()
         parts = [part for part in (hospital, date, time, status) if part]
@@ -739,7 +770,8 @@ class ReservationOrchestrator(ReservationFlowMixin):
         elif field == "department":
             draft.department = value or draft.department
         elif field == "date":
-            draft.reservation_date = value or draft.reservation_date
+            # [달력에서 다른 날 고르기]·형식이 틀리거나 지난 날짜는 날짜를 비워 다시 묻는다(_advance 가 달력 또는 선택지를 낸다).
+            draft.reservation_date = value if _valid_choice_date(value) else None
         elif field == "time":
             draft.apply_time_selection(value)
         elif field == "patient_name":
@@ -1247,10 +1279,15 @@ class ReservationOrchestrator(ReservationFlowMixin):
 
         if not draft.reservation_date:
             _trace(meta, "reservation_gap", missing="date")
-            label = "달력에서 진료 날짜를 선택해 주세요."
+            label = "진료 날짜를 골라 주세요."
             context_label = self._reservation_context_label(draft)
             if context_label:
                 label = f"{context_label} 예약 날짜를 선택해 주세요."
+            picked_calendar = bool(
+                req.uiSelection
+                and req.uiSelection.field == "date"
+                and req.uiSelection.value.strip() == PICK_CALENDAR_OPTION
+            )
             return {
                 "reply": label,
                 "riskLevel": "medium",
@@ -1260,12 +1297,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
                 "engine": "claude",
                 "modelName": self._loader.state.model_name,
                 "type": "message",
-                "ui": UiPayload(
-                    kind="date",
-                    field="date",
-                    label=label,
-                    placeholder=context_label or None,
-                ),
+                "ui": (_calendar_ui if picked_calendar else _date_select_ui)(label, context_label or None),
                 "tool": None,
                 "data": None,
                 "summary": None,

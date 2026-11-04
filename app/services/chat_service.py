@@ -25,7 +25,7 @@ from app.services.claude_structured_client import failure_cause
 from app.services import chat_keywords, chat_layout
 from app.services.medical_llm_service import DRUG_ALCOHOL_SENTENCES, MedicalLlmService, get_medical_llm_service
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS
-from app.services.reservation_intake import CHANGE_DATE_OPTION, RETRY_SLOTS_OPTION, _find_department
+from app.services.reservation_intake import CHANGE_DATE_OPTION, PICK_CALENDAR_OPTION, RETRY_SLOTS_OPTION, _find_department
 from app.services.reservation_orchestrator import (
     MORE_SIDO_OPTION,
     OTHER_DEPARTMENT_OPTION,
@@ -95,6 +95,7 @@ _HISTORY_UI_FIELDS = frozenset({"hospital", "hospital_confirm", "department", "d
 # 화면 이동용 버튼 값(다른 지역·다른 시·도·직접 입력·다른 진료과·다시 불러오기)도 사용자 말이 아니라 뺀다(2026-11-04 점검 L-1).
 _HISTORY_SKIP_VALUES = frozenset({
     OTHER_REGION_OPTION, CHANGE_DATE_OPTION, MORE_SIDO_OPTION, TYPE_LOCATION_OPTION, OTHER_DEPARTMENT_OPTION, RETRY_SLOTS_OPTION,
+    PICK_CALENDAR_OPTION,
 })
 _CONTACT_UI_FIELDS = frozenset({"patient_name", "phone"})
 _UI_LOG_RE = re.compile(r"^\[선택\] ([^:]+): (.*)$", re.S)

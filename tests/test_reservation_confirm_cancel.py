@@ -95,7 +95,7 @@ def test_edit_date_asks_date_again() -> None:
     card = _confirm_card(orch, fake)
     edit = _turn(orch, card, ui=("reservation_confirm", _value(card, "edit:")))
     asked = _turn(orch, edit, ui=("reservation_edit", _value(edit, "date:")))
-    assert asked["ui"].kind == "date"
+    assert asked["ui"].kind == "select" and asked["ui"].field == "date"
     slots = _turn(orch, asked, ui=("date", FUTURE2))
     assert slots["ui"].field == "time" and slots["ui"].options[0].value.startswith(FUTURE2)
 
@@ -226,7 +226,7 @@ def _change_to_card(orch, fake) -> dict[str, Any]:
     pick = _turn(orch, None, "예약 바꿔줘")
     assert pick["ui"].field == "reservation_change_pick"
     asked = _turn(orch, pick, ui=("reservation_change_pick", "5"))
-    assert asked["ui"].kind == "date" and "바꿀게요" in asked["reply"]
+    assert asked["ui"].kind == "select" and asked["ui"].field == "date" and "바꿀게요" in asked["reply"]
     slots = _turn(orch, asked, ui=("date", FUTURE2))
     card = _turn(orch, slots, ui=("time", f"{FUTURE2} 10:00"))
     assert card["ui"].field == "reservation_confirm" and "기존 예약" in card["reply"]

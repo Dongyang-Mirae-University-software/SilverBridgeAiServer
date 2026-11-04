@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -21,6 +21,18 @@ def with_demo_notice(text: str) -> str:
     if DEMO_NOTICE in text:
         return text
     return f"{text}\n{DEMO_NOTICE}" if text else DEMO_NOTICE
+
+
+def _date_choice_label(date_text: str, today: date | None = None) -> str:
+    """날짜 버튼 글자. "오늘 11월 4일(수)" / "내일 11월 5일(목)" / "11월 6일(금)"."""
+    target = datetime.strptime(date_text, "%Y-%m-%d").date()
+    base = today or datetime.now(_SEOUL_TZ).date()
+    text = f"{target.month}월 {target.day}일({_WEEKDAYS[target.weekday()]})"
+    if target == base:
+        return f"오늘 {text}"
+    if target == base + timedelta(days=1):
+        return f"내일 {text}"
+    return text
 
 
 def _date_label(date_text: str) -> str:

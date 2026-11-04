@@ -13,6 +13,8 @@ from app.utils.conversation import remove_personal_info
 CHANGE_DATE_OPTION = "__change_date__"
 # 빈 시간 조회가 실패했을 때 같은 날짜로 다시 불러오는 시간 버튼 값(2026-11-04).
 RETRY_SLOTS_OPTION = "__retry__"
+# 날짜 선택지 끝의 "달력에서 다른 날 고르기" 버튼 값 - 누르면 달력(kind=date)으로 다시 묻는다(2026-11-04).
+PICK_CALENDAR_OPTION = "__calendar__"
 _SEOUL_TZ = ZoneInfo("Asia/Seoul")
 
 _PHONE_RE = re.compile(r"(?<!\d)(01\d[-\s]?\d{3,4}[-\s]?\d{4})(?!\d)")
