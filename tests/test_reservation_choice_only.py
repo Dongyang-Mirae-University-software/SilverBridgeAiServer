@@ -54,6 +54,16 @@ class _Session:
             # 병원은 검색 결과 카드(toolData)의 버튼으로 고른다(FE ChatToolCard).
             assert self.prev and self.prev.get("tool") == "search_hospital"
             assert value in [row.get("hospital") for row in self.prev["data"]]
+        elif (
+            field == "date"
+            and ui is not None
+            and ui.kind == "select"
+            and value not in [o.value for o in ui.options]
+        ):
+            # 7일 버튼에 없는 날은 사용자가 [달력에서 다른 날 고르기]를 먼저 누른다 - 그러면 달력(kind=date)이 온다.
+            assert "__calendar__" in [o.value for o in ui.options], ui
+            calendar = self._turn("", ("date", "__calendar__"))
+            assert calendar["ui"].kind == "date" and calendar["ui"].field == "date", calendar["ui"]
         elif ui is not None and ui.kind == "select":
             # 화면에 떠 있는 선택지 중에서만 누른다(병원 카드·달력은 화면 컨트롤이라 예외).
             assert ui.field == field and value in [o.value for o in ui.options], (field, value, ui)
@@ -103,7 +113,7 @@ def test_ward_self_without_address_books_by_choices_only() -> None:
     assert _values(found) == [OTHER_REGION_OPTION]  # 고른 지역의 결과에도 다른 지역 버튼
 
     date_ask = s.pick("hospital_confirm", "서초내과")
-    assert date_ask["ui"].kind == "date"
+    assert date_ask["ui"].kind == "select" and date_ask["ui"].field == "date"
     time_ask = s.pick("date", FUTURE)
     assert time_ask["ui"].field == "time"
     card = s.pick("time", _values(time_ask)[0])
