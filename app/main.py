@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
+from app.core.companion_errors import register_companion_error_handler
 from app.core.response import error_response
 from app.core.security import require_api_key
 from app.database.base import Base
@@ -19,6 +20,7 @@ from app.database.session import engine
 from app.routers.analysis_router import router as analysis_router
 from app.routers.camera_router import router as camera_router
 from app.routers.chat_router import router as chat_router
+from app.routers.companion_router import router as companion_router
 from app.routers.game_router import router as game_router
 from app.routers.health_router import router as health_router
 from app.routers.live_stream_router import router as live_stream_router
@@ -143,3 +145,5 @@ app.include_router(live_stream_router, dependencies=[Depends(require_api_key)])
 app.include_router(live_ws_router)
 app.include_router(reservation_credential_router, dependencies=[Depends(require_api_key)])
 app.include_router(medication_ocr_router, dependencies=[Depends(require_api_key)])
+app.include_router(companion_router)  # 말벗: 자체 키(X-API-Key, COMPANION_API_KEY)를 라우터 안에서 붙인다
+register_companion_error_handler(app)
