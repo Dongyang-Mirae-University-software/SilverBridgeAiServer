@@ -462,7 +462,7 @@ class ChatService:
                     _LOG.warning("[CHAT-LLM-FAILED] %s", type(exc).__name__)
                     result = _mark_generation_failed(self._fallback_reply(
                         message, history, emergency=bool(route_info.get("emergency")), history_basis=not crisis_released,
-                        proxy=self._is_proxy(payload, proxy_text),
+                        proxy=self._is_proxy(payload, proxy_text), **self._router_hints(route_info),
                     ))
         except Exception as exc:
             # 예외 문구·스택에는 SQL 파라미터·요청 값이 섞일 수 있어 클래스명과 발생 위치만 남긴다.
@@ -1058,7 +1058,7 @@ class ChatService:
 
     def _fallback_reply(
         self, message: str, history: list[dict[str, str]], emergency: bool = False, history_basis: bool = True,
-        proxy: bool = False,
+        proxy: bool = False, arrest_hint: bool = False, urgent_condition: str | None = None,
     ) -> dict:
         """생성 실패 폴백. history_basis=False(위기 뒤 해제된 턴)면 앞 턴 자해 키워드로 위기 응답을 되살리지 않는다 -
         응급이면 일반 119 폴백. 이번 문장의 자해 키워드는 그대로 위기 응답이다."""
@@ -1099,6 +1099,21 @@ class ChatService:
                 "이상 징후가 있으면 증상이 언제부터 시작됐는지, 다른 동반 증상이 있는지 알려주세요. "
                 "이 답변은 일반적인 건강 정보 안내이며, 정확한 진단과 치료는 의료진 상담이 필요합니다."
             )
+
+        carer = proxy or MedicalLlmService.mentions_other_person(message)
+        if risk_level == "high" and intent == "emergency_guidance":
+            # 생성 실패·MedGemma 대기 초과(응급 3초)여도 응급 행동 줄(가슴압박·AED 등)은 빠지지 않게(2026-11-05 점검 H-1).
+            actions = MedicalLlmService.emergency_action_sentences(message, carer, arrest_hint=arrest_hint)
+            for _, sentence in actions:
+                reply = f"{reply}\n{sentence}"
+            if actions:
+                _LOG.info("[CHAT-SAFETY] emergency_action=%s path=fallback", ",".join(name for name, _ in actions))
+        elif risk_level != "high":
+            # 라우터가 고른 경계 질환(허용 목록) 문장 - 생성 실패여도 병 이름·오늘 진료·악화 신호는 남긴다(L-1).
+            urgent = MedicalLlmService.urgent_condition_sentence(urgent_condition)
+            if urgent:
+                reply = f"{reply}\n{urgent}"
+                _LOG.info("[CHAT-QUALITY] urgent_condition=%s path=fallback", urgent_condition)
 
         return {
             "reply": reply,
