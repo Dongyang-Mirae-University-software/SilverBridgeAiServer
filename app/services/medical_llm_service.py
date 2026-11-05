@@ -485,6 +485,9 @@ _MEDICATION_119_WORD = re.compile(
     r"\d+알|한알|두알|알씩|캡슐|정제|파스|연고|안약|인슐린"
 )
 _MEDICATION_119_ASK = re.compile(r"먹어도|드셔도|복용해도|끊어도|중단해도|먹으면|드시면|먹을까|먹으려|드시려|괜찮|되나|될까|되는지|돼요|좋은거|좋은가")
+# 기간 조건이 붙은 119 문장("며칠 넘게 지속되면 119") - 단계가 틀렸다(기간은 진료 기준, 119는 위험 신호 때만, 2026-11-05 v1 G12).
+# 상담 답(품질 후처리)에서만 뺀다. 위험 신호 조건("숨이 차면 119")은 남기고, 질문에 위험 신호 낱말이 있으면 뒤에서 표준 119 줄이 붙는다.
+_DURATION_119 = re.compile(r"며칠|일주일|\d+ ?(일|주)|계속되|지속되|이어지|오래|넘게")
 _SYMPTOM_WORDS = chat_keywords.MEDICATION_SYMPTOM_WORDS
 _GENERAL_SYMPTOM_WORDS = chat_keywords.GENERAL_SYMPTOM_WORDS
 
@@ -782,6 +785,23 @@ class MedicalLlmService:
         if _PEDIATRICS not in (advice or "") or _PEDIATRICS_ASKED.search(message or ""):
             return advice, False
         return advice.replace(_PEDIATRICS, hint or "내과"), True
+
+    @staticmethod
+    def drop_duration_119(reply: str) -> tuple[str, int]:
+        """기간 조건이 붙은 119 문장을 뺀다(상담 답 전용). (고친 답, 뺀 문장 수)."""
+        removed = 0
+        lines: list[str] = []
+        for line in (reply or "").split("\n"):
+            sentences = _SENTENCE_SPLIT.split(line)
+            kept = [x for x in sentences if not ("119" in x and _DURATION_119.search(x))]
+            if len(kept) == len(sentences):
+                lines.append(line)
+                continue
+            removed += len(sentences) - len(kept)
+            new_line = " ".join(kept).strip()
+            if new_line:
+                lines.append(new_line)
+        return ("\n".join(lines) if removed else reply), removed
 
     @staticmethod
     def drop_medication_119(message: str, reply: str) -> tuple[str, int]:
@@ -1287,6 +1307,8 @@ class MedicalLlmService:
         medication_119 = 0
         if quality:
             reply, medication_119 = self.drop_medication_119(message, reply)
+            reply, duration_119 = self.drop_duration_119(reply)
+            medication_119 += duration_119  # 로그 칸은 하나로(뺀 119 문장 수)
             urgent = self.urgent_condition_sentence(urgent_condition)
             if urgent:
                 # 라우터가 고른 경계 질환(허용 목록) - 병 이름·오늘 진료·악화 신호 한 줄(2026-11-04). 뒤의 병원 권유 보장은 이 문장으로 채워진다.

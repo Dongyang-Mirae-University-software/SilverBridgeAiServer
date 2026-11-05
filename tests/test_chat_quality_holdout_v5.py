@@ -83,3 +83,28 @@ def test_keep_119_for_non_medication_question() -> None:
 def test_prompt_instruction_wording_dropped() -> None:
     reply, removed = MedicalLlmService.drop_prompt_leak(f"성분이 겹칠 수 있어요.\n{_LEAKED_119}")
     assert removed == 1 and "라고 쓴다" not in reply
+
+
+# ---- 기간 조건 119 빼기 (2026-11-05, v1 G12) ---------------------------------------------------------
+
+from app.services import medical_llm_service as _mls  # noqa: E402
+
+
+def test_duration_conditioned_119_dropped() -> None:
+    for s in ("며칠 넘게 지속되거나 증상이 심해지면 119에 연락해 주세요.", "일주일 이상 계속되면 바로 119에 연락하세요."):
+        reply, removed = MedicalLlmService.drop_duration_119(f"이비인후과 진료를 권해드려요.\n{s}")
+        assert removed == 1 and "119" not in reply, s
+        assert "이비인후과" in reply
+
+
+def test_red_flag_conditioned_119_kept() -> None:
+    for s in ("증상이 심해지거나 호흡 곤란이 동반된다면 즉시 119에 연락해 주세요.", _mls._RED_FLAG_119_SENTENCE):
+        reply, removed = MedicalLlmService.drop_duration_119(f"내과 진료를 권해드려요.\n{s}")
+        assert removed == 0 and "119" in reply, s
+
+
+def test_no_fixed_sentence_matches_duration_119() -> None:
+    # 고정 문장 표에 기간 + 119 문장이 생기면 이 후처리가 지워 버린다 - 생기면 여기서 막는다.
+    for f in _mls.FIXED_SENTENCES:
+        for text in filter(None, (str(f), f.proxy)):
+            assert not ("119" in text and _mls._DURATION_119.search(text)), f.name
