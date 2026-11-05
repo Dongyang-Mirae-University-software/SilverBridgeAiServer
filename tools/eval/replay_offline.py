@@ -100,6 +100,18 @@ def planned_router_calls(items: list[dict], runs: int) -> int:
     return sum(len(it.get("history_user") or []) + 1 for it in items) * runs
 
 
+def planned_claude_calls(items: list[dict], runs: int, follow_up: bool) -> int:
+    """예상 Claude 호출 수 상한 - 라우터 + 예약 경로 문항의 예약 추출 + (켰으면) 이어서 물어볼 질문, 턴마다."""
+    total = 0
+    for it in items:
+        turns = len(it.get("history_user") or []) + 1
+        per_turn = 1 + (1 if follow_up else 0)
+        if ((it.get("expect") or {}).get("route")) == "reservation":
+            per_turn += 1
+        total += turns * per_turn
+    return total * runs
+
+
 def load_items(set_path: str, ids: str | None) -> list[dict]:
     data = json.loads(pathlib.Path(set_path).read_text(encoding="utf-8"))
     items = data["items"] if isinstance(data, dict) else data
@@ -132,11 +144,29 @@ class _CachedRouter:
         if self.mode != "live":
             self.stats["miss"] += 1
             raise RouterCacheMiss(key[:12])
-        self.budget.take()
-        out = self.real.route(message, history, user_context, prev_reservation=prev_reservation)
+        out = self.real.route(message, history, user_context, prev_reservation=prev_reservation)  # 상한은 guard_claude_calls 가 센다
         self.stats["live"] += 1
         self.cache[key] = out
         return out
+
+
+def guard_claude_calls(mode: str, budget: "CallBudget", stats: dict) -> None:
+    """ClaudeStructuredClient 의 모든 호출(라우터·예약 추출·이어서 물어볼 질문)을 지킨다.
+    stub·cache: 호출을 막고 시도를 센다(요약 blockedClaudeCalls - 예약 추출처럼 라우터 밖 호출은 실패한 채로 이어진다).
+    live: 단계와 상관없이 호출마다 상한을 쓴다(2026-11-05 점검 M-1 - 라우터만 세던 것)."""
+    from app.services import claude_structured_client as csc
+
+    original = csc.ClaudeStructuredClient.generate_structured_text
+
+    def guarded(self, system_prompt, user_prompt, schema=None, *, stage="claude", reserve_sec=0.0):
+        if mode != "live":
+            stats["blocked"] += 1
+            raise csc.StructuredCallError("replay_blocked")
+        budget.take()
+        stats["claude"] += 1
+        return original(self, system_prompt, user_prompt, schema, stage=stage, reserve_sec=reserve_sec)
+
+    csc.ClaudeStructuredClient.generate_structured_text = guarded
 
 
 def _prepare_env(args: argparse.Namespace) -> None:
@@ -146,7 +176,10 @@ def _prepare_env(args: argparse.Namespace) -> None:
     if not args.follow_up:
         os.environ["FOLLOW_UP_ENABLED"] = "false"  # 이어서 물어볼 질문(Haiku) 호출 0
     if args.router != "live":
-        os.environ.pop("ANTHROPIC_API_KEY", None)  # stub·cache 는 API 를 부를 수 없게
+        # stub·cache 는 API 를 부를 수 없게 - 지우지 않고 빈 값으로 넣는다. app.core.config 의 load_dotenv() 는 이미 있는
+        # 환경변수를 덮지 않으므로 .env 가 있는 저장소(gosky)에서도 키가 다시 채워지지 않는다(2026-11-05 점검 H-1).
+        os.environ["ANTHROPIC_API_KEY"] = ""
+        os.environ["CLAUDE_API_KEY"] = ""
 
 
 def _summary_row(item: dict, run: int, res: dict | None, err: str | None, miss: bool) -> dict:
@@ -162,13 +195,15 @@ def _summary_row(item: dict, run: int, res: dict | None, err: str | None, miss: 
 def cmd_run(args: argparse.Namespace) -> int:
     out_path = outside_repo(args.out)
     cache_path = outside_repo(args.cache_file) if args.cache_file else None
+    summary_path = outside_repo(args.summary) if args.summary else None  # 본문은 없지만 저장소에 쌓이지 않게(L-1)
     items = load_items(args.set, args.ids)
-    planned = planned_router_calls(items, args.runs)
-    print(f"문항 {len(items)} × 회차 {args.runs}, 라우터 모드 {args.router}, 예상 라우터 호출 최대 {planned}회", flush=True)
+    planned = planned_claude_calls(items, args.runs, args.follow_up)
+    print(f"문항 {len(items)} × 회차 {args.runs}, 라우터 모드 {args.router}, 예상 Claude 호출 최대 {planned}회"
+          f"(라우터 {planned_router_calls(items, args.runs)}회 포함)", flush=True)
     if args.router == "live":
         require_key(args.key_file)
         if planned > args.max_router_calls:
-            print(f"예상 호출이 상한 {args.max_router_calls}회를 넘어 시작하지 않습니다(--max-router-calls 로 올리거나 문항을 줄이세요)")
+            print(f"예상 Claude 호출이 상한 {args.max_router_calls}회를 넘어 시작하지 않습니다(--max-router-calls 로 올리거나 문항을 줄이세요)")
             return 2
     if args.router in ("cache", "live") and cache_path is None:
         raise SystemExit("cache·live 모드에는 --cache-file 이 필요합니다(저장소 밖)")
@@ -187,7 +222,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     Base.metadata.create_all(bind=engine)
 
     budget = CallBudget(args.max_router_calls)
-    stats = {"hit": 0, "miss": 0, "live": 0}
+    stats = {"hit": 0, "miss": 0, "live": 0, "blocked": 0, "claude": 0}
+    guard_claude_calls(args.router, budget, stats)
     current: dict = {}
     cache: dict = {}
     if args.router == "stub":
@@ -234,10 +270,14 @@ def cmd_run(args: argparse.Namespace) -> int:
         if cache_path and args.router == "live":
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
-        if args.summary:
-            pathlib.Path(args.summary).write_text(json.dumps({"stats": stats, "routerCallsUsed": budget.used, "rows": summary},
-                                                             ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"끝: 결과 {len(summary)}건, 라우터 캐시 적중 {stats['hit']}·누락 {stats['miss']}·실제 호출 {stats['live']}회", flush=True)
+        if summary_path:
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_path.write_text(json.dumps({"stats": stats, "claudeCallsUsed": budget.used, "blockedClaudeCalls": stats["blocked"],
+                                                "rows": summary}, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"끝: 결과 {len(summary)}건, 라우터 캐시 적중 {stats['hit']}·누락 {stats['miss']}·실제 라우터 {stats['live']}회, "
+          f"Claude 호출 {stats['claude']}회·차단 {stats['blocked']}회", flush=True)
+    if stats["blocked"]:
+        print("주의: stub·cache 모드에서 Claude 호출 시도가 있었고 막았다(예약 추출 등) - 해당 문항 결과는 라우터 밖 판정이 실패한 상태다")
     return 1 if stats["miss"] and not args.allow_miss else 0
 
 

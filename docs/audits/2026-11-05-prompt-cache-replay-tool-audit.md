@@ -22,3 +22,10 @@
 - 🟢 L-1 `--summary` 경로는 저장소 안도 허용(본문 없음이라 위험은 낮다 - 일관성 차원).
 - 🟢 L-2 운영 확인 미완: 15:31 재시작 뒤 실제 상담 0건이라, 캐시 표시 + 서버 대체 모델(`fallbacks`) + 구조화 출력 조합을 API가 받아들이는지 아직 운영 로그로 확인되지 않았다. 첫 상담 뒤 `[CLAUDE-USAGE]`(cache_write·cache_read)와 `[CHAT-ROUTER-FAILED]`를 본다 - 거부되면 `CLAUDE_PROMPT_CACHE=false`로 끈다.
 - 🟢 L-3 테스트 공백: `.env` 재로딩과 stub 전체 경로의 Claude 호출 0회를 고정하는 테스트가 없다.
+
+## 조치 (2026-11-05, `fix/replay-tool-zero-api`, API 없이 검증)
+
+- H-1: stub·cache 모드는 `ANTHROPIC_API_KEY`·`CLAUDE_API_KEY`를 지우지 않고 **빈 값으로** 넣는다(`load_dotenv`는 이미 있는 값을 덮지 않는다). 그리고 `ClaudeStructuredClient.generate_structured_text`를 감싸 모든 Claude 호출 시도를 막고 센다(요약 `blockedClaudeCalls`).
+- M-1: live 상한은 Claude 호출 전체(라우터·예약 추출·이어서 물어볼 질문)를 세고, 예상 호출 수에 예약 경로 문항의 추출 몫을 더한다.
+- L-1: `--summary`도 저장소 밖만. L-3: 테스트 5건(빈 키가 `.env`에 덮이지 않음·stub 차단 집계·live 상한이 단계 전체를 셈·예상 수·요약 경로).
+- 확인: 관련 테스트 1375 통과, 결함 주입 5종 모두 검출. DGX에서 가짜 키 `.env`를 둔 복사본으로 stub 재생(v7 안전 + 예약 73문항): Claude 호출 0, 결과 이전과 같음(응급 27/27·자해 11/12·되묻기 30/30).

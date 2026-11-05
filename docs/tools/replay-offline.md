@@ -16,7 +16,8 @@
 
 - 회차 1: MedGemma는 같은 입력이면 같은 답이라, 회차를 늘리면 라우터 흔들림만 늘어난다. 흔들림은 아래 `router-variance`로 소수 문항만 잰다.
 - 이어서 물어볼 질문(Haiku) 끔: 판정과 무관한 보조 값. 필요하면 `--follow-up`.
-- `stub`·`cache` 모드는 실행 중 `ANTHROPIC_API_KEY`를 지워 실수로도 부를 수 없게 한다.
+- `stub`·`cache` 모드는 `ANTHROPIC_API_KEY`·`CLAUDE_API_KEY`를 빈 값으로 넣어(`.env`가 다시 채우지 못한다) 클라이언트가 준비되지 않게 하고, 모든 Claude 호출 시도를 막아 요약 `blockedClaudeCalls`로 센다. `.env`가 있는 저장소에서 돌려도 0회다.
+- `live` 상한은 라우터·예약 추출·이어서 물어볼 질문을 모두 센다.
 
 ## 사용 예 (DGX, 저장소 밖에 출력)
 
