@@ -27,7 +27,7 @@ def test_rule8_second_sentence_has_concrete_criterion() -> None:
     assert "구체적인 기준 하나를 넣는다" in rule8
     assert "며칠 넘게" in rule8 and "얼마 이상" in rule8
     assert "위험 신호가 함께 있을 때만" in rule8  # 119 규칙 그대로
-    assert "증상이 아닌 생활 관리·집 안전 질문" in rule8 and "구체적인 방법 하나" in rule8
+    assert "증상이 아닌 생활 관리·집 안전 질문" in rule8 and "구체적인 방법 하나만 짧은 한 문장으로" in rule8
 
 
 def test_rule4_reason_and_whom_without_verdict() -> None:
