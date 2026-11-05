@@ -91,6 +91,14 @@ _ARREST_WORDS = re.compile(
 _ARREST_NOT_NOW = re.compile(r"^(을|ㄹ)?(것같|것처럼|듯|뻔|까봐|까요)|^을(것|거|까|듯|뻔)|^어질|^어지려|^었다가|^다가|^던")
 # "안 깼어요"·"못 깨어났어요"는 회복이 아니다.
 _ARREST_RECOVERED = re.compile(r"(?<![안못])(깼|깨셨|깨어났|깨어나셨|깨났)|(정신|의식)이?(돌아왔|돌아오셨|들었|드셨|들어요|드세요)")
+# 지금 의식이 있다는 말(2026-11-05 점검 M-1): "말은 해요"·"대답은 하세요"·"숨은 쉬어요". 눈을 뜬 것은 넣지 않는다 -
+# 심정지·발작에서도 눈은 뜨고 있을 수 있다("눈은 뜨고 있는데 초점이 없어요"는 심정지 문장이다). 부정("말을 못 해요"·
+# "숨을 안 쉬어요"·"움직이지 않아요")은 낱말 사이에 안·못·않이 끼어 걸리지 않게 붙여 쓴 꼴만 본다(공백 뺀 문장).
+_ARREST_AWAKE = re.compile(
+    r"(말|말씀|대답)(은|을|도|이)?(잘)?(해요|하세요|하셔|하시|해서|하는데|합니다|한다|하고있)|"
+    r"숨(은|을|도)?(쉬어요|쉬세요|쉬셔|쉬고있|쉬는데|쉰다)|움직(여요|이세요|이셔)|"
+    r"(정신|의식)(은|이)(있어요|있으세요|있으셔|있는데|또렷)"
+)
 
 
 class _ArrestSignal:
@@ -98,7 +106,7 @@ class _ArrestSignal:
 
     def search(self, text: str):
         c = _FIGURATIVE.sub(" ", text or "")
-        if _ARREST_RECOVERED.search(c):
+        if _ARREST_RECOVERED.search(c) or _ARREST_AWAKE.search(c):
             return None
         for m in _ARREST_WORDS.finditer(c):
             if not _ARREST_NOT_NOW.search(c[m.end():m.end() + 8]):
@@ -110,10 +118,10 @@ ARREST_SIGNAL = _ArrestSignal()
 
 
 def arrest_conscious(text: str) -> bool:
-    """의식이 있다는 말(추측·회복)이 있는가 - 라우터가 심정지로 봐도 가슴압박 줄을 붙이지 않는 근거(2026-11-04).
+    """의식이 있다는 말(추측·회복·지금 의식 있음)이 있는가 - 라우터가 심정지로 봐도 가슴압박 줄을 붙이지 않는 근거(2026-11-04).
     공백 뺀 문장을 받는다."""
     c = _FIGURATIVE.sub(" ", text or "")
-    if _ARREST_RECOVERED.search(c):
+    if _ARREST_RECOVERED.search(c) or _ARREST_AWAKE.search(c):
         return True
     return any(_ARREST_NOT_NOW.search(c[m.end():m.end() + 8]) for m in _ARREST_WORDS.finditer(c))
 
