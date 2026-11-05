@@ -880,6 +880,8 @@ class MedicalLlmService:
             return False
         if any(rule.ask.search(compact) for rule in _DRUG_DIRECT_RULES + _LIFESTYLE_RULES):
             return False
+        if chat_keywords.is_health_lifestyle_question(message):
+            return False  # 생활 관리·집 안전 질문은 "언제부터·얼마나" 되묻기 대상이 아니다(2026-11-05 기능 점검 F-2)
         if _FOLLOWUP_CONTEXT.search(compact) or _FOLLOWUP_DISTRESS.search(compact) or _FOLLOWUP_NOT_SYMPTOM.search(compact):
             return False
         if len(compact) > _FOLLOWUP_MILD_MAX_LEN and _FOLLOWUP_MILD.search(compact):
