@@ -330,7 +330,7 @@ _URGED_VISIT = re.compile(r"미루지|되도록 ?(빨리|일찍)|빨리 진료|�
 _PERSISTING_SENTENCE = "말씀하신 상태라면 미루지 말고 {department} 진료를 받아 보세요."
 # 2026-10-30 I-3: 시스템 프롬프트 문구가 답에 그대로 나온 문장(E3 1회 "…119 문장은 붙이지 않습니다"). 사용자에게 쓸 일이 없는 말만 고른다.
 _PROMPT_LEAK = re.compile(
-    r"규칙 ?\d|119 ?문장은|\[(응급 키워드|권장 진료과|현재 증상|사용자 (정보|질문)|최근 대화|의도)|advice|empathy|symptoms|features|JSON|json|예시 ?\d|형식만 보여|자리표시|키 이름|진료과 힌트"
+    r"규칙 ?\d|119 ?문장은|\[(응급 키워드|권장 진료과|현재 증상|사용자 (정보|질문)|최근 대화|의도)|advice|empathy|symptoms|features|JSON|json|예시 ?\d|형식만 보여|자리표시|키 이름|진료과 힌트|라고 쓴다|라고 써라|라고 쓰고"
 )
 
 
@@ -478,6 +478,16 @@ _ALLOWANCE_NEGATED = re.compile(r"괜찮지 않|괜찮은 (것|게) 아니|안 �
 _HOSPITAL_WORDS = re.compile(r"병원|진료|응급실|119")
 _MEDICATION_WORD = re.compile(r"약|항생제|진통제|수면제|소화제|해열제|아스피린")
 _MEDICATION_ASK = re.compile(r"먹어도|드셔도|복용해도|끊어도|중단해도|먹으면|드시면|먹을까")
+# 약 문의 답의 119 빼기(drop_medication_119)만 쓰는 넓은 판별(2026-11-05 v1 W04 "비타민D … 5알씩 먹으려구요"·약 이름만 있는 질문 -
+# 규칙 4의 과다 복용 119 줄을 모델이 옮겨 썼는데 위 좁은 판별에 안 걸려 남았다). 다른 판정은 위 좁은 목록을 그대로 쓴다.
+_MEDICATION_119_WORD = re.compile(
+    r"약|항생제|진통제|수면제|소화제|해열제|아스피린|와파린|메트포르민|스타틴|비타민|영양제|보충제|오메가|칼슘제|철분제|유산균|"
+    r"\d+알|한알|두알|알씩|캡슐|정제|파스|연고|안약|인슐린"
+)
+_MEDICATION_119_ASK = re.compile(r"먹어도|드셔도|복용해도|끊어도|중단해도|먹으면|드시면|먹을까|먹으려|드시려|괜찮|되나|될까|되는지|돼요|좋은거|좋은가")
+# 기간 조건이 붙은 119 문장("며칠 넘게 지속되면 119") - 단계가 틀렸다(기간은 진료 기준, 119는 위험 신호 때만, 2026-11-05 v1 G12).
+# 상담 답(품질 후처리)에서만 뺀다. 위험 신호 조건("숨이 차면 119")은 남기고, 질문에 위험 신호 낱말이 있으면 뒤에서 표준 119 줄이 붙는다.
+_DURATION_119 = re.compile(r"며칠|일주일|\d+ ?(일|주)|계속되|지속되|이어지|오래|넘게")
 _SYMPTOM_WORDS = chat_keywords.MEDICATION_SYMPTOM_WORDS
 _GENERAL_SYMPTOM_WORDS = chat_keywords.GENERAL_SYMPTOM_WORDS
 
@@ -777,11 +787,28 @@ class MedicalLlmService:
         return advice.replace(_PEDIATRICS, hint or "내과"), True
 
     @staticmethod
+    def drop_duration_119(reply: str) -> tuple[str, int]:
+        """기간 조건이 붙은 119 문장을 뺀다(상담 답 전용). (고친 답, 뺀 문장 수)."""
+        removed = 0
+        lines: list[str] = []
+        for line in (reply or "").split("\n"):
+            sentences = _SENTENCE_SPLIT.split(line)
+            kept = [x for x in sentences if not ("119" in x and _DURATION_119.search(x))]
+            if len(kept) == len(sentences):
+                lines.append(line)
+                continue
+            removed += len(sentences) - len(kept)
+            new_line = " ".join(kept).strip()
+            if new_line:
+                lines.append(new_line)
+        return ("\n".join(lines) if removed else reply), removed
+
+    @staticmethod
     def drop_medication_119(message: str, reply: str) -> tuple[str, int]:
         """약 복용 문의 답에서 119 문장을 뺀다(프롬프트 규칙 4를 코드로 보장 - 2026-10-29 qa.F1 "혈압이 다시 떨어지면 119" 1/3).
         과다 복용을 말한 질문은 그대로 둔다. 응급 답은 호출하는 쪽(품질 후처리 대상 밖)에서 빠진다. (고친 답, 뺀 문장 수)."""
         compact = re.sub(r"\s+", "", message or "")
-        if not (_MEDICATION_WORD.search(compact) and _MEDICATION_ASK.search(compact)) or _OVERDOSE_TOLD.search(message or ""):
+        if not (_MEDICATION_119_WORD.search(compact) and _MEDICATION_119_ASK.search(compact)) or _OVERDOSE_TOLD.search(message or ""):
             return reply, 0
         removed = 0
         lines: list[str] = []
@@ -1280,6 +1307,8 @@ class MedicalLlmService:
         medication_119 = 0
         if quality:
             reply, medication_119 = self.drop_medication_119(message, reply)
+            reply, duration_119 = self.drop_duration_119(reply)
+            medication_119 += duration_119  # 로그 칸은 하나로(뺀 119 문장 수)
             urgent = self.urgent_condition_sentence(urgent_condition)
             if urgent:
                 # 라우터가 고른 경계 질환(허용 목록) - 병 이름·오늘 진료·악화 신호 한 줄(2026-11-04). 뒤의 병원 권유 보장은 이 문장으로 채워진다.
