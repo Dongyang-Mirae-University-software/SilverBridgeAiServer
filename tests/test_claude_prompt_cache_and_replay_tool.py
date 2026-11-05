@@ -151,15 +151,81 @@ class _FakeReal:
 
 def test_cached_router_hit_miss_and_live_fill() -> None:
     real, stats, cache = _FakeReal(), {"hit": 0, "miss": 0, "live": 0}, {}
-    budget = ro.CallBudget(1)
-    live = ro._CachedRouter(real, cache, "live", budget, stats)
+    live = ro._CachedRouter(real, cache, "live", ro.CallBudget(5), stats)
     live.route("문장", [], None)  # 실제 호출 1회 + 기록
     live.route("문장", [], None)  # 기록 재사용
     assert real.calls == 1 and stats == {"hit": 1, "miss": 0, "live": 1}
-    with pytest.raises(ro.BudgetExceeded):
-        live.route("새 문장", [], None)  # 상한 1회를 넘김
     cached = ro._CachedRouter(real, cache, "cache", ro.CallBudget(0), stats)
     assert cached.route("문장", [], None)["engine"] == "claude"
     with pytest.raises(ro.RouterCacheMiss):
         cached.route("기록에 없는 문장", [], None)
     assert real.calls == 1  # cache 모드는 절대 부르지 않는다
+
+
+# ---- 2026-11-05 점검 H-1·M-1·L-1 ----------------------------------------------------------------------------
+
+@pytest.fixture()
+def restore_claude_method():
+    from app.services import claude_structured_client as csc
+
+    original = csc.ClaudeStructuredClient.generate_structured_text
+    yield csc
+    csc.ClaudeStructuredClient.generate_structured_text = original
+
+
+def test_stub_and_cache_block_every_claude_call(restore_claude_method) -> None:
+    csc = restore_claude_method
+    stats = {"blocked": 0, "claude": 0}
+    ro.guard_claude_calls("stub", ro.CallBudget(100), stats)
+    client = csc.ClaudeStructuredClient.__new__(csc.ClaudeStructuredClient)
+    for stage in ("router", "reservation_extract", "follow_up"):
+        with pytest.raises(csc.StructuredCallError):
+            client.generate_structured_text("s", "u", None, stage=stage)
+    assert stats == {"blocked": 3, "claude": 0}
+
+
+def test_live_budget_counts_every_claude_stage(restore_claude_method, monkeypatch) -> None:
+    csc = restore_claude_method
+    monkeypatch.setattr(csc.ClaudeStructuredClient, "generate_structured_text", lambda self, *a, **k: "{}")
+    stats = {"blocked": 0, "claude": 0}
+    budget = ro.CallBudget(2)
+    ro.guard_claude_calls("live", budget, stats)
+    client = csc.ClaudeStructuredClient.__new__(csc.ClaudeStructuredClient)
+    client.generate_structured_text("s", "u", None, stage="router")
+    client.generate_structured_text("s", "u", None, stage="reservation_extract")  # 예약 추출도 상한에 든다
+    with pytest.raises(ro.BudgetExceeded):
+        client.generate_structured_text("s", "u", None, stage="follow_up")
+    assert stats["claude"] == 2 and budget.used == 2
+
+
+def test_planned_claude_calls_include_reservation_and_follow_up() -> None:
+    items = [{"id": "a", "q": "x", "expect": {"route": "reservation"}, "history_user": ["1"]},
+             {"id": "b", "q": "y", "expect": {"route": "symptom"}, "history_user": []}]
+    assert ro.planned_claude_calls(items, 1, follow_up=False) == 2 * 2 + 1  # 예약 문항은 턴마다 라우터 + 추출
+    assert ro.planned_claude_calls(items, 1, follow_up=True) == 2 * 3 + 2
+
+
+def test_summary_must_be_outside_repo(tmp_path) -> None:
+    s = tmp_path / "set.json"
+    s.write_text(json.dumps({"items": [{"id": "a", "q": "x", "expect": {}}]}), encoding="utf-8")
+    with pytest.raises(SystemExit):
+        ro.main(["run", "--set", str(s), "--out", str(tmp_path / "o.json"), "--summary", str(REPO / "docs" / "s.json")])
+
+
+def test_dotenv_cannot_refill_key_in_stub_mode(tmp_path, monkeypatch) -> None:
+    """.env 가 있어도 stub·cache 모드는 키가 빈 값으로 남는다(load_dotenv 는 이미 있는 값을 덮지 않는다)."""
+    from dotenv import load_dotenv
+
+    env = tmp_path / ".env"
+    env.write_text("ANTHROPIC_API_KEY=fake-for-test\nCLAUDE_API_KEY=fake-too\n", encoding="utf-8")
+    import argparse
+    import os
+
+    # _prepare_env 가 바꾸는 값을 먼저 등록해 두면 테스트가 끝날 때 원래대로 돌아간다(다른 테스트로 새지 않게).
+    for var in ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "DATABASE_URL", "FOLLOW_UP_ENABLED", "STREAM_STATE_BACKEND", "HF_HUB_OFFLINE"):
+        monkeypatch.setenv(var, os.environ.get(var, "x"))
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    monkeypatch.delenv("CLAUDE_API_KEY")
+    ro._prepare_env(argparse.Namespace(follow_up=False, router="stub"))
+    load_dotenv(env)  # config.py 가 하는 일과 같다
+    assert os.environ["ANTHROPIC_API_KEY"] == "" and os.environ["CLAUDE_API_KEY"] == ""
