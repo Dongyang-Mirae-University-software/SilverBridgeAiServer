@@ -137,6 +137,9 @@ class Settings(BaseModel):
     # 라우터·예약 추출 Claude 호출의 출력 상한(생각 토큰 포함, 2026-10-25). MedGemma MAX_NEW_TOKENS(512)와 따로 둔다 -
     # opus 5.5는 생각을 끌 수 없어 위기 문장에서 생각 블록이 512를 다 써 답이 잘렸다. 범위 밖 값은 기본값으로 대체한다.
     claude_max_tokens: int = _as_int_in_range("CLAUDE_MAX_TOKENS", 2048, 256, 8192)
+    # 라우터·이어서 물어볼 질문·예약 추출의 고정 지시문(system)에 프롬프트 캐시 표시(5분). 같은 지시문 호출이 5분 안에 다시 오면
+    # 입력 단가의 약 5%로 읽는다(첫 기록은 1.25배). 상담이 아주 드물어 적중률이 낮으면 false 로 끈다(2026-11-05).
+    claude_prompt_cache: bool = _as_bool("CLAUDE_PROMPT_CACHE", True)
     # 약 봉투 OCR(POST /api/v1/medication/ocr). 키는 위 ANTHROPIC_API_KEY 를 같이 쓴다.
     # 모델은 2026-10-22 측정으로 sonnet 확정 - haiku 는 없는 약을 지어내 금지(기동 시 sonnet 으로 대체).
     medication_ocr_enabled: bool = _as_bool("MEDICATION_OCR_ENABLED", True)
