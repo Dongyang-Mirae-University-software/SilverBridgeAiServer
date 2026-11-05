@@ -35,7 +35,7 @@ def test_rule4_reason_and_whom_without_verdict() -> None:
     assert "늘리거나 줄이거나 끊으라고도 하지 마라" in rule4
     assert "왜 조심해야 하는지" in rule4 and "약사나 의사에게" in rule4
     assert "119 문장은 붙이지 않는다" in rule4
-    assert "이미 약을 더 드셨다고 하면" in rule4
+    assert "이미 정해진 양보다 더 먹었다고 직접 말한 경우에만" in rule4
 
 
 def test_rule10_units() -> None:
@@ -52,3 +52,33 @@ def test_examples_two_sentences_no_119_no_verdict() -> None:
     for ex in (ex1, ex2):
         advice = ex.split('"advice": "')[1].split('"')[0]
         assert advice.count(".") == 2  # 두 문장
+
+
+# ---- 약 문의 답 119 빼기 넓힘 · 지시 문구 노출 빼기 (2026-11-05, v1 W04) -------------------------------
+
+from app.services.medical_llm_service import MedicalLlmService  # noqa: E402
+
+_LEAKED_119 = "약을 더 드시면 몸이 이상해지면 바로 119에 연락하라고 쓴다."
+_PLAIN_119 = "약을 더 드신 뒤 몸에 이상이 생기면 바로 119에 연락해 주세요."
+
+
+def test_drop_119_for_supplement_and_drug_name_questions() -> None:
+    for q in ("비타민D 하루 5알씩 먹으려구요 괜찮을까요", "와파린 먹는데 나물 매일 먹어도 괜찮은가요"):
+        reply, removed = MedicalLlmService.drop_medication_119(q, f"정리했어요.\n{_PLAIN_119}")
+        assert removed == 1 and "119" not in reply, q
+
+
+def test_keep_119_when_overdose_told() -> None:
+    q = "혈압약을 두 알 더 먹었는데 괜찮을까요"
+    reply, removed = MedicalLlmService.drop_medication_119(q, f"정리했어요.\n{_PLAIN_119}")
+    assert removed == 0 and "119" in reply
+
+
+def test_keep_119_for_non_medication_question() -> None:
+    reply, removed = MedicalLlmService.drop_medication_119("계단 오르면 숨이 차요", f"정리했어요.\n{_PLAIN_119}")
+    assert removed == 0
+
+
+def test_prompt_instruction_wording_dropped() -> None:
+    reply, removed = MedicalLlmService.drop_prompt_leak(f"성분이 겹칠 수 있어요.\n{_LEAKED_119}")
+    assert removed == 1 and "라고 쓴다" not in reply
