@@ -111,6 +111,7 @@ class ClaudeStructuredClient:
                     continue
                 raise StructuredCallError("connection") from exc
 
+        self._log_usage(stage, response)
         if response.stop_reason == "refusal":
             raise StructuredCallError("refusal")
         if response.stop_reason == "max_tokens":
@@ -121,13 +122,36 @@ class ClaudeStructuredClient:
             raise StructuredCallError("empty")
         return text
 
+    def _system_blocks(self, system_prompt: str) -> str | list[dict]:
+        text = system_prompt.strip()
+        if not getattr(self._settings, "claude_prompt_cache", True):
+            return text
+        return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
+
+    @staticmethod
+    def _log_usage(stage: str, response: object) -> None:
+        """호출마다 토큰 수만 남긴다(본문·지시문 없음) - 캐시 적중을 운영 로그로 확인하는 근거(2026-11-05)."""
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return
+        _LOG.info(
+            "[CLAUDE-USAGE] stage=%s in=%s out=%s cache_read=%s cache_write=%s",
+            stage,
+            getattr(usage, "input_tokens", None),
+            getattr(usage, "output_tokens", None),
+            getattr(usage, "cache_read_input_tokens", None) or 0,
+            getattr(usage, "cache_creation_input_tokens", None) or 0,
+        )
+
     def _request_kwargs(self, system_prompt: str, user_prompt: str, schema: dict | None) -> dict:
         model = self._state.model_name
         kwargs: dict = {
             "model": model,
             # MedGemma 의 MAX_NEW_TOKENS 와 따로 둔다(생각 토큰 포함 상한, CLAUDE_MAX_TOKENS).
             "max_tokens": self._settings.claude_max_tokens,
-            "system": system_prompt.strip(),
+            # 고정 지시문은 블록 하나로 보내고 끝에 캐시 표시 - 요청마다 바뀌는 값(문장·이력·날짜)은 user 쪽에만 둔다.
+            # 512토큰 미만 지시문은 표시가 있어도 조용히 캐시되지 않는다(오류 없음).
+            "system": self._system_blocks(system_prompt),
             "messages": [{"role": "user", "content": user_prompt.strip()}],
             # 분류·추출은 짧고 빠르게. 생각 깊이는 effort로만 조절한다(opus 5.5는 thinking을 끌 수 없다). 후보 3종 모두 지원.
             "output_config": {"effort": "low", **({"format": {"type": "json_schema", "schema": schema}} if schema else {})},
