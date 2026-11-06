@@ -71,12 +71,64 @@ def _plain(text: str) -> str:
     return _FIGURATIVE.sub(" ", compact(text))
 
 
+# 라우터 실패 때만(fallback_emergency_signals) 보는 응급 표현(2026-11-06 라우터 실패 점검 H-1 - 시험지 응급 80개 중 21개가 키워드 경로에서
+# 응급이 아니었다: 사이에 낱말이 끼거나("가슴을 누가 쥐어짜") 활용형이 다르거나("거품 물고"·"목에 걸림") 수치("혈당 40")).
+# 라우터가 실패하면 응급 판단은 이 모듈뿐이다. 유형 단위의 짧은 거리 패턴만 둔다(문장 맞춤 금지). (이름, 패턴) - 공백 뺀 문장.
+_GAP = r"[^.!?。]"
+EMERGENCY_PATTERNS = (
+    ("흉통:쥐어짜", re.compile(rf"가슴{_GAP}{{0,8}}쥐어짜")),
+    ("무반응:깨워도", re.compile(rf"(깨워도|깨우는데|흔들어도|불러도|꼬집어도){_GAP}{{0,8}}((안|못)일어(?!나는|나서)|그대로|미동|가만히|꿈쩍)")),
+    ("무반응:늘어짐", re.compile(r"축늘어|미동도없|미동도안")),
+    ("무호흡:숨소리", re.compile(rf"숨소리가?{_GAP}{{0,4}}안들")),
+    ("무호흡:가슴", re.compile(rf"가슴이?{_GAP}{{0,4}}(안움직|오르락내리락을?안)")),
+    ("청색증", re.compile(rf"입술이{_GAP}{{0,3}}(파래|파랗|퍼래|퍼렇|새파)")),
+    ("호흡곤란", re.compile(r"숨이(잘|좀|제대로)안쉬")),
+    ("아나필락시스", re.compile(rf"(혀|입술|목구멍|얼굴){_GAP}{{0,8}}(붓|부어|부었){_GAP}{{0,12}}(숨|호흡)")),
+    ("출혈", re.compile(rf"피(가|를)?{_GAP}{{0,6}}(안멈|멈추지않|멈추질않)")),
+    ("토혈", re.compile(rf"피를{_GAP}{{0,8}}(토하|토했|토해)")),
+    ("뇌졸중:입", re.compile(rf"입이{_GAP}{{0,10}}돌아(갔|가)")),
+    ("뇌졸중:말", re.compile(rf"(말|발음)(이|도){_GAP}{{0,5}}어눌|(말|발음)도(좀|자꾸)?꼬(이|여)|말이잘안나")),
+    # 한쪽 힘 빠짐은 "갑자기"가 있거나 같은 쪽 팔·다리가 함께일 때만("무릎 수술 후 오른쪽 다리에 힘이 없어요"는 아니다).
+    ("뇌졸중:한쪽", re.compile(rf"갑자기{_GAP}{{0,12}}(오른|왼)쪽?(팔|다리){_GAP}{{0,15}}힘이{_GAP}{{0,3}}(빠지|빠져|빠졌|없어|없고)|(오른|왼)쪽?팔{_GAP}{{0,10}}(오른|왼)?쪽?다리{_GAP}{{0,8}}힘이{_GAP}{{0,3}}(빠지|빠져|빠졌|없어|없고)")),
+    ("경련", re.compile(r"거품(을)?물")),
+    ("의식변화", re.compile(rf"갑자기{_GAP}{{0,20}}(못알아|헛소리|횡설수설|눈이풀)")),
+    ("실신전조", re.compile(rf"갑자기{_GAP}{{0,10}}(식은땀|눈앞이캄캄|눈앞이깜깜)")),
+)
+# 저혈당 수치(혈당 70 미만) - "혈당이 40밖에", "혈당 55". 세 자리(혈당 300)는 아니다.
+# 수치만 말한 경우("혈당이 50 정도 나와요")는 단 음식 안내 상담이다 - 떨림·식은땀·멍함 같은 증상이 함께일 때만 응급.
+_LOW_GLUCOSE_SYMPTOM = re.compile(r"떨|식은땀|멍|어지|정신|의식|쓰러|이상해|기운이없|힘이없|횡설")
+_LOW_GLUCOSE = re.compile(r"혈당(이|가|수치가|수치|이요)?(\d{1,2})(?!\d)")
+# 질식 낱말 활용형("목에 걸림"·"목에 걸렸어") - 알약 예외는 "목에걸려"와 같게 본다.
+_CHOKE_FORMS = ("목에걸려", "목에걸림", "목에걸렸")
+# 미리 걱정하는 말(2026-11-06 점검 M-1 - "넘어지면 못 일어나실까봐 걱정"이 응급이 됐다): 이 키워드 바로 뒤가 가정·걱정 꼴이면 뺀다.
+_ALMOST_AFTER = re.compile(r"^[가-힣]{0,3}뻔")
+_WORRY_SENSITIVE = ("못일어나", "쓰러지", "쓰러져", "쓰러짐")
+_WORRY_AFTER = re.compile(r"^[가-힣]{0,3}(까봐|까싶|까걱정|면어떡|면어쩌|면어떻|지않게|지않도록|ㄹ때|면뭘)")
+
+
 def emergency_signals(text: str) -> list[str]:
-    """문장에 든 응급 키워드(공백 뺀 소문자 문장에 부분 일치). 비어 있지 않으면 응급이다."""
+    """문장에 든 응급 키워드(공백 뺀 소문자 문장에 부분 일치). 비어 있지 않으면 응급이다. 라우터 성공·실패 모두 쓴다."""
     c = _plain(text)
     hits = [keyword for keyword in EMERGENCY_KEYWORDS if keyword in c]
+    for keyword in _WORRY_SENSITIVE:
+        if keyword in hits and all(_WORRY_AFTER.search(c[m.end():]) for m in re.finditer(keyword, c)):
+            hits.remove(keyword)
     if "목에걸려" in hits and _PILL_FORM.search(c) and not _AIRWAY_DISTRESS.search(c) and not _CHOKING_FOOD.search(c):
         hits.remove("목에걸려")
+    return hits
+
+
+def fallback_emergency_signals(text: str) -> list[str]:
+    """라우터가 실패했을 때만 더 보는 응급 신호(거리 패턴·저혈당 수치 + 증상·질식 활용형). 라우터가 정상이면 쓰지 않는다 -
+    라우터의 응급 판단·위기 해제·되묻기 경계는 그대로 두고, 라우터가 없을 때 놓치던 응급만 잡는다(2026-11-06 점검 H-1)."""
+    c = _plain(text)
+    hits = [name for name, pattern in EMERGENCY_PATTERNS
+            if any(not _ALMOST_AFTER.search(c[m.end():]) for m in pattern.finditer(c))]
+    if _LOW_GLUCOSE_SYMPTOM.search(c) and any(int(m.group(2)) < 70 for m in _LOW_GLUCOSE.finditer(c)):
+        hits.append("저혈당:수치")
+    choke = [k for k in _CHOKE_FORMS[1:] if k in c]
+    if choke and not (_PILL_FORM.search(c) and not _AIRWAY_DISTRESS.search(c) and not _CHOKING_FOOD.search(c)):
+        hits += choke
     return hits
 
 
