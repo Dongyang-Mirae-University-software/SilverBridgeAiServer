@@ -108,3 +108,36 @@ def test_no_fixed_sentence_matches_duration_119() -> None:
     for f in _mls.FIXED_SENTENCES:
         for text in filter(None, (str(f), f.proxy)):
             assert not ("119" in text and _mls._DURATION_119.search(text)), f.name
+
+
+# ---- 2026-11-05 기능 점검 F-1·F-2 -------------------------------------------------------------------
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("s", [
+    "열이 38도 넘게 오르고 숨이 차면 바로 119에 연락하세요.",
+    "오래 누워 계시다 갑자기 숨이 차거나 가슴이 아프면 바로 119에 연락하세요.",
+    "증상이 계속되거나 의식이 흐려지면 즉시 119에 연락하세요.",
+])
+def test_red_flag_119_with_duration_words_kept(s: str) -> None:
+    # F-1: 위험 신호가 든 119 문장은 기간·수치 낱말이 있어도 지우지 않는다.
+    reply, removed = MedicalLlmService.drop_duration_119(f"내과 진료를 권해드려요.\n{s}")
+    assert removed == 0 and "119" in reply
+
+
+@pytest.mark.parametrize("q", [
+    "열이 약간 있고 머리가 아픈데 괜찮을까요",
+    "예약은 했는데 배가 계속 아파요 괜찮나요",
+    "요즘 기운이 약해지고 어지러운데 괜찮을까요",
+])
+def test_non_drug_question_keeps_119(q: str) -> None:
+    # F-2: "약간·예약·약해"가 든 일반 증상 질문은 약 문의가 아니다 - 모델의 119 문장을 지우지 않는다.
+    reply, removed = MedicalLlmService.drop_medication_119(q, "정리했어요.\n갑자기 심해지면 바로 119에 연락하세요.")
+    assert removed == 0
+
+
+def test_drug_questions_still_drop_119() -> None:
+    for q in ("혈압약 먹는데 자몽 먹어도 되나요", "약국에서 산 감기약 같이 먹어도 괜찮을까요"):
+        _, removed = MedicalLlmService.drop_medication_119(q, "정리했어요.\n몸이 이상하면 119에 연락해 주세요.")
+        assert removed == 1, q
