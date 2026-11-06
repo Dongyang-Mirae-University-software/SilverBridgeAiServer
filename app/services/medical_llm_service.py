@@ -481,13 +481,16 @@ _MEDICATION_ASK = re.compile(r"먹어도|드셔도|복용해도|끊어도|중단
 # 약 문의 답의 119 빼기(drop_medication_119)만 쓰는 넓은 판별(2026-11-05 v1 W04 "비타민D … 5알씩 먹으려구요"·약 이름만 있는 질문 -
 # 규칙 4의 과다 복용 119 줄을 모델이 옮겨 썼는데 위 좁은 판별에 안 걸려 남았다). 다른 판정은 위 좁은 목록을 그대로 쓴다.
 _MEDICATION_119_WORD = re.compile(
-    r"약|항생제|진통제|수면제|소화제|해열제|아스피린|와파린|메트포르민|스타틴|비타민|영양제|보충제|오메가|칼슘제|철분제|유산균|"
+    # "약간·약해·약하·약속·예약·요약·절약"은 약이 아니다(2026-11-05 기능 점검 F-2 - 일반 증상 질문이 약 질문으로 잡혔다).
+    r"(?<![예요절])약(?![간해하속])|항생제|진통제|수면제|소화제|해열제|아스피린|와파린|메트포르민|스타틴|비타민|영양제|보충제|오메가|칼슘제|철분제|유산균|"
     r"\d+알|한알|두알|알씩|캡슐|정제|파스|연고|안약|인슐린"
 )
 _MEDICATION_119_ASK = re.compile(r"먹어도|드셔도|복용해도|끊어도|중단해도|먹으면|드시면|먹을까|먹으려|드시려|괜찮|되나|될까|되는지|돼요|좋은거|좋은가")
 # 기간 조건이 붙은 119 문장("며칠 넘게 지속되면 119") - 단계가 틀렸다(기간은 진료 기준, 119는 위험 신호 때만, 2026-11-05 v1 G12).
 # 상담 답(품질 후처리)에서만 뺀다. 위험 신호 조건("숨이 차면 119")은 남기고, 질문에 위험 신호 낱말이 있으면 뒤에서 표준 119 줄이 붙는다.
 _DURATION_119 = re.compile(r"며칠|일주일|\d+ ?(일|주)|계속되|지속되|이어지|오래|넘게")
+# 위험 신호가 함께 든 119 문장은 기간·수치 낱말이 있어도 남긴다(2026-11-05 기능 점검 F-1 - "38도 넘게 오르고 숨이 차면 119"가 지워졌다).
+_RED_FLAG_IN_119 = re.compile(r"숨|가슴|호흡|의식|정신을|마비|경련|발작|출혈|피를|피가|토혈|쓰러|식은땀|파래|어눌|한쪽")
 _SYMPTOM_WORDS = chat_keywords.MEDICATION_SYMPTOM_WORDS
 _GENERAL_SYMPTOM_WORDS = chat_keywords.GENERAL_SYMPTOM_WORDS
 
@@ -793,7 +796,7 @@ class MedicalLlmService:
         lines: list[str] = []
         for line in (reply or "").split("\n"):
             sentences = _SENTENCE_SPLIT.split(line)
-            kept = [x for x in sentences if not ("119" in x and _DURATION_119.search(x))]
+            kept = [x for x in sentences if not ("119" in x and _DURATION_119.search(x) and not _RED_FLAG_IN_119.search(x))]
             if len(kept) == len(sentences):
                 lines.append(line)
                 continue
