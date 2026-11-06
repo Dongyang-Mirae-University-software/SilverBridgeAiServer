@@ -284,14 +284,7 @@ class ChatService:
                     "engine": "ui",
                 }
             if not route_info and not department_answer:
-                kw_intent = self.classify_intent(message)
-                route_info = {
-                    "route": {"hospital_reservation": "reservation", "medical_advice": "symptom", "emergency_guidance": "symptom"}.get(kw_intent, "general"),
-                    "normalized_message": message,
-                    "symptom_summary": message,
-                    "emergency": kw_intent == "emergency_guidance",
-                    "engine": "keyword",
-                }
+                route_info = self._keyword_route(message)
             route_info = self._force_emergency(route_info, message)
             self_harm_trigger = self._self_harm_trigger(self_harm_keyword, route_info, history)
             router_failed = route_info.get("engine") == "keyword"
@@ -931,6 +924,24 @@ class ChatService:
         if route_info.get("route") == "symptom" and isinstance(urgent, str) and urgent in chat_keywords.URGENT_CONDITIONS:
             hints["urgent_condition"] = urgent
         return hints
+
+    @classmethod
+    def _keyword_route(cls, message: str) -> dict:
+        """라우터가 실패했을 때의 경로. 응급 키워드 외에 라우터 실패 전용 응급 신호(거리 패턴 등)까지 본다(2026-11-06 점검 H-1 -
+        라우터가 없으면 시험지 응급 80개 중 21개가 응급 답·경고 박스 없이 나갔다). 문장은 남기지 않고 신호 이름만 로그."""
+        kw_intent = cls.classify_intent(message)
+        if kw_intent != "emergency_guidance":
+            extra = chat_keywords.fallback_emergency_signals(message)
+            if extra:
+                _LOG.info("[CHAT-SAFETY] fallback_emergency=%s", ",".join(extra))
+                kw_intent = "emergency_guidance"
+        return {
+            "route": {"hospital_reservation": "reservation", "medical_advice": "symptom", "emergency_guidance": "symptom"}.get(kw_intent, "general"),
+            "normalized_message": message,
+            "symptom_summary": message,
+            "emergency": kw_intent == "emergency_guidance",
+            "engine": "keyword",
+        }
 
     @staticmethod
     def _force_emergency(route_info: dict, message: str) -> dict:
