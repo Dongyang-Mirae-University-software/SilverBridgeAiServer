@@ -90,9 +90,9 @@ class DialogueStore:
             d.turns.append(TurnRecord(d.turnNo + 1, label, source, face, summary, needs_check))
             d.noResponseStreak = d.noResponseStreak + 1 if source == "NO_RESPONSE" else 0
             if d.noResponseStreak >= no_response_limit:
-                d.ended, d.endReason = True, "연속 무응답"  # D15
+                d.ended, d.endReason = True, "NO_RESPONSE"  # D15 (백엔드 요청 결정 D: 영문 코드)
             elif d.turnNo >= d.maxTurns:
-                d.ended, d.endReason = True, "최대 턴 수"
+                d.ended, d.endReason = True, "MAX_TURNS"
             if d.ended:
                 d.endedAt = _now_iso()
             return d

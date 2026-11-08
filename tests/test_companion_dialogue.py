@@ -101,7 +101,7 @@ def test_dialogue_result_carries_question_id_and_screen_mood():
                TurnRecord(4, None, "NO_RESPONSE")]
     result = build_dialogue_result(d)
     assert result["questionId"] == "q-0900"
-    assert result["mood"] == "걱정"  # 슬픔·화남 두 번 → 걱정이 최빈
+    assert result["mood"] == "WORRY"  # 슬픔·화남 두 번 → 걱정(WORRY)이 최빈
     assert result["noResponseCount"] == 1
     assert result["turnCount"] == 4
 
@@ -112,10 +112,10 @@ def test_undecided_only_dialogue_has_null_mood_and_screen_moods_for_others():
 
     only_undecided = Dialogue("dlg-test-2", "ward-x", "s1", "09:00", "질문", 8)
     only_undecided.turns = [TurnRecord(1, "판단 보류", "CONFLICT")]
-    assert build_dialogue_result(only_undecided)["mood"] is None
+    assert build_dialogue_result(only_undecided)["mood"] == "UNKNOWN"
     sad = Dialogue("dlg-test-3", "ward-x", "s1", "09:00", "질문", 8)
     sad.turns = [TurnRecord(1, "우울", "TEXT")]
-    assert build_dialogue_result(sad)["mood"] == "우울"
+    assert build_dialogue_result(sad)["mood"] == "DEPRESSED"
 
 
 def test_ward_data_deletion_removes_only_that_ward(make_client):

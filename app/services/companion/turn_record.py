@@ -47,8 +47,10 @@ def build_dialogue_result(d: Dialogue) -> dict:
         "endReason": d.endReason,
         "turnCount": d.turnNo,
         "noResponseCount": no_response,
-        "mood": mood,
-        "moodCode": MOOD_CODE.get(mood, "UNKNOWN"),  # 백엔드용 코드값 (mood와 같은 뜻)
+        # 백엔드 결정 D (2026-11-03): 기분은 영문 코드로 보낸다. 판단 못 하면 UNKNOWN (null 아님)
+        "mood": MOOD_CODE.get(mood, "UNKNOWN"),
+        "moodCode": MOOD_CODE.get(mood, "UNKNOWN"),  # 같은 값 (이전 응답과의 호환)
+        "moodKo": mood,  # 화면 표시용 한글 (판단 못 하면 null)
         "turnSummaries": turn_summaries,  # 턴마다 한 줄 요약 (대답 원문 없음)
         "needsCheckCount": sum(1 for t in d.turns if t.needsCheck),  # 음성 인식이 불확실해 다시 확인한 턴 수
         "summary": " · ".join(turn_summaries)[:300] if turn_summaries else None,  # 대화 전체 요약 (보호자 화면용)

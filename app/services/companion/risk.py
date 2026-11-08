@@ -31,3 +31,17 @@ def risk_probability(llm, transcript: str) -> float | None:
 
 def is_risk(probability: float | None) -> bool:
     return probability is not None and probability >= get_settings().companion_risk_threshold
+
+
+# 백엔드 결정 E (2026-11-03): 응급·자해 낱말은 모델과 따로, 규칙으로 먼저 잡는다. 모델이 꺼져 있어도 알림이 나간다.
+RISK_KEYWORDS = (
+    "죽고 싶", "죽고싶", "죽겠", "살기 싫", "살기싫", "살고 싶지", "살고싶지", "사라지고 싶", "사라지고싶",
+    "끝내고 싶", "끝내고싶", "목숨", "자살", "자해", "약을 모", "약 모", "따라가고 싶", "따라가고싶",
+    "숨이 안 쉬", "숨이 안쉬", "숨을 못", "가슴이 너무 아", "쓰러졌", "119", "꼼짝을 못", "꼼짝 못",
+)
+
+
+def keyword_risk(transcript: str) -> bool:
+    """응급·자해 낱말이 하나라도 있으면 True. 띄어쓰기 차이는 무시한다."""
+    text = transcript.replace(" ", "")
+    return any(k.replace(" ", "") in text for k in RISK_KEYWORDS)

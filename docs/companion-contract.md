@@ -51,6 +51,11 @@
 - `turnResult.source`: `TEXT` · `FACE` · `CONFLICT` · `NO_RESPONSE`.
 - `reply.isFollowUp`: 마지막 턴(8번째)이면 `false`이고 마무리 인사다.
 
+## 한 턴 시간 상한
+
+- 한 턴 전체(받아쓰기·얼굴·글 감정·응답·신호)는 60초를 넘기지 않는다 (`COMPANION_TURN_CAP_SEC`). 넘으면 신호는 `null`, 응답은 미리 정한 문장으로 답한다.
+- 받아쓰기 단독은 20초 (`COMPANION_STT_TIMEOUT_SEC`), 대화 응답은 25초 (`COMPANION_LLM_TIMEOUT_SEC`).
+
 ## 음성 규칙
 
 - 형식: WAV, webm, mp3만 받는다. 형식은 파일 앞부분(매직 바이트)으로 확인한다.
@@ -107,11 +112,12 @@ LLM 실패는 오류로 나가지 않는다. 1회 재시도 후 미리 정한 �
 | `questionId` | 백엔드가 준 질문 ID (그대로 되돌려 줌) |
 | `slot` | 시간대 (09:00·12:00·15:00·18:00·21:00) |
 | `endedAt` | 끝난 시각 |
-| `endReason` | 종료 사유 (`최대 턴 수`·`연속 무응답`·`USER_STOP`) |
+| `endReason` | 종료 사유 (영문 코드: `MAX_TURNS`·`NO_RESPONSE`·`USER_STOP`, 백엔드 결정 D 2026-11-03) |
 | `turnCount` | 전체 턴 수 (무응답 포함) |
 | `noResponseCount` | 무응답 턴 수 |
 | `answeredCount` | 답한 턴 수 (무응답 제외, 판단 보류는 포함). 응답률 = answeredCount ÷ 질문 수 |
-| `mood` | 기쁨·평온·걱정·우울 또는 `null` (판단 불가. 0이나 빈 값으로 바꾸지 않는다) |
+| `mood` | 기분 코드 `JOY`·`CALM`·`WORRY`·`DEPRESSED`·`UNKNOWN` (판단 불가는 `UNKNOWN`, `null` 아님). 화면용 한글은 `moodKo` (판단 불가면 `null`) |
+| `riskFlag` | 위험 여부. 응급·자해 낱말 규칙 또는 모델 판정 중 하나라도 해당하면 `true` (모델이 꺼져도 규칙은 동작) |
 | `summary` | 한 줄 요약. 지금은 항상 `null` (LLM 필요) |
 | `riskFlag` | 위험 신호 여부 |
 | `alertLevel` | `URGENT` (위험 신호) 또는 `INFO`. 주의(NOTICE)는 백엔드가 계산 |
@@ -119,8 +125,8 @@ LLM 실패는 오류로 나가지 않는다. 1회 재시도 후 미리 정한 �
 
 ## 대화 종료 이유 (endReason)
 
-- `최대 턴 수`: 8번째 답 뒤.
-- `연속 무응답`: 3번 연속 무응답 (D15, 사용자 결정 2026-11-02). 아키텍처 문서의 잠정값 2회와 다르다. 문서 정리 필요.
+- `MAX_TURNS`: 8번째 답 뒤.
+- `NO_RESPONSE`: 3번 연속 무응답 (D15, 사용자 결정 2026-11-02). 아키텍처 문서의 잠정값 2회와 다르다. 문서 정리 필요.
 - `USER_STOP`: `finish`로 중간에 그만둠. 그때까지의 턴 수와 결과를 그대로 기록한다 (D16, 사용자 결정 2026-11-02). 아키텍처 문서의 "3턴 미만은 미완료"와 다르다. 문서 정리 필요.
 
 ## 검수 목록의 위험 표시

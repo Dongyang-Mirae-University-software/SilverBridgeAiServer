@@ -35,12 +35,12 @@ def test_answered_count_excludes_no_response_turns():
 
 
 def test_mood_groups_sad_and_angry_as_worry():
-    assert build_dialogue_result(_dialogue(["슬픔", "슬픔", "화남"]))["mood"] == "걱정"
+    assert build_dialogue_result(_dialogue(["슬픔", "슬픔", "화남"]))["mood"] == "WORRY"
 
 
-def test_mood_is_none_when_nothing_decided():
+def test_mood_is_unknown_when_nothing_decided():
     result = build_dialogue_result(_dialogue(["판단 보류", None]))
-    assert result["mood"] is None
+    assert result["mood"] == "UNKNOWN"  # 백엔드 결정 D: null 이 아니라 UNKNOWN
     assert result["answeredCount"] == 1
 
 

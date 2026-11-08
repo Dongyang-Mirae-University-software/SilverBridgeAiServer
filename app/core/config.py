@@ -347,6 +347,8 @@ class Settings(BaseModel):
     companion_llm_quant: str = os.getenv("COMPANION_LLM_QUANT", "int8").strip().lower()
     # 위험 판정 기준 (위험 '있' 확률). 팀 측정 기준 0.99. 프롬프트를 바꾸면 다시 맞춘다
     companion_risk_threshold: float = _as_float("COMPANION_RISK_THRESHOLD", 0.99)
+    # 한 턴 전체 상한 (백엔드 요청: 60초). 넘으면 미리 정한 문장으로 답한다
+    companion_turn_cap_sec: float = _as_float("COMPANION_TURN_CAP_SEC", 60.0)
     companion_llm_num_predict: int = _as_int("COMPANION_LLM_NUM_PREDICT", 256)
     companion_llm_temperature: float = _as_float("COMPANION_LLM_TEMPERATURE", 0.1)
     companion_llm_retry: int = _as_int("COMPANION_LLM_RETRY", 0)  # D20 c: 1회 재시도 후 대체 문장
