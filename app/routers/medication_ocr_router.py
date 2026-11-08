@@ -16,6 +16,7 @@ from app.services.medication_ocr_image import InvalidImageError, normalize_image
 from app.services.medication_ocr_service import (
     MedicationOcrService,
     OcrNotConfiguredError,
+    OcrUnavailableError,
     OcrUpstreamError,
     get_medication_ocr_service,
 )
@@ -156,6 +157,13 @@ async def read_medication_envelope(
     except OcrNotConfiguredError:
         _log("not_configured", started)
         raise _error(status.HTTP_503_SERVICE_UNAVAILABLE, "약 봉투 인식을 사용할 수 없습니다.", "OCR_NOT_CONFIGURED") from None
+    except OcrUnavailableError as exc:
+        # 크레딧 소진: "잠시 후 다시"가 아니라 직접 입력을 안내한다. BE 는 503 을 MEDICATION_OCR_UNAVAILABLE 로 바꾼다
+        # (400 으로 내리면 BE 가 "사진 형식" 안내로 바꾸므로 쓰지 않는다).
+        _log(f"unavailable_{exc}", started, size=len(raw), px=f"{image.width}x{image.height}")
+        raise _error(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "사진 인식을 지금 쓸 수 없습니다. 직접 입력해 주세요.", "OCR_UNAVAILABLE"
+        ) from None
     except OcrUpstreamError as exc:
         _log(f"upstream_{exc}", started, size=len(raw), px=f"{image.width}x{image.height}")
         raise _error(status.HTTP_502_BAD_GATEWAY, "약 봉투를 읽지 못했습니다. 잠시 후 다시 시도해 주세요.", "OCR_UPSTREAM_FAILED") from None
