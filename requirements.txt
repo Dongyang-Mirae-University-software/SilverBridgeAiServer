@@ -26,3 +26,5 @@ emotiefflib==1.1.1
 # 말벗 받아쓰기 기본 엔진 SenseVoiceSmall (FunASR). 팀 합의 10/26. kaldi-native-fbank 는 funasr 의 특징 추출에 필요
 funasr==1.4.20
 kaldi-native-fbank==1.22.5
+# 음성 인식 결과 검증 (실제 단어가 아닌 말 찾기). 말벗 턴에서 쓴다
+kiwipiepy==0.24.1

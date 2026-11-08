@@ -93,9 +93,12 @@ async def lifespan(_: FastAPI):
         if path:
             ensure_directory(path)
     log_gpu_status()
-    medgemma_loader = get_medgemma_loader()
-    medgemma_loader.load()
-    medgemma_loader.warmup()
+    if settings.medgemma_enabled:
+        medgemma_loader = get_medgemma_loader()
+        medgemma_loader.load()
+        medgemma_loader.warmup()
+    else:
+        _LOG.info("MEDGEMMA_ENABLED=false - MedGemma 를 올리지 않는다")
     get_fire_smoke_detector().try_load()
     get_knife_detector().try_load()
     get_fall_detector().try_load()

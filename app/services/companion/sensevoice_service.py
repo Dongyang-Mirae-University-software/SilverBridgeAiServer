@@ -5,12 +5,21 @@ import threading
 import time
 from pathlib import Path
 
+import numpy as np
+
 from app.core.config import get_settings
 from app.services.companion.audio_decode import decode_to_pcm16k
 from app.services.companion.stt_service import SttResult, SttUnavailable
 
 # 팀 합의(10/26): 받아쓰기는 SenseVoiceSmall. 어르신 음성 글자 오류 5.5% (팀 측정).
 SENSEVOICE_FILE = "model.pt"
+
+# 무음 기준: 소리 크기(RMS, -1~1 범위)가 이 값보다 작으면 받아쓰기를 하지 않는다 (무응답 턴).
+# 근거: 실제 노인 대화 녹음 100개의 크기는 0.038~0.22 였고, 무음은 0 근처다 (2026-11-08 측정).
+SILENCE_RMS = 0.01
+# 조용한 소리에서 받아쓰기가 만들어 내는 한 글자짜리 결과. 어르신의 대답으로 보지 않는다.
+# ("네"·"예"·"응"은 실제 대답이므로 뺀다.)
+FILLER_ONLY = {"그", "음", "어", "으", "아", "흠"}
 
 
 class SenseVoiceService:
@@ -67,15 +76,18 @@ class SenseVoiceService:
         """16kHz 모노 소리 데이터를 글자로 바꾼다 (음성 인식 API가 이 함수를 쓴다)."""
         from funasr.utils.postprocess_utils import rich_transcription_postprocess
 
-        model = self._load()
         started = time.monotonic()
-        if pcm.size == 0:
+        # 조용하면 모델을 부르지 않는다. 모델은 소리가 없어도 글자("그.")를 만들어 낸다.
+        if pcm.size == 0 or float(np.sqrt(np.mean(np.square(pcm)))) < SILENCE_RMS:
             return SttResult(text="", confidence=0.0, elapsed_ms=0)
+        model = self._load()
         out = model.generate(input=pcm, language="ko", use_itn=True, batch_size_s=60)
         elapsed = int((time.monotonic() - started) * 1000)
         raw = out[0]["text"] if out else ""
         # <|ko|><|NEUTRAL|>... 같은 표시를 떼고 글자만 남긴다
         text = rich_transcription_postprocess(raw).strip()
+        if text.strip(" .,!?~…") in FILLER_ONLY:  # "그." 같은 환각은 대답이 없는 것으로 본다
+            text = ""
         # SenseVoice 는 확신도를 내지 않는다. 확신도 기준은 faster-whisper 에서만 쓴다.
         return SttResult(text=text, confidence=1.0 if text else 0.0, elapsed_ms=elapsed)
 

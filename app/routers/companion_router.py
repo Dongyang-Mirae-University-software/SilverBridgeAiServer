@@ -22,6 +22,7 @@ from app.services.companion.dialogue_store import Dialogue, store
 from app.services.companion.face_service import FaceResult, FaceUnavailable, face_service
 from app.services.companion.llm_client import llm_client
 from app.services.companion.multipart_memory import read_file_part, read_file_parts
+from app.services.companion import reply_service
 from app.services.companion.reply_service import REPLY_PROMPT_VERSION
 from app.services.companion.review_store import STATUSES, review_store
 from app.services.companion.stt_engine import get_stt_engine
@@ -112,10 +113,28 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm) -> d
             is_last_turn=is_last_turn,
             turn_no=turn_no,
         )
-        store.set_last_signals(d.dialogueId, result["signals"])  # 무응답 턴은 직전 신호를 그대로 둔다
+        if result["signals"] is not None:  # 신호가 없는 턴(무응답·다시 확인)은 직전 신호를 그대로 둔다
+            store.set_last_signals(d.dialogueId, result["signals"])
         if (result["signals"] or {}).get("riskFlag"):
             store.mark_risk(d.dialogueId)  # 대화 결과의 alertLevel(URGENT)에 쓴다
+    result = _avoid_repeat(d, result, is_last_turn)
     _queue_for_review(d, result)
+    return result
+
+
+def _avoid_repeat(d: Dialogue, result: dict, is_last_turn: bool) -> dict:
+    """같은 대화에서 이미 한 말(질문 포함)이 다시 나오면, 아직 안 쓴 미리 정한 문장으로 바꾼다.
+
+    미리 정한 문장을 모두 써 버렸으면 그대로 둔다. 바꾼 문장은 대화 기록에 남긴다.
+    """
+    text = result["reply"]["text"]
+    if text in d.replies:
+        candidates = reply_service.FALLBACK_LAST if is_last_turn else reply_service.FALLBACK_FOLLOWUP
+        unused = [c for c in candidates if c not in d.replies]
+        if unused:
+            result["reply"] = {"text": unused[0], "isFollowUp": not is_last_turn}
+            text = unused[0]
+    d.replies.append(text)
     return result
 
 
@@ -191,8 +210,10 @@ def _dialogue_or_404(dialogue_id: str) -> Dialogue:
 
 
 def _turn_response(d: Dialogue, result: dict, transcript: str | None = None, face: dict | None = None) -> dict:
+    face_label = (face or {}).get("label") if (face or {}).get("usable") else None  # 표정을 못 읽었으면 기록하지 않는다
     updated = store.add_turn(d.dialogueId, result["turnResult"]["label"], result["turnResult"]["source"],
-                             get_settings().companion_no_response_limit)
+                             get_settings().companion_no_response_limit, face=face_label,
+                             summary=result.get("summary"), needs_check=bool(result.get("needsCheck")))
     body = {
         "dialogueId": d.dialogueId,
         "turnNo": updated.turnNo,
@@ -322,14 +343,22 @@ _stt_slots = threading.BoundedSemaphore(get_settings().companion_stt_api_concurr
 stt_logger = logging.getLogger("companion.stt_api")
 
 
-def _transcribe_with_slot(transcribe_pcm, pcm, wait_sec: float):
-    """자리를 얻어 글자로 바꾼다. 자리가 없으면 None."""
+def _transcribe_with_slot(transcribe_pcm, pcm, wait_sec: float, timeout_sec: float):
+    """자리를 얻어 글자로 바꾼다. 자리가 없으면 None. 시간을 넘기면 TimeoutError.
+
+    자리는 받아쓰기가 실제로 끝날 때까지 쥔다. 시간 초과로 응답은 먼저 나가도, 돌고 있는 작업이 끝나야 자리가 풀리므로
+    동시에 도는 받아쓰기 수가 설정값을 넘지 않는다.
+    """
     if not _stt_slots.acquire(timeout=wait_sec):
         return None
-    try:
-        return transcribe_pcm(pcm)
-    finally:
-        _stt_slots.release()
+
+    def work():
+        try:
+            return transcribe_pcm(pcm)
+        finally:
+            _stt_slots.release()
+
+    return call_with_timeout(work, timeout_sec)
 
 
 @router.post(
@@ -365,7 +394,11 @@ async def speech_to_text(request: Request, settings: Settings = Depends(get_sett
     if seconds > settings.companion_stt_api_max_sec:
         raise CompanionError(413, "AUDIO_TOO_LONG", f"음성은 {int(settings.companion_stt_api_max_sec)}초 이하여야 합니다.")
     try:
-        result = await run_in_threadpool(_transcribe_with_slot, transcribe_pcm, pcm, settings.companion_stt_api_wait_sec)
+        result = await run_in_threadpool(_transcribe_with_slot, transcribe_pcm, pcm,
+                                         settings.companion_stt_api_wait_sec, settings.companion_stt_api_timeout_sec)
+    except TimeoutError as exc:  # 받아쓰기가 제한 시간을 넘김 → 백엔드는 503 STT_UNAVAILABLE 로 받는다
+        stt_logger.info("stt status=503 seconds=%.1f timeout", seconds)
+        raise CompanionError(503, "STT_UNAVAILABLE", "음성 인식 시간이 초과되었습니다.") from exc
     except SttUnavailable as exc:
         stt_logger.info("stt status=503 seconds=%.1f", seconds)
         raise CompanionError(503, "STT_UNAVAILABLE", str(exc)) from exc

@@ -7,7 +7,10 @@ from pathlib import Path
 from app.core.config import get_settings
 from app.services.companion.llm_client import LlmClient, LlmUnavailable
 
-REPLY_PROMPT_VERSION = "reply-v1"  # 응답 프롬프트 파일을 고치면 올린다
+REPLY_PROMPT_VERSION = "reply-v2"  # 응답 프롬프트 파일을 고치면 올린다 (v2: 대답 속 낱말을 이어 가는 꼬리질문)
+# 대답과 관계없는 문장을 거를 때 기준으로 삼지 않는 흔한 낱말의 앞 두 글자 (조사가 붙은 말도 걸리도록 앞 글자로 본다)
+COMMON_STEMS = {"그냥", "오늘", "어제", "요즘", "정말", "너무", "조금", "많이", "그래", "있어", "없어",
+                "했어", "같아", "좋아", "괜찮", "아니", "그럼", "이제", "다시"}
 _PROMPT_DIR = Path(__file__).parent / "prompts"
 
 # S6-2: 규칙 검사에 쓰는 목록. 한 곳에만 둔다 (C-23 결정 전까지 이 목록을 그대로 쓴다)
@@ -33,7 +36,11 @@ class ReplyResult:
     failures: list[str]  # 마지막으로 걸린 규칙 이름 (없으면 빈 목록)
 
 
-def check_reply(text: str, is_last_turn: bool) -> list[str]:
+def _content_words(text: str) -> list[str]:
+    return [w for w in re.findall(r"[가-힣]+", text) if len(w) >= 2 and w[:2] not in COMMON_STEMS]
+
+
+def check_reply(text: str, is_last_turn: bool, transcript: str = "") -> list[str]:
     """규칙을 하나씩 본다. 걸린 항목 이름 목록을 돌려준다. 빈 목록이면 통과."""
     failures: list[str] = []
     body = text.strip()
@@ -47,6 +54,11 @@ def check_reply(text: str, is_last_turn: bool) -> list[str]:
         failures.append("과거 가정")
     if not is_last_turn and not body.endswith("?"):
         failures.append("물음으로 끝나지 않음")
+    # 꼬리질문은 어르신 대답에 나온 낱말 가운데 하나를 이어 받아야 한다 (2글자 앞부분으로 비교: 토스트 ↔ 토스트를)
+    if not is_last_turn and transcript:
+        words = _content_words(transcript)
+        if words and not any(w[:2] in body for w in words):
+            failures.append("대답과 무관")
     return failures
 
 
@@ -57,7 +69,7 @@ def _signal_line(prev_signals: dict | None) -> str:
 
 
 def build_reply_prompt(question: str, transcript: str, prev_signals: dict | None, is_last_turn: bool) -> str:
-    name = "reply-v1-last.txt" if is_last_turn else "reply-v1-followup.txt"
+    name = "reply-v1-last.txt" if is_last_turn else "reply-v2-followup.txt"
     template = (_PROMPT_DIR / name).read_text(encoding="utf-8")
     return (template
             .replace("{{PREV_SIGNALS}}", _signal_line(prev_signals))
@@ -94,7 +106,7 @@ def generate_reply(
             failures = ["LLM 실패"]
             continue
         text = re.sub(r"\s+", " ", raw).strip()
-        failures = check_reply(text, is_last_turn)
+        failures = check_reply(text, is_last_turn, transcript)
         if not failures:
             return ReplyResult(text=text, isFollowUp=not is_last_turn, source="LLM", failures=[])
     return ReplyResult(text=_fallback(turn_no, is_last_turn), isFollowUp=not is_last_turn,

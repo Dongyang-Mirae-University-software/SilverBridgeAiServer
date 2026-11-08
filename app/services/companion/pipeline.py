@@ -4,10 +4,12 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 from app.core.config import get_settings
+from app.services.companion.answer_summary import summarize_answer
 from app.services.companion.fusion import GGARA_TO_TURN, HSEMOTION_TO_TURN, UNDECIDED, fuse_turn
 from app.services.companion.llm_client import LlmClient
 from app.services.companion.reply_service import generate_reply, no_response_reply
 from app.services.companion.signals import extract_signals
+from app.services.companion.transcript_check import check_transcript, confirm_reply
 from app.services.companion.text_emotion_service import TextEmotionResult, TextEmotionUnavailable
 from app.services.companion.timeouts import call_with_timeout
 
@@ -60,16 +62,30 @@ def run_turn(
 
     응답은 직전 턴 신호만 쓰므로 이번 턴 신호를 기다리지 않는다 (아키텍처 6번 단계).
     """
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    check = check_transcript(transcript)
+    if check.suspicious:
+        # 실제 단어가 아닐 수 있는 말이 있으면 뜻을 추측하지 않는다: 감정·신호·대답을 만들지 않고 다시 확인한다
+        return {
+            "turnResult": {"label": UNDECIDED, "source": "TEXT"},
+            "reply": {"text": confirm_reply(check), "isFollowUp": True},
+            "signals": None,
+            "replySource": "CONFIRM",
+            "summary": None,
+            "needsCheck": True,
+        }
+    with ThreadPoolExecutor(max_workers=3) as pool:
         signal_future = pool.submit(extract_signals, transcript, llm, get_settings().companion_llm_retry)
         reply_future = pool.submit(generate_reply, llm, question, transcript, prev_signals, is_last_turn, turn_no)
+        summary_future = pool.submit(summarize_answer, llm, transcript)
         signals = signal_future.result()
         reply = reply_future.result()
+        summary = summary_future.result()
     return {
         "turnResult": analyze_turn_result(transcript, face, classify_text),
         "reply": {"text": reply.text, "isFollowUp": reply.isFollowUp},
         "signals": signals,
         "replySource": reply.source,
+        "summary": summary,  # 대답 원문 대신 저장하는 한 줄 요약 (보호자 화면용)
     }
 
 

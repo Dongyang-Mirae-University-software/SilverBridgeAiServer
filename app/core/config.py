@@ -172,6 +172,8 @@ class Settings(BaseModel):
     require_gpu: bool = _as_bool("REQUIRE_GPU", False)
     max_new_tokens: int = _as_int("MAX_NEW_TOKENS", 512)
     temperature: float = _as_float("TEMPERATURE", 0.4)
+    # MedGemma 끄기. false면 기동 때 올리지 않고, 요청 때도 다시 올리지 않는다(메모리 확보). 나머지 기능에는 영향 없다.
+    medgemma_enabled: bool = _as_bool("MEDGEMMA_ENABLED", True)
     top_p: float = _as_float("TOP_P", 0.9)
     repetition_penalty: float = _as_float("REPETITION_PENALTY", 1.1)
     do_sample: bool = _as_bool("DO_SAMPLE", True)
@@ -324,6 +326,7 @@ class Settings(BaseModel):
     companion_stt_api_max_sec: float = _as_float("COMPANION_STT_API_MAX_SEC", 30.0)  # 챗봇 공유 음성 인식 API 길이 상한
     companion_stt_api_concurrency: int = _as_int("COMPANION_STT_API_CONCURRENCY", 2)  # 동시에 돌릴 음성 인식 수
     companion_stt_api_wait_sec: float = _as_float("COMPANION_STT_API_WAIT_SEC", 5.0)  # 자리가 날 때까지 기다리는 시간
+    companion_stt_api_timeout_sec: float = _as_float("COMPANION_STT_API_TIMEOUT_SEC", 20.0)  # 받아쓰기 한 번의 제한 시간 (넘으면 503 STT_UNAVAILABLE)
     companion_stt_device: str = os.getenv("COMPANION_STT_DEVICE", "cpu")
     companion_stt_compute: str = os.getenv("COMPANION_STT_COMPUTE", "int8")
     companion_text_emotion_subdir: str = os.getenv("COMPANION_TEXT_EMOTION_SUBDIR", "companion/text-emotion")

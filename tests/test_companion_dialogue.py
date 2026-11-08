@@ -59,7 +59,13 @@ def make_client():
 
 
 def _open(client, slot="09:00"):
-    return client.post("/companion/dialogues", json={"wardId": "u1", "sessionId": "s1", "slot": slot}, headers=HDR)
+    # 질문(question)은 필수다. 빠지면 시각 검사 전에 422 가 먼저 난다.
+    body = {"wardId": "u1", "sessionId": "s1", "slot": slot, "question": "잘 주무셨어요?", "questionId": "q-test"}
+    return client.post("/companion/dialogues", json=body, headers=HDR)
+
+
+def _dialogue_id(client, slot="09:00") -> str:
+    return _open(client, slot).json()["data"]["dialogueId"]
 
 
 def test_open_requires_key(make_client):

@@ -255,6 +255,9 @@ class MedGemmaLoader:
         with self._lock:
             if self._state.loaded:
                 return
+            if not self._settings.medgemma_enabled:  # 꺼져 있으면 요청이 와도 올리지 않는다(ensure_loaded 경로 포함)
+                self._state.load_error = "MEDGEMMA_ENABLED=false"
+                return
             try:
                 import torch  # type: ignore[reportMissingImports]
                 from transformers import (  # type: ignore[reportMissingImports]
