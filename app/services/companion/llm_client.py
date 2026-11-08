@@ -12,6 +12,21 @@ class LlmUnavailable(Exception):
     """LLM 을 쓸 수 없음 (모델 파일 없음, 불러오기 실패, 시간 초과). 응답 쪽은 재시도 뒤 대체 문장으로 간다 (D20)."""
 
 
+def llm_load_kwargs(dtype, cuda_available: bool, quant: str) -> dict:
+    """모델을 불러올 때 쓸 옵션. GPU가 있으면 GPU에 올린다 (CPU 메모리에 올리면 서버 메모리가 부족해진다).
+
+    quant 가 int8 이면 8비트로 줄여 GPU 메모리를 아낀다. GPU가 없으면 CPU에 올린다.
+    """
+    kwargs = {"local_files_only": True, "trust_remote_code": True, "dtype": dtype}
+    if cuda_available:
+        kwargs["device_map"] = {"": 0}
+        if quant == "int8":
+            from transformers import BitsAndBytesConfig  # type: ignore[reportMissingImports]
+
+            kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+    return kwargs
+
+
 class LlmClient(Protocol):
     """신호 추출과 응답 생성이 같이 쓰는 LLM 인터페이스 (S5-4)."""
 
@@ -55,9 +70,8 @@ class ExaoneLlm:
 
                 tokenizer = AutoTokenizer.from_pretrained(str(path), local_files_only=True, trust_remote_code=True)
                 # 가중치는 float32(9.6GB)로 저장돼 있다. bfloat16 으로 올려 메모리를 절반으로 줄인다.
-                model = AutoModelForCausalLM.from_pretrained(
-                    str(path), local_files_only=True, trust_remote_code=True, dtype=dtype
-                )
+                kwargs = llm_load_kwargs(dtype, torch.cuda.is_available(), get_settings().companion_llm_quant)
+                model = AutoModelForCausalLM.from_pretrained(str(path), **kwargs)
                 model.eval()
                 self._tokenizer, self._model = tokenizer, model
             except Exception as exc:
@@ -74,7 +88,7 @@ class ExaoneLlm:
         encoded = tokenizer.apply_chat_template(
             messages, add_generation_prompt=True, return_tensors="pt", return_dict=True
         )
-        ids = encoded["input_ids"]
+        ids = encoded["input_ids"].to(model.device)  # 모델이 GPU에 있으면 입력도 GPU로 보낸다
         sample = temperature > 0
         with torch.no_grad():
             out = model.generate(
