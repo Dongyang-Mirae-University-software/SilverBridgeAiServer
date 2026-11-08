@@ -17,6 +17,8 @@ KST = timezone(timedelta(hours=9))
 MAX_RANGE_DAYS = 31
 _ROLES = ("guardian", "ward")
 _ROUTES = ("reservation", "symptom", "general")
+# 라우터 실패 종류(router_failure_monitor.KINDS 와 같은 값, 2026-11-08). 키 없음(off)은 실패로 기록하지 않는다.
+_ROUTER_FAILURE_KINDS = ("credit", "auth", "timeout", "other")
 # 기간 행을 한 번에 올리지 않고 이 크기로 나눠 읽는다(context_json 은 예약 턴이면 수십 KB).
 _FETCH_BATCH = 500
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -77,7 +79,7 @@ class ChatStatsService:
     """관리자 통계용 전체 집계. 개수만 돌려주고 상담 원문·userId 는 응답·로그에 싣지 않는다."""
 
     @staticmethod
-    def stats(db: Session, start: date, end: date, now: datetime | None = None) -> dict:
+    def stats(db: Session, start: date, end: date, now: datetime | None = None, router_status: dict | None = None) -> dict:
         started = time.perf_counter()
         rows = db.execute(
             select(
@@ -96,7 +98,8 @@ class ChatStatsService:
         by_role = {key: 0 for key in (*_ROLES, "unknown")}
         by_route = {key: 0 for key in (*_ROUTES, "unknown")}
         users: set[str] = set()
-        total = emergency = completed = fallback = 0
+        total = emergency = completed = fallback = router_failures = 0
+        router_failures_by_kind = {key: 0 for key in _ROUTER_FAILURE_KINDS}
 
         for user_id, created_at, risk_level, context_json in rows:
             total += 1
@@ -128,6 +131,11 @@ class ChatStatsService:
                 completed += 1
             if _is_fallback(context):
                 fallback += 1
+            # 라우터 호출이 실패해 키워드 경로로 답한 턴(2026-11-08 이후 기록의 upstreamMeta.routerFailed).
+            if isinstance(meta, dict) and meta.get("routerFailed") is True:
+                router_failures += 1
+                kind = meta.get("routerFailureKind")
+                router_failures_by_kind[kind if kind in _ROUTER_FAILURE_KINDS else "other"] += 1
 
         result = {
             "from": start.isoformat(),
@@ -139,6 +147,10 @@ class ChatStatsService:
             "emergencyGuidance": emergency,
             "reservationCompleted": completed,
             "fallbackReplies": fallback,
+            "routerFailures": router_failures,
+            "routerFailuresByKind": router_failures_by_kind,
+            # 지금 라우터 상태(기간과 무관, 서버 프로세스 기준): ok / failing(recentFailures 회) / credit_exhausted / off(키 없음).
+            **({"routerStatus": router_status} if router_status is not None else {}),
             "daily": [{"date": day.isoformat(), "totalChats": count} for day, count in daily.items()],
             "generatedAt": (now or datetime.now(KST)).astimezone(KST).isoformat(timespec="seconds"),
         }
