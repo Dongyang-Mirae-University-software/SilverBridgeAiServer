@@ -5,7 +5,8 @@ gosky 의 키는 마지막 예산이라 다 쓰면 다시 채우지 않는다. �
 부르지 않고 바로 대체 동작으로 간다. 시간이 지나면 다음 요청 1건이 다시 시도하고, 또 소진이면 다시 건너뛴다.
 라우터는 건너뛰기를 켜지 않는다(감지 기록만 공유) - 라우터 실패 처리는 chat_router_service 가 정한다.
 
-판정은 400 응답 본문의 오류 문구만 보고, 그 문구는 어디에도 남기지 않는다(로그는 고정 코드 credit_exhausted 만).
+판정은 라우터 실패 분류(router_failure_monitor.failure_kind == "credit")와 같은 기준을 쓴다 - 402, 본문 billing_error·지출 한도 코드,
+400·403 + "credit balance" 같은 문구. 문구는 판정에만 쓰고 어디에도 남기지 않는다(로그는 고정 코드 credit_exhausted 만).
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ import threading
 import time
 
 import anthropic
+
+from app.services.router_failure_monitor import failure_kind
 
 _LOG = logging.getLogger(__name__)
 
@@ -31,31 +34,13 @@ def _skip_sec() -> float:
 
 
 SKIP_SEC = _skip_sec()
-# Anthropic 크레딧 부족 오류 문구("Your credit balance is too low ...")의 일부. 대소문자 무시.
-_CREDIT_MARKERS = ("credit balance",)
-
 _lock = threading.Lock()
 _skip_until = 0.0
 
 
-def _error_message(exc: anthropic.APIStatusError) -> str:
-    body = getattr(exc, "body", None)
-    if isinstance(body, dict):
-        err = body.get("error")
-        if isinstance(err, dict) and isinstance(err.get("message"), str):
-            return err["message"]
-        if isinstance(body.get("message"), str):
-            return body["message"]
-    message = getattr(exc, "message", "")
-    return message if isinstance(message, str) else ""
-
-
 def is_credit_exhausted(exc: BaseException) -> bool:
-    """크레딧·결제 부족 응답인가(400 또는 402). 문구는 판정에만 쓰고 돌려주지 않는다."""
-    if not isinstance(exc, anthropic.APIStatusError) or exc.status_code not in (400, 402):
-        return False
-    text = _error_message(exc).lower()
-    return any(marker in text for marker in _CREDIT_MARKERS)
+    """SDK 응답 오류가 크레딧·결제 부족인가. 라우터 실패 분류와 같은 기준(#188)이라 둘이 어긋나지 않는다."""
+    return isinstance(exc, anthropic.APIStatusError) and failure_kind(exc) == "credit"
 
 
 def mark_exhausted() -> None:

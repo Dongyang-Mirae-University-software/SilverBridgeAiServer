@@ -16,7 +16,7 @@
 
 ## 바꾼 것
 1. **크레딧 소진 감지 + 건너뛰기** (`app/services/claude_availability.py`, 새 파일)
-   - 400·402 응답 본문의 오류 문구에 `credit balance`가 있으면 소진으로 본다. 그 문구는 판정에만 쓰고, 로그에는 고정 코드 `credit_exhausted`만 남긴다.
+   - 판정은 라우터 실패 분류(#188 `router_failure_monitor.failure_kind == "credit"`)와 같은 기준이다: 402, 본문 `billing_error`·지출 한도 코드, 400·403 + `credit balance` 같은 문구. 문구는 판정에만 쓰고, 로그에는 고정 코드 `credit_exhausted`만 남긴다.
    - 소진을 감지하면 `CLAUDE_CREDIT_SKIP_SEC`(기본 1800초, 0~86400) 동안 **건너뛰기를 켠 호출자**는 Claude를 부르지 않는다. 시간이 지나면 다음 요청 1건이 다시 시도하고, 성공하면 바로 풀린다.
    - 로그: `[CLAUDE-CREDIT] cause=credit_exhausted skip_sec=…`(처음 감지할 때 한 번), `[CLAUDE-CREDIT] cause=recovered`.
 2. **공용 클라이언트 선택 인자** (`claude_structured_client.generate_structured_text`)
@@ -39,4 +39,4 @@
 - 라우터가 소진을 만났을 때의 동작은 라우터 작업에서 정한다. 이 모듈의 `skipping()`을 쓸 수 있다.
 
 ## 테스트
-- `tests/test_claude_failure_fallbacks.py` (20건, 목만 사용, 실제 호출 없음): 세 기능 각각 크레딧 오류·시간 초과·키 없음·성공을 본다. 예약은 Claude 실패 상태(크레딧·시간 초과·키 없음)에서 버튼만으로 예약 완료까지 가는지, 문장 입력만으로 확인 카드까지 가는지 본다. 로그에 오류 문구가 없는지도 확인한다.
+- `tests/test_claude_failure_fallbacks.py` (21건, 목만 사용, 실제 호출 없음): 세 기능 각각 크레딧 오류·시간 초과·키 없음·성공을 본다. 예약은 Claude 실패 상태(크레딧·시간 초과·키 없음)에서 버튼만으로 예약 완료까지 가는지, 문장 입력만으로 확인 카드까지 가는지 본다. 로그에 오류 문구가 없는지도 확인한다.

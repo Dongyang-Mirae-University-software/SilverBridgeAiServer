@@ -118,6 +118,16 @@ def test_other_400_is_not_credit_exhaustion() -> None:
     assert exc.value.cause == "api_400" and not ca.skipping()
 
 
+def test_billing_402_counts_as_credit_exhaustion() -> None:
+    body = {"type": "error", "error": {"type": "billing_error", "message": "x"}}
+    err = anthropic.APIStatusError("billing", response=httpx.Response(402, request=_REQ), body=body)
+    assert ca.is_credit_exhausted(err) and not ca.is_credit_exhausted(other_400())
+    client = structured_client(FakeMessages(err))
+    with pytest.raises(StructuredCallError) as exc:
+        client.generate_structured_text("s", "u", skip_when_exhausted=True)
+    assert exc.value.cause == "credit_exhausted" and ca.skipping()
+
+
 def test_skip_expires_then_one_retry_and_success_clears(monkeypatch) -> None:
     msgs = FakeMessages(credit_error(), response=_Resp('{"ok": true}'))
     client = structured_client(msgs)
