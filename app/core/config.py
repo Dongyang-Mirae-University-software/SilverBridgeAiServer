@@ -189,6 +189,12 @@ class Settings(BaseModel):
     # 응급 턴은 줄을 오래 서지 않는다 - 넘기면 바로 119 안내 고정 문구로 답한다.
     medgemma_gen_wait_timeout_emergency_sec: int = _as_int_in_range("MEDGEMMA_GEN_WAIT_TIMEOUT_EMERGENCY_SEC", 3, 1, 30)
     chat_history_keep_turns: int = _as_int("CHAT_HISTORY_KEEP_TURNS", 8)
+    # 라우터 실패 누적 알림(2026-11-08): 창(초) 안에서 실패가 기준 횟수에 닿으면 ERROR 한 번(창마다 1회).
+    # 크레딧 소진·API 장애처럼 실패가 이어지는 상황을 사람이 알게 한다. 코드 기본값으로 동작(.env 불필요).
+    chat_router_failure_alert_window_sec: int = _as_int_in_range("CHAT_ROUTER_FAILURE_ALERT_WINDOW_SEC", 600, 60, 86400)
+    chat_router_failure_alert_threshold: int = _as_int_in_range("CHAT_ROUTER_FAILURE_ALERT_THRESHOLD", 5, 1, 1000)
+    # 크레딧·결제 오류는 처음 생길 때 바로 ERROR 한 번, 이어지면 이 간격(초)마다 1회. 라우터가 다시 성공하면 풀린다.
+    chat_router_credit_alert_repeat_sec: int = _as_int_in_range("CHAT_ROUTER_CREDIT_ALERT_REPEAT_SEC", 3600, 60, 86400)
     # 챗 요청 하나의 전체 마감(초, 2026-10-28 O-3). BE 중계 전체 제한 130초에 응답 전송 여유 20초를 둔 값.
     # 각 호출(Claude·예약 API·생성 대기)은 남은 시간만큼만 기다리고, 모자라면 새 호출을 시작하지 않는다.
     chat_deadline_sec: int = _as_int_in_range("CHAT_DEADLINE_SEC", 110, 30, 125)

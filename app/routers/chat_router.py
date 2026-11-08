@@ -10,6 +10,7 @@ from app.schemas.chat_schema import ChatRequest
 from app.services.chat_service import ChatService
 from app.services.chat_stats_service import ChatStatsRangeError, ChatStatsService, parse_range
 from app.services.reservation_credential_service import mark_proxy_purged, mark_purged
+from app.services.router_failure_monitor import get_router_failure_monitor
 
 router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
 chat_service = ChatService()
@@ -49,7 +50,9 @@ def stats(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_response(str(exc), "CHAT_STATS_INVALID_RANGE", None),
         ) from exc
-    return success_response("챗 집계 조회 완료", ChatStatsService.stats(db, start, end))
+    # 라우터 상태(정상·실패 N회·크레딧 소진·꺼짐)는 서버 프로세스의 지금 값 - 키가 비면 꺼짐(실패로 세지 않는다).
+    router_status = get_router_failure_monitor().status(bool(get_settings().anthropic_api_key.strip()))
+    return success_response("챗 집계 조회 완료", ChatStatsService.stats(db, start, end, router_status=router_status))
 
 
 @router.get("/logs", summary="챗 로그 목록 조회")

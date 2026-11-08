@@ -132,6 +132,49 @@ def fallback_emergency_signals(text: str) -> list[str]:
     return hits
 
 
+# 라우터 실패 때 심정지 의심(가슴압박 줄, 2026-11-08): 라우터가 있으면 cardiac_arrest 칸이 맡던 몫. 위 거리 패턴 중 반응·호흡 없음과
+# 줄여 쓴 꼴("숨 없음")·"흔들어도 꼼짝 안 해요"만 더 본다. "몸이 축 처져요"는 피로 표현과 겹쳐 넣지 않는다.
+_FALLBACK_ARREST_PREFIX = ("무반응:", "무호흡:")
+_FALLBACK_ARREST_EXTRA = re.compile(rf"숨(이|도)?없(음|어|다|고|네)|(흔들어도|불러도|깨워도){_GAP}{{0,8}}꼼짝")
+
+
+def fallback_arrest_signal(text: str) -> bool:
+    """라우터가 실패한 턴에 가슴압박 줄을 붙일 근거. 의식이 있다는 말(arrest_conscious)이 있으면 False."""
+    c = _plain(text)
+    hit = any(name.startswith(_FALLBACK_ARREST_PREFIX) for name in fallback_emergency_signals(text)) or any(
+        not _ARREST_NOT_NOW.search(c[m.end():m.end() + 8]) for m in _FALLBACK_ARREST_EXTRA.finditer(c)
+    )
+    return hit and not arrest_conscious(compact(text))
+
+
+# 의료·예약과 무관한 질문(2026-11-08, 고정 안내). 주제 낱말 + 묻거나 부탁하는 꼴이 함께이고 건강 낱말이 하나도 없을 때만.
+# 애매하면 False(지금처럼 MedGemma) - 응급을 엉뚱한 질문으로 막는 것이 더 위험하다. 맞장구("날씨가 참 좋네요")는 묻는 꼴이 아니라 제외.
+_OFF_TOPIC_SUBJECT = re.compile(
+    r"날씨|기온|미세먼지|주식|주가|코인|비트코인|환율|부동산|아파트값|정치|대통령|선거|국회|"
+    r"야구|축구|농구|배구|올림픽|경기결과|몇대몇|연예인|아이돌|드라마|영화추천|노래추천|가사|"
+    r"로또|복권|레시피|요리법|맛집|여행지|관광지|번역|영어로|일본어로|수학|숙제|코딩|프로그래밍|파이썬|"
+    r"게임|퀴즈|끝말잇기|운세|사주|타로|별자리|궁합"
+)
+_OFF_TOPIC_ASK = re.compile(r"알려|어때|어떄|추천|뭐야|뭐예요|뭐에요|뭔가요|누구|누가|어디|언제|할까|살까|팔까|해줘|해주세요|해줄래|줘요|줘|\?|나요|까요|인가요|궁금|맞아|맞나")
+# 건강·몸·생활 관리 낱말 - 하나라도 있으면 상담 쪽이다("날씨 추운데 산책해도 돼?"·"당뇨인데 김치찌개 먹어도 돼?").
+_OFF_TOPIC_HEALTH = re.compile(
+    r"몸|건강|아프|아파|아픈|통증|쑤|저리|결리|약|병원|의사|간호|진료|예약|혈압|혈당|당뇨|콜레스테롤|운동|산책|걷|"
+    r"먹어도|먹으면|드셔도|드시면|마셔도|마시면|괜찮|위험|숨|어지|열이|기침|가래|감기|독감|잠|수면|치매|기억|"
+    r"넘어|낙상|다쳐|다친|증상|검사|수술|입원|응급|119|109|체중|살이|살쪄|살빠|소화|배가|배를|머리|가슴|허리|무릎|관절|"
+    r"눈이|눈물|귀가|피부|가렵|간지|붓|부어|토하|설사|변비|소변|대변|피가|심장|폐|뼈|우울|불안|외로|죽|자살|힘들|무서"
+)
+
+
+def is_off_topic_question(text: str) -> bool:
+    """의료·예약과 무관한 질문인가(고정 안내 판정). 건강 낱말·증상 낱말·응급·예약 낱말이 하나라도 있으면 False."""
+    c = compact(text)
+    if not c or not _OFF_TOPIC_SUBJECT.search(c) or not _OFF_TOPIC_ASK.search(c):
+        return False
+    if _OFF_TOPIC_HEALTH.search(c) or has_symptom_word(text) or has_red_flag(text) or emergency_signals(text):
+        return False
+    return not has_reservation_word(text) and not is_health_lifestyle_question(text)
+
+
 # 심정지 의심 신호(응급 행동 줄 cardiac_arrest, 2026-11-02). 반응이 없거나 숨을 쉬지 않는다는 말 - 본인 호흡곤란
 # ("숨이 안 쉬어져요"·"숨을 못 쉬겠어요")은 앉은 자세 줄(breathing)로 두고 여기에 넣지 않는다. 공백 뺀 문장.
 _ARREST_WORDS = re.compile(
