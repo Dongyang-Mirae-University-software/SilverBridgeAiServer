@@ -114,5 +114,34 @@ class ExaoneLlm:
         finally:
             pool.shutdown(wait=False)
 
+    def _next_token_probs_blocking(self, prompt: str, prefix: str, candidates: tuple[str, ...]) -> dict[str, float]:
+        """답을 만들지 않고, prefix 바로 다음 글자가 candidates 중 무엇일지의 확률을 읽는다 (후보끼리만 비교)."""
+        import torch
+
+        tokenizer, model = self._load()
+        messages = [{"role": "user", "content": prompt}]
+        text = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False) + prefix
+        enc = tokenizer(text, return_tensors="pt", add_special_tokens=False).to(model.device)
+        with torch.no_grad():
+            logits = model(**enc).logits[0, -1]
+        ids = [tokenizer.encode(c, add_special_tokens=False)[0] for c in candidates]
+        probs = torch.softmax(logits[ids].float(), dim=0).tolist()
+        return dict(zip(candidates, probs))
+
+    def next_token_probs(self, prompt: str, prefix: str, candidates: tuple[str, ...], timeout: float) -> dict[str, float]:
+        """시간 제한을 넘으면 LlmUnavailable."""
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(self._next_token_probs_blocking, prompt, prefix, candidates)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError as exc:
+            raise LlmUnavailable("LLM 확률 계산 시간 초과") from exc
+        except LlmUnavailable:
+            raise
+        except Exception as exc:
+            raise LlmUnavailable(f"LLM 확률 계산 실패 ({type(exc).__name__})") from exc
+        finally:
+            pool.shutdown(wait=False)
+
 
 llm_client = ExaoneLlm()

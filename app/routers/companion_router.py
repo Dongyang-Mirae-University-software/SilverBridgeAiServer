@@ -115,7 +115,7 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm) -> d
         )
         if result["signals"] is not None:  # 신호가 없는 턴(무응답·다시 확인)은 직전 신호를 그대로 둔다
             store.set_last_signals(d.dialogueId, result["signals"])
-        if (result["signals"] or {}).get("riskFlag"):
+        if result.get("riskFlag"):
             store.mark_risk(d.dialogueId)  # 대화 결과의 alertLevel(URGENT)에 쓴다
     result = _avoid_repeat(d, result, is_last_turn)
     _queue_for_review(d, result)

@@ -339,6 +339,8 @@ class Settings(BaseModel):
     companion_llm_dtype: str = os.getenv("COMPANION_LLM_DTYPE", "bfloat16")  # 메모리 절약 (가중치는 float32 저장)
     # GPU가 있으면 GPU에 올린다. int8 이면 8비트로 줄인다 (CPU 메모리 부족 방지, 11/05·11/08 강제 종료 원인)
     companion_llm_quant: str = os.getenv("COMPANION_LLM_QUANT", "int8").strip().lower()
+    # 위험 판정 기준 (위험 '있' 확률). 팀 측정 기준 0.99. 프롬프트를 바꾸면 다시 맞춘다
+    companion_risk_threshold: float = _as_float("COMPANION_RISK_THRESHOLD", 0.99)
     companion_llm_num_predict: int = _as_int("COMPANION_LLM_NUM_PREDICT", 256)
     companion_llm_temperature: float = _as_float("COMPANION_LLM_TEMPERATURE", 0.1)
     companion_llm_retry: int = _as_int("COMPANION_LLM_RETRY", 0)  # D20 c: 1회 재시도 후 대체 문장

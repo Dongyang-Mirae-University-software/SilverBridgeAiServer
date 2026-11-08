@@ -8,6 +8,7 @@ from app.services.companion.answer_summary import summarize_answer
 from app.services.companion.fusion import GGARA_TO_TURN, HSEMOTION_TO_TURN, UNDECIDED, fuse_turn
 from app.services.companion.llm_client import LlmClient
 from app.services.companion.reply_service import generate_reply, no_response_reply
+from app.services.companion.risk import is_risk, risk_probability
 from app.services.companion.signals import extract_signals
 from app.services.companion.transcript_check import check_transcript, confirm_reply
 from app.services.companion.text_emotion_service import TextEmotionResult, TextEmotionUnavailable
@@ -73,19 +74,29 @@ def run_turn(
             "summary": None,
             "needsCheck": True,
         }
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         signal_future = pool.submit(extract_signals, transcript, llm, get_settings().companion_llm_retry)
         reply_future = pool.submit(generate_reply, llm, question, transcript, prev_signals, is_last_turn, turn_no)
         summary_future = pool.submit(summarize_answer, llm, transcript)
+        risk_future = pool.submit(risk_probability, llm, transcript)
         signals = signal_future.result()
         reply = reply_future.result()
         summary = summary_future.result()
+        risk_prob = risk_future.result()
+    # 위험 판정은 확률 기준을 쓴다 (계산이 안 되면 신호 추출의 riskFlag 를 쓴다)
+    if risk_prob is not None:
+        risk_flag = is_risk(risk_prob)
+    else:
+        risk_flag = bool((signals or {}).get("riskFlag"))
+    if signals is not None:
+        signals = {**signals, "riskFlag": risk_flag}
     return {
         "turnResult": analyze_turn_result(transcript, face, classify_text),
         "reply": {"text": reply.text, "isFollowUp": reply.isFollowUp},
         "signals": signals,
         "replySource": reply.source,
         "summary": summary,  # 대답 원문 대신 저장하는 한 줄 요약 (보호자 화면용)
+        "riskFlag": risk_flag,  # 대화 한 번의 위험 여부 (신호 추출이 실패해도 판정한다)
     }
 
 
