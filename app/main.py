@@ -25,6 +25,7 @@ from app.routers.game_router import router as game_router
 from app.routers.health_router import router as health_router
 from app.routers.live_stream_router import router as live_stream_router
 from app.routers.live_ws_router import router as live_ws_router
+from app.routers.medgemma_switch_router import router as medgemma_switch_router
 from app.routers.medication_ocr_router import router as medication_ocr_router
 from app.routers.model_router import router as model_router
 from app.routers.reservation_credential_router import router as reservation_credential_router
@@ -148,5 +149,6 @@ app.include_router(live_stream_router, dependencies=[Depends(require_api_key)])
 app.include_router(live_ws_router)
 app.include_router(reservation_credential_router, dependencies=[Depends(require_api_key)])
 app.include_router(medication_ocr_router, dependencies=[Depends(require_api_key)])
+app.include_router(medgemma_switch_router, dependencies=[Depends(require_api_key)])  # MedGemma 켜기·끄기 (재시작 없음)
 app.include_router(companion_router)  # 말벗: 자체 키(X-API-Key, COMPANION_API_KEY)를 라우터 안에서 붙인다
 register_companion_error_handler(app)

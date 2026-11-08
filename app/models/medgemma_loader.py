@@ -183,6 +183,7 @@ class ModelState:
 class MedGemmaLoader:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+        self._enabled = settings.medgemma_enabled  # 관리자 스위치로 바꿀 수 있다 (재시작 없이)
         self._lock = threading.Lock()
         self._model: Any = None
         self._tokenizer: Any = None
@@ -251,11 +252,41 @@ class MedGemmaLoader:
         self._quant = QUANT_NONE
         return auto_model.from_pretrained(model_id, token=token, **kwargs)
 
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    def set_enabled(self, on: bool) -> None:
+        """관리자 스위치. 컨테이너를 다시 만들지 않고 켜고 끈다. 끄면 바로 메모리에서 내린다 (unload 는 호출한 쪽이 한다)."""
+        with self._lock:
+            self._enabled = bool(on)
+
+    def unload(self) -> None:
+        """MedGemma 를 메모리(GPU 포함)에서 내린다. 다시 켜기 전까지 의료 대답은 모델 없는 경로로 간다."""
+        import gc
+
+        with self._lock:
+            self._model = None
+            self._tokenizer = None
+            self._processor = None
+            self._uses_processor = False
+            self._quant = QUANT_NONE
+            self._state.loaded = False
+            self._state.load_error = "MEDGEMMA_DISABLED (관리자 스위치로 꺼짐)"
+        gc.collect()
+        try:
+            import torch  # type: ignore[reportMissingImports]
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:  # noqa: BLE001 - torch 가 없어도 내리기는 끝난 것으로 본다
+            pass
+
     def load(self) -> None:
         with self._lock:
             if self._state.loaded:
                 return
-            if not self._settings.medgemma_enabled:  # 꺼져 있으면 요청이 와도 올리지 않는다(ensure_loaded 경로 포함)
+            if not self._enabled:  # 꺼져 있으면 요청이 와도 올리지 않는다(ensure_loaded 경로 포함)
                 self._state.load_error = "MEDGEMMA_ENABLED=false"
                 return
             try:
