@@ -21,6 +21,7 @@ from concurrent.futures import TimeoutError as FutureTimeout
 from typing import Any
 
 from app.core.config import Settings
+from app.services import claude_availability
 from app.services.claude_structured_client import ClaudeStructuredClient, failure_cause
 
 _LOG = logging.getLogger(__name__)
@@ -126,7 +127,7 @@ def _model_questions(settings: Settings, message: str, reply: str, proxy: bool) 
     who = "보호자가 가족(피보호자) 대신 묻는 대리 상담" if proxy else "본인 상담"
     user_prompt = f"[상담 종류] {who}\n[사용자 질문]\n{message[:500]}\n[챗봇 답]\n{reply[:1500]}"
     raw = _get_client(settings).generate_structured_text(
-        _SYSTEM_PROMPT, user_prompt, _SCHEMA, stage="follow_up"
+        _SYSTEM_PROMPT, user_prompt, _SCHEMA, stage="follow_up", skip_when_exhausted=True
     )
     data = json.loads(raw)
     return sanitize(data.get("questions") if isinstance(data, dict) else None, exclude=message)
@@ -145,7 +146,10 @@ def suggested_questions(
     route = (route_info or {}).get("route")
     started = time.perf_counter()
     cause = None
-    if _busy.acquire(blocking=False):
+    if claude_availability.skipping():
+        # 크레딧 소진 뒤에는 작업 스레드도 쓰지 않고 바로 규칙 문장(2026-11-08).
+        cause = claude_availability.CREDIT_EXHAUSTED
+    elif _busy.acquire(blocking=False):
         released = False
         try:
             ctx = contextvars.copy_context()  # 챗 전체 마감(contextvar)을 호출 스레드에도 넘긴다

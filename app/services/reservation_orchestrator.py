@@ -655,7 +655,15 @@ class ReservationOrchestrator(ReservationFlowMixin):
                 profile_text=self._user_profile_text(req),
             )
             raw = self._loader.generate_structured_text(
-                SYSTEM_PROMPT, prompt, schema=EXTRACTION_SCHEMA, stage="reservation_extract", reserve_sec=EXTRACT_RESERVE_SEC
+                SYSTEM_PROMPT,
+                prompt,
+                schema=EXTRACTION_SCHEMA,
+                stage="reservation_extract",
+                reserve_sec=EXTRACT_RESERVE_SEC,
+                # 실패하면 규칙 초안(날짜·시간·진료과·병원 규칙)과 단계별 버튼으로 이어 간다 - 크레딧 소진 뒤에는 부르지 않고,
+                # 시간 초과는 다시 기다리지 않는다(최악 대기 약 95초 → 60초, 2026-11-08).
+                skip_when_exhausted=True,
+                retry_on_timeout=False,
             )
         except Exception as exc:  # noqa: BLE001
             _trace(meta, "reservation_extraction_failed", error=failure_cause(exc))  # 고정 코드만 - 예외 문구에는 입력·모델 출력이 섞일 수 있다

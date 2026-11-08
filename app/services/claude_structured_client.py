@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import anthropic
 
 from app.core.config import Settings
+from app.services import claude_availability
 from app.services.chat_deadline import ChatDeadlineExceeded, call_timeout
 
 _LOG = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ _MIN_CALL_SEC = 3.0
 
 class StructuredCallError(RuntimeError):
     """라우터·예약 추출 호출 실패. cause는 고정 코드(max_tokens·parse·unknown_route·api_<상태>·rate_limited·refusal·connection·
-    not_ready·empty·deadline)라 로그에 그대로 남겨도 된다 - 입력·모델 출력·API 오류 본문은 담지 않는다."""
+    not_ready·empty·deadline·timeout·credit_exhausted)라 로그에 그대로 남겨도 된다 - 입력·모델 출력·API 오류 본문은 담지 않는다."""
 
     def __init__(self, cause: str) -> None:
         super().__init__(cause)
@@ -74,14 +75,27 @@ class ClaudeStructuredClient:
             self._state.load_error = self._state.load_error or "ANTHROPIC_API_KEY가 설정되지 않았습니다."
 
     def generate_structured_text(
-        self, system_prompt: str, user_prompt: str, schema: dict | None = None, *, stage: str = "claude", reserve_sec: float = 0.0
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        schema: dict | None = None,
+        *,
+        stage: str = "claude",
+        reserve_sec: float = 0.0,
+        skip_when_exhausted: bool = False,
+        retry_on_timeout: bool = True,
     ) -> str:
         """schema를 주면 output_config.format으로 그 JSON 스키마에 맞는 출력을 강제한다(파싱 실패 방지).
         챗 전체 마감 안에서는 호출마다 min(CLAUDE_TIMEOUT_SEC, 남은 시간 - reserve_sec)만 기다린다(reserve_sec = 뒤 단계 몫).
-        남은 시간이 모자라면 호출하지 않고 StructuredCallError("deadline")."""
+        남은 시간이 모자라면 호출하지 않고 StructuredCallError("deadline").
+        skip_when_exhausted: 크레딧 소진을 감지한 뒤 한동안(claude_availability.SKIP_SEC) 부르지 않고 바로 "credit_exhausted".
+          켠 호출자는 크레딧 부족 응답도 api_400 대신 "credit_exhausted"로 받는다. 기본(끔)은 예전과 같다(라우터).
+        retry_on_timeout: False면 시간 초과는 다시 시도하지 않고 "timeout"(연결 실패·429·5xx 재시도는 그대로)."""
         self.ensure_loaded()
         if not self._state.loaded or self._client is None:
             raise StructuredCallError("not_ready")
+        if skip_when_exhausted and claude_availability.skipping():
+            raise StructuredCallError(claude_availability.CREDIT_EXHAUSTED)
 
         kwargs = self._request_kwargs(system_prompt, user_prompt, schema)
         cap = float(self._settings.claude_timeout_sec)
@@ -99,6 +113,11 @@ class ClaudeStructuredClient:
                     continue
                 raise StructuredCallError("rate_limited") from exc
             except anthropic.APIStatusError as exc:
+                if claude_availability.is_credit_exhausted(exc):
+                    # 다시 시도해도 같다 - 감지만 기록하고 바로 끝낸다(400이라 예전에도 재시도하지 않았다).
+                    claude_availability.mark_exhausted()
+                    _LOG.warning("Claude structured call failed: cause=credit_exhausted model=%s", self._state.model_name)
+                    raise StructuredCallError(claude_availability.CREDIT_EXHAUSTED if skip_when_exhausted else f"api_{exc.status_code}") from exc
                 # 오류 본문(exc.message)에는 입력이 섞일 수 있어 상태 코드·모델 이름만 남긴다.
                 _LOG.warning("Claude structured call failed: status=%s model=%s attempt=%s", exc.status_code, self._state.model_name, attempt)
                 if attempt == 1 and exc.status_code in _RETRY_STATUSES:
@@ -106,11 +125,14 @@ class ClaudeStructuredClient:
                     continue
                 raise StructuredCallError(f"api_{exc.status_code}") from exc
             except anthropic.APIConnectionError as exc:  # 시간 초과(APITimeoutError)도 여기
+                if not retry_on_timeout and isinstance(exc, anthropic.APITimeoutError):
+                    raise StructuredCallError("timeout") from exc
                 if attempt == 1:
                     time.sleep(_RETRY_BACKOFF_SEC)
                     continue
                 raise StructuredCallError("connection") from exc
 
+        claude_availability.mark_ok()
         self._log_usage(stage, response)
         if response.stop_reason == "refusal":
             raise StructuredCallError("refusal")
