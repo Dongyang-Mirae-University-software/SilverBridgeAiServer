@@ -22,6 +22,7 @@ from app.services.chat_deadline import ChatDeadlineExceeded, chat_deadline, tigh
 from app.services.chat_router_service import ROUTER_RESERVE_SEC, get_chat_router_service
 from app.services import follow_up_questions, followup_answer_chips
 from app.services.claude_structured_client import failure_cause
+from app.services.router_failure_monitor import failure_kind, get_router_failure_monitor
 from app.services import chat_keywords, chat_layout
 from app.services.medical_llm_service import DRUG_ALCOHOL_SENTENCES, MedicalLlmService, get_medical_llm_service
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS
@@ -101,6 +102,11 @@ _CONTACT_UI_FIELDS = frozenset({"patient_name", "phone"})
 _UI_LOG_RE = re.compile(r"^\[선택\] ([^:]+): (.*)$", re.S)
 # 직전 턴이 응급(high)이었는데 이번 턴은 일반 답일 때 끝에 붙이는 한 줄(2026-10-29, 시험지 mt.01 "이제 좀 괜찮아졌어요" - 사용자 결정 (b)).
 _EMERGENCY_FOLLOWUP = "증상이 다시 생기거나 심해지면 바로 119에 전화하세요."
+# 의료·예약과 무관한 질문의 고정 안내(2026-11-08 사용자 승인 문구). 모델을 부르지 않는다.
+_OFF_TOPIC_REPLY = (
+    "저는 건강 상담과 병원 예약을 도와드리는 AI 도우미라서 그 질문에는 답해 드리기 어려워요. "
+    "몸이 불편한 곳이나 드시는 약, 병원 예약에 대해 물어봐 주세요."
+)
 # 되묻기 다음 턴이라도 인사·마무리 말이면 앞 증상과 잇지 않는다(C-1).
 # 종료 낱말이 하나라도 있어야 종료 후보다(없으면 늘 이어 붙인다). 반말·사투리 줄기까지(2026-11-04 점검 L-1: "됐어"·"괜찮아"·"수고하세요").
 _FOLLOWUP_CLOSE_WORDS = re.compile(r"고마|고맙|감사|괜찮아|괜찮습|됐어|됐다|됐습|됐네|안녕|그만|수고하|잘\s*있어|잘\s*계세요")
@@ -216,6 +222,8 @@ class ChatService:
         crisis_followup = False
         # 위기 뒤 해제된 턴인가. 해제된 턴은 생성이 실패해도 폴백이 history 근거로 위기 응답을 되살리지 않는다(2026-10-27 점검 M-1).
         crisis_released = False
+        # 라우터 호출이 실패했으면 그 종류(failure_kind - 키 없음 off 는 제외). 기록 meta.routerFailed·관리자 집계 routerFailures 의 근거.
+        router_failure: str | None = None
         if not log_message and ui_selection:
             log_message = f"[선택] {ui_selection['field']}: {ui_selection['value']}"
 
@@ -264,9 +272,16 @@ class ChatService:
                             if ReservationOrchestrator._is_new_request(message)
                             else self._last_reservation_state(db, payload.userId, session_id, ward_id, latest=latest_log),
                         )
+                    get_router_failure_monitor().record_success()
                 except Exception as exc:  # noqa: BLE001
                     # 원인은 고정 코드만(max_tokens·parse·api_<상태>…) - 입력·모델 출력은 남기지 않는다.
-                    _LOG.warning("[CHAT-ROUTER-FAILED] cause=%s fallback=keywords", failure_cause(exc))
+                    cause = failure_cause(exc)
+                    kind = failure_kind(exc)
+                    _LOG.warning("[CHAT-ROUTER-FAILED] cause=%s fallback=keywords kind=%s", cause, kind)
+                    if kind != "off":
+                        # 키 없음(off)은 설정이라 실패로 세지 않는다. 실패가 쌓이거나 크레딧이 떨어지면 ERROR(2026-11-08) - 코드만 넘긴다.
+                        router_failure = kind
+                        get_router_failure_monitor().record(cause, kind)
                 timing["routerMs"] = _elapsed_ms(router_started)
                 route_info = self._apply_router_overrides(route_info, message)
             if department_answer:
@@ -414,6 +429,10 @@ class ChatService:
                         "decisionTrace": [{"event": "reservation_credential_unavailable" if credential_unavailable
                                            else "reservation_disabled" if reservation_disabled else "reservation_flow_fallback"}],
                     }
+            elif self._is_off_topic_turn(route_info, message, ui_selection, crisis_followup, after_emergency, after_followup):
+                # 의료·예약과 무관한 질문(2026-11-08) - 생성 결과마다 답이 달라지지 않게 고정 안내(MedGemma 를 부르지 않는다).
+                _LOG.info("[CHAT-QUALITY] off_topic=true engine=%s", route_info.get("engine"))
+                result = self._off_topic_reply()
             elif self._should_ask_followup(route_info, message, ui_selection, crisis_followup, after_emergency, after_followup):
                 # 정보가 부족한 일반 증상 한마디 - 언제부터·얼마나·동반 증상을 한 번 묻는다(C-1, MedGemma 를 부르지 않는다).
                 proxy = self._is_proxy(payload, message)
@@ -492,6 +511,9 @@ class ChatService:
         suggested_kind = followup_answer_chips.KIND if suggested else None
         if suggested:
             _LOG.info("[CHAT-SUGGEST] source=answer count=%s", len(suggested))
+        elif isinstance(result.get("meta"), dict) and result["meta"].get("offTopic"):
+            # 엉뚱한 질문 고정 안내(2026-11-08)는 모델을 부르지 않는 답이라 이어서 물어볼 질문(모델 호출)도 붙이지 않는다.
+            suggested = []
         else:
             suggested = follow_up_questions.suggested_questions(
                 self._settings, result, route_info, message,
@@ -513,10 +535,18 @@ class ChatService:
                 # 심정지·경계 질환 칸(2026-11-04) - 측정용 기록. 라우터를 거치지 않은 턴은 None.
                 router_arrest = route_info.get("cardiac_arrest")
                 result["meta"]["router"]["cardiac_arrest"] = router_arrest if isinstance(router_arrest, bool) else None
+                # 라우터 실패 턴의 키워드 심정지 판정(2026-11-08). 그 밖의 턴은 None.
+                result["meta"]["router"]["fallback_arrest"] = True if route_info.get("fallback_arrest") is True else None
                 result["meta"]["router"]["urgent_condition"] = route_info.get("urgent_condition") or None
                 # 라우터 기억은 이 상담의 피보호자에게 묶는다 - 다른 피보호자 상담에서 앞 사람의 병원·날짜를 이어 쓰지 않게.
                 result["meta"]["router"]["wardId"] = ward_id
 
+        if router_failure is not None:
+            # 라우터가 실패해 키워드 경로로 답한 턴(2026-11-08). 관리자 집계 routerFailures 가 센다 - 종류(credit·auth·timeout·other)만.
+            result.setdefault("meta", {})
+            if isinstance(result["meta"], dict):
+                result["meta"]["routerFailed"] = True
+                result["meta"]["routerFailureKind"] = router_failure
         timing["postMs"] = _elapsed_ms(post_started)
         timing["totalMs"] = _elapsed_ms(started)  # 저장 직전까지. 저장 시간은 행을 쓴 뒤에야 알아 로그에만 남긴다.
         result.setdefault("meta", {})
@@ -918,7 +948,8 @@ class ChatService:
         """라우터 칸(2026-11-04)을 생성 인자로 - 심정지 의심이면 가슴압박 줄, 경계 질환이면 그 병의 오늘 진료 문장.
         값이 있을 때만 넘긴다(칸이 없는 옛 라우터·키워드 분류 턴은 지금과 같은 호출)."""
         hints: dict[str, Any] = {}
-        if route_info.get("cardiac_arrest") is True:
+        # fallback_arrest: 라우터가 실패한 턴의 키워드 심정지 판정(2026-11-08) - 라우터 칸과 같은 줄을 붙인다.
+        if route_info.get("cardiac_arrest") is True or route_info.get("fallback_arrest") is True:
             hints["arrest_hint"] = True
         urgent = route_info.get("urgent_condition")
         if route_info.get("route") == "symptom" and isinstance(urgent, str) and urgent in chat_keywords.URGENT_CONDITIONS:
@@ -935,13 +966,18 @@ class ChatService:
             if extra:
                 _LOG.info("[CHAT-SAFETY] fallback_emergency=%s", ",".join(extra))
                 kw_intent = "emergency_guidance"
-        return {
+        route = {
             "route": {"hospital_reservation": "reservation", "medical_advice": "symptom", "emergency_guidance": "symptom"}.get(kw_intent, "general"),
             "normalized_message": message,
             "symptom_summary": message,
             "emergency": kw_intent == "emergency_guidance",
             "engine": "keyword",
         }
+        # 라우터 cardiac_arrest 칸 대신(2026-11-08): 반응·호흡 없음이면 응급 키워드로 이미 응급인 문장도 가슴압박 줄을 붙인다.
+        if message and chat_keywords.fallback_arrest_signal(message):
+            _LOG.info("[CHAT-SAFETY] fallback_arrest=true")
+            route["fallback_arrest"] = True
+        return route
 
     @staticmethod
     def _force_emergency(route_info: dict, message: str) -> dict:
@@ -1058,6 +1094,39 @@ class ChatService:
             "homeCare": [],
             "visitHospitalIf": [],
             "emergencyWarning": [],
+        }
+
+    @staticmethod
+    def _is_off_topic_turn(
+        route_info: dict, message: str, ui_selection: dict | None, crisis_followup: bool, after_emergency: bool, after_followup: bool,
+    ) -> bool:
+        """고정 안내로 답할 엉뚱한 질문인가(2026-11-08). 최종 경로가 general 이고 응급·자해가 아니며, 위기·응급·되묻기 다음 턴이 아니고,
+        문장 판정(chat_keywords.is_off_topic_question)이 분명할 때만. 라우터 성공·실패 턴 모두 같은 기준이다."""
+        if not message or ui_selection or crisis_followup or after_emergency or after_followup:
+            return False
+        if route_info.get("route") != "general" or route_info.get("emergency") or route_info.get("self_harm"):
+            return False
+        if MedicalLlmService.self_harm_signals(message):
+            return False
+        return chat_keywords.is_off_topic_question(message)
+
+    @staticmethod
+    def _off_topic_reply() -> dict:
+        return {
+            "reply": _OFF_TOPIC_REPLY,
+            "riskLevel": "low",
+            "recommendedAction": "home_monitoring",
+            "reservationRequired": False,
+            "intent": "general_chat",
+            "engine": "rule",
+            "modelName": None,
+            "summary": None,
+            "possibleCauses": [],
+            "homeCare": [],
+            "visitHospitalIf": [],
+            "emergencyWarning": [],
+            # 이어서 물어볼 질문(모델 호출)도 붙이지 않는다 - follow_up_questions.should_suggest 가 이 표시를 본다.
+            "meta": {"offTopic": True},
         }
 
     @staticmethod

@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from app.core.config import Settings, get_settings
 from app.prompts.medication_ocr_prompt import SYSTEM_PROMPT, USER_PROMPT
 from app.schemas.medication_ocr_schema import CLAUDE_OUTPUT_SCHEMA, SLOTS, MedicationOcrResponse, OcrDrug
+from app.services import claude_availability
 
 _LOG = logging.getLogger(__name__)
 
@@ -22,6 +23,10 @@ NAME_MAX_LEN = 100
 
 class OcrNotConfiguredError(RuntimeError):
     """Claude 키가 없다."""
+
+
+class OcrUnavailableError(RuntimeError):
+    """크레딧 소진 - 다시 시도해도 안 된다(2026-11-08). 메시지는 고정 코드 credit_exhausted."""
 
 
 class OcrUpstreamError(RuntimeError):
@@ -57,6 +62,8 @@ class MedicationOcrService:
     def read(self, jpeg: bytes) -> MedicationOcrResponse:
         if self._client is None:
             raise OcrNotConfiguredError("not_configured")
+        if claude_availability.skipping():
+            raise OcrUnavailableError(claude_availability.CREDIT_EXHAUSTED)
         try:
             response = self._client.beta.messages.create(
                 model=self._model,
@@ -86,10 +93,14 @@ class MedicationOcrService:
         except anthropic.APITimeoutError as exc:
             raise OcrUpstreamError("timeout") from exc
         except anthropic.APIStatusError as exc:
+            if claude_availability.is_credit_exhausted(exc):
+                claude_availability.mark_exhausted()
+                raise OcrUnavailableError(claude_availability.CREDIT_EXHAUSTED) from exc
             raise OcrUpstreamError(f"status_{exc.status_code}") from exc
         except anthropic.APIError as exc:
             raise OcrUpstreamError("connection") from exc
 
+        claude_availability.mark_ok()
         if response.stop_reason == "refusal":
             raise OcrUpstreamError("refusal")
         if response.stop_reason == "max_tokens":
