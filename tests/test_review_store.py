@@ -82,3 +82,30 @@ def test_items_past_retention_are_purged(client, monkeypatch):
     assert removed == 1
     assert client.get("/companion/review/replies", headers=HDR).json()["data"]["items"] == []
     assert did  # 대화 자체는 메모리에 그대로 있다
+
+
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        # 다시 확인 턴: 신호 없음, 낱말 규칙 위험은 최상위에만
+        ({"replySource": "CONFIRM", "signals": None, "needsCheck": True, "riskFlag": True}, True),
+        # 신호 추출이 시간을 넘긴 일반 턴: 신호 없음, 위험은 최상위에만
+        ({"replySource": "SAFETY", "signals": None, "riskFlag": True}, True),
+        ({"replySource": "SAFETY", "signals": {"riskFlag": True}, "riskFlag": True}, True),
+        ({"replySource": "LLM", "signals": {"riskFlag": False}, "riskFlag": False}, False),
+        ({"replySource": "CONFIRM", "signals": None, "needsCheck": True, "riskFlag": False}, False),
+        # 무응답 턴: 위험 칸이 하나도 없음
+        ({"replySource": "FALLBACK", "signals": None}, False),
+    ],
+)
+def test_review_risk_reads_top_level_or_signals(client, result, expected):
+    from types import SimpleNamespace
+
+    from app.routers.companion_router import _queue_for_review
+
+    d = SimpleNamespace(dialogueId="d-risk", turnNo=0, wardId="u1")
+    _queue_for_review(d, {**result, "reply": {"text": "조금 더 말씀해 주실래요?", "isFollowUp": True}})
+
+    items = [i for i in review_store.list_items() if i["dialogueId"] == "d-risk"]
+    assert len(items) == 1
+    assert items[0]["risk"] is expected

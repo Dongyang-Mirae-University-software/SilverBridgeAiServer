@@ -143,10 +143,12 @@ def _queue_for_review(d: Dialogue, result: dict) -> None:
     """AI 가 만든 응답 문장을 검수 목록에 넣는다. 대답 원문은 넣지 않는다 (명세 9-4).
 
     위험 플래그(riskFlag)가 켜진 턴은 위험 표시를 붙인다 (S7-5).
+    위험 = 최상위 riskFlag 또는 signals.riskFlag. 다시 확인 턴과 신호 추출이 시간을 넘긴 턴은 signals 가 null 이고
+    위험을 최상위에만 싣는다 - signals 만 보면 그 턴의 위험 표시가 빠진다 (백엔드 턴 처리와 같은 규칙).
     """
     version = REPLY_PROMPT_VERSION if result["replySource"] == "LLM" else "fallback-v1"
     signals = result.get("signals") or {}
-    risk = bool(signals.get("riskFlag"))
+    risk = bool(result.get("riskFlag")) or bool(signals.get("riskFlag"))
     review_store.add(d.dialogueId, d.turnNo + 1, result["reply"]["text"], version, risk=risk, ward_id=d.wardId)
 
 
