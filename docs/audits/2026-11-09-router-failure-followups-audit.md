@@ -209,3 +209,23 @@ PHASE 3 검증: pytest 전체, #187 지표(응급 80 누락 ≤2·일반 221 과
   고정 안내 양성(날씨·로또·주식·숙제) 유지. API 키 사용 금지(stub·재분류만)
 마무리: PR → main 머지 → gosky 배포(허용 명령 그대로) → 재시작 로그 개수 확인 → BE audit-index·4-55·progress
 ```
+
+## 조치 (2026-11-09, 사용자 승인 "전부 반영")
+
+| ID | 조치 | 위치 |
+|---|---|---|
+| C-1 | 가족·옆 사람 호칭, 실패 경로 응급 신호(`fallback_emergency_signals`)·`ARREST_SIGNAL`이 있으면 고정 안내 안 함 + 건강 낱말에 의식·반응·위기 의심·다친 곳·피로(오타 "무릅" 포함) 추가 | `chat_keywords.is_off_topic_question`·`_OFF_TOPIC_HEALTH`·`_OFF_TOPIC_PERSON` |
+| H-1 | 실패 경로에 `호흡(이)?없`·`숨안쉬`(뒤 '어지·어져' 제외)·`숨안쉼` 추가. 목격자 추측("숨 안 쉬는 것 같아요")도 붙임(사용자 결정) | `_FALLBACK_ARREST_EXTRA` |
+| H-2 | `움직여요` 앞 안·못이면 의식 있음으로 보지 않음(성공·실패 경로 공통) | `_ARREST_AWAKE` |
+| M-1 | `숨 잘 쉬세요`, `지금은 괜찮아요/멀쩡해`(묻는 꼴 "괜찮을까요"는 제외), 실패 경로 `꼼짝 안 하던/하더니/하다가`·`숨이 없어질` 제외 | `_ARREST_AWAKE`·`_ARREST_RECOVERED`·`_FALLBACK_ARREST_NOT_NOW` |
+| M-2 | 크레딧 소진 중 창의 실패가 모두 credit이면 BURST 생략(다른 종류가 섞이는 순간 알림) - 70분 지속 ERROR 9줄 → 2줄 | `RouterFailureMonitor.record` |
+| L-1 | cause `credit_exhausted` → credit | `failure_kind` |
+| L-2 | "billing" 낱말 하나만으로는 credit 아님(credit balance·purchase credits·spend limit·402·billing_error·지출 한도 코드는 유지) | `_CREDIT_TEXT` |
+| L-3·L-4 | 고정 창·재시작 초기화·배포 전 기록 미집계 한계를 결과 문서에 명시 | `docs/eval-results/2026-11-08-router-failure-followups.md` |
+| M-3 | 새 테스트 59건(`tests/test_router_failure_audit_fixes.py`) - 점검 반례·서비스 경로·모니터·분류·집계 | |
+
+검증(API 키 미사용):
+- pytest 전체 2241 통과 · 19 실패(말벗 환경 기준선 - main에 새 말벗 테스트가 늘어 16 → 19) · `test_llm_load.py`는 torch 필요로 제외
+- 시험지: 응급 80 누락 2(`sh.09`·`sh.11`, 라우터 몫) · 일반 221 과잉 0 · 일반 `fallback_arrest` 오탐 0 · cpr 18 중 실패 경로 17 · cpr_aed=false 58 오탐 0 · 326문항 고정 안내 0
+- 점검 반례 48문장 중 47 기대 일치 - 남은 1건("수영할 때 숨 안 쉬고 오래 버텼어요")은 비응급이라 답 불변, 기록에만 `fallback_arrest=true`(수용)
+- 결함 주입 17종(점검 미검출 F1·F2·F6·F11 + 이번 수정 N1~N13) 모두 검출

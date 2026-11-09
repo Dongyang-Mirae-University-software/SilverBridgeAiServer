@@ -57,3 +57,10 @@ API 키는 쓰지 않았다(gosky run_eval·실제 라우터 재생·시험 상�
 
 - BE(별도 작업): `AdminAiChatStatsResponse`·`AdminAiChatStatsService` 에 `routerFailures`·`routerFailuresByKind`·`routerStatus` 매핑. 관리자 화면 표시는 FE 몫.
 - 기존 `arrest_conscious` 가 "가슴이 안 움직여요"의 "움직여요"를 의식 있음으로 읽는다(부정이 낱말 사이에 없는 꼴). 이번 범위 밖 - 후속 점검 대상.
+
+## 한계 (2026-11-09 점검 L-3·L-4 반영)
+
+- `routerFailures`·`routerFailuresByKind`는 #188 배포(2026-11-08) 뒤 기록의 `upstreamMeta.routerFailed`만 센다 - 그 전 기간은 0으로 나온다.
+- 누적 알림은 첫 실패부터 시작하는 **고정 창**이라 창 경계에 걸친 실패(예: 590~609초 8건)는 기준 미달로 보일 수 있다.
+- `routerStatus`는 프로세스 안 상태라 재시작하면 ok로 돌아가고, 트래픽이 없으면 충전 뒤에도 다음 라우터 성공 전까지 credit_exhausted로 보인다.
+- 점검 후속 수정(2026-11-09): `docs/audits/2026-11-09-router-failure-followups-audit.md` "조치" 절.

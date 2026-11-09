@@ -28,7 +28,8 @@ KINDS = ("credit", "auth", "timeout", "other")
 # 문구(type 은 invalid_request_error)라 문구도 본다 - 판정에만 쓰고 로그·기록에는 남기지 않는다.
 _CREDIT_TYPES = frozenset({"billing_error"})
 _CREDIT_CODES = frozenset({"billing_frozen", "enforced_spend_limit_reached"})
-_CREDIT_TEXT = re.compile(r"credit balance|billing|purchase credits|spend limit", re.IGNORECASE)
+# "billing" 낱말 하나만으로는 보지 않는다(2026-11-09 점검 L-2) - 다른 이유의 400·403 문구에 섞이면 #189 건너뛰기까지 30분 켜진다.
+_CREDIT_TEXT = re.compile(r"credit balance|purchase credits|spend limit", re.IGNORECASE)
 
 
 def _body_error(err: BaseException) -> dict:
@@ -42,6 +43,8 @@ def failure_kind(exc: BaseException) -> str:
     cause = getattr(exc, "cause", None)
     if cause == "not_ready":
         return "off"  # ANTHROPIC_API_KEY 없음 - 클라이언트를 만들지 않았다
+    if cause == "credit_exhausted":
+        return "credit"  # #189 건너뛰기(skip_when_exhausted)로 생긴 실패 - 원래 SDK 예외가 없다(2026-11-09 점검 L-1)
     if cause == "deadline" or isinstance(exc, (ChatDeadlineExceeded, TimeoutError)):
         return "timeout"
     origin = exc.__cause__ or exc
@@ -105,7 +108,10 @@ class RouterFailureMonitor:
                 self._alerted = False
             self._causes[f"{kind}/{code}"] += 1
             count = sum(self._causes.values())
-            if not self._alerted and count >= self._threshold:
+            # 크레딧 소진 중 창의 실패가 모두 credit 이면 CREDIT-EXHAUSTED 가 같은 사건을 이미 알렸다 - BURST 는 생략한다
+            # (2026-11-09 점검 M-2: 1시간 지속에 ERROR 9줄). 생략한 창도 다른 종류가 섞이는 순간 알린다.
+            credit_only = self._credit_active and all(name.startswith("credit/") for name in self._causes)
+            if not self._alerted and count >= self._threshold and not credit_only:
                 self._alerted = True
                 burst = (count, ",".join(f"{name}:{n}" for name, n in self._causes.most_common()))
         if credit:
