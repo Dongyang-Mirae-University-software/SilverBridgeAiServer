@@ -32,13 +32,24 @@ _DESCRIPTION_MIN = 6
 # 이보다 긴 자유 입력은 알아들은 답이어도 설명으로 본다("일주일째인데 점점 심해져요" - 기간 + 정도).
 _SHORT_ANSWER_MAX = 8
 
-_YES = re.compile(r"^(네|넵|예|응|맞아|맞습|맞대|그래|그렇|있어|있습|있대|있으|나요|나와|나네|심해|심하|그런것같|그런거같)")
+_YES = re.compile(r"^(네|넹|넵|예|응|웅|맞아|맞어|맞습|맞대|그래|그려|그랴|그렇|있어|있습|있대|있으|나요|나와|나네|심해|심하|그런것같|그런거같|ㅇㅇ|yes)", re.I)
+# 홀로 쓴 짧은 긍정(앞 글자 규칙에 넣으면 "어제부터요"가 "네"가 된다 - 2026-11-09 점검 H-1).
+_YES_ALONE = re.compile(r"(어|엉|웅|응|ㅇ|y|ok|오케이)(요|유)?", re.I)
+# 위험 신호 질문(Q1)에서 "네"로 읽는 강조 말(2026-11-09 점검 H-1 - "너무 아파요"·"엄청 심해요"가 못 알아들음이었다).
+# 강조 없는 "아파요" 한마디는 "아주 심하게"인지 알 수 없어 한 번 더 묻는다.
+_INTENSE = re.compile(r"너무|많이|엄청|되게|디게|무척|굉장|진짜|정말|겁나|심해|심하|심했|죽겠|못참|참기힘|견디기힘")
+# 정도 말 - 질문마다 정한 쪽(Question.mild)으로 읽는다(2026-11-09 점검 L-1).
+_MILD = re.compile(r"^(조금|쬐금|약간|살짝|좀|그냥|그럭저럭|그저그래|그저그렇|보통|가끔|어쩌다)")
+# 되묻는 말("네?"·"예?") - "네"가 아니다(2026-11-09 점검 M-1, 위험 신호 질문에서 119 로 가던 과잉).
+_PARDON = re.compile(r"^\s*(네|예|응|뭐|뭐라|뭐라고|무슨|머|엥|에|진짜|정말|그래)\s*(요|유)?\s*[?？]+\s*$")
+# 예/아니요 질문의 "괜찮아요"는 종료 인사가 아니라 "아니요"다(2026-11-09 점검 M-3).
+_OKAY = re.compile(r"(네|예|응|아니요|아뇨|지금은|이제는|이제|저는|전|그건|그런건|그거는)?괜찮(아요|아|습니다|어요|아유|은데요|네요|다|더라고요|구요|고요)?")
 # 부정이 섞이면 "네" 꼴로 시작해도 "아니요"다("심하지는 않아요", "그렇지 않아요").
-_NEG = re.compile(r"않|아니|아뇨|없|안아|안나|안해|안심|안그|안저|안메")
-_NO = re.compile(r"^(아니|아뇨|아녀|아닙|안그|없어|없습|없대|없으|없네|안나|안해|안심|별로|전혀|그렇지않|그런건아니)")
-_UNKNOWN = re.compile(r"^(모르|몰라|글쎄|잘모르|기억이안)")
+_NEG = re.compile(r"않|아니|아뇨|없|안아|안나|안해|안심|안그|안저|안메|안빠|안차|안조|괜찮|ㄴㄴ|^no$", re.I)
+_NO = re.compile(r"^(아니|아뇨|아녀|아닙|안그|없어|없습|없대|없으|없네|안나|안해|안심|별로|전혀|그렇지않|그런건아니|ㄴㄴ|ㄴ$|no$|노$)", re.I)
+_UNKNOWN = re.compile(r"^(모르|몰라|몰러|글쎄|잘모르|기억이안|기억안|기억이잘|기억못|기억이없)")
 _ONSET = re.compile(r"오늘|아까|방금|조금전|아침|점심|저녁|밤|새벽|어제|그제|그저께|며칠|사흘|이틀|나흘|닷새|일주|주일|주째|달|개월|년|오래|요즘|최근|한참|\d+(일|주|시간)|부터|째|됐")
-_NOT_LETTER = re.compile(r"[^가-힣A-Za-z0-9]")
+_NOT_LETTER = re.compile(r"[^가-힣ㄱ-ㅎA-Za-z0-9]")
 
 
 @dataclass(frozen=True)
@@ -50,6 +61,10 @@ class Question:
     proxy_chips: tuple[str, ...]
     yes_phrase: str = ""  # MedGemma 에 넘길 답 문장(네)
     no_phrase: str = ""  # (아니요)
+    # 정도 말("조금요")을 어느 쪽으로 읽나 - 심한 정도를 묻는 질문은 "no", 증상이 있는지 묻는 질문은 "yes"(2026-11-09 점검 L-1).
+    mild: str = "yes"
+    # 이 질문에서 "네"로 읽는 증상 말(그 질문이 묻는 증상 그대로 - "말이 어눌해요", "38도요").
+    yes_words: re.Pattern[str] | None = None
 
     def pick(self, proxy: bool) -> str:
         return self.proxy if proxy else self.text
@@ -73,8 +88,8 @@ class Group:
 _YN = ("네", "아니요")
 
 
-def _yn(text: str, proxy: str, yes: str, no: str) -> Question:
-    return Question("yesno", text, proxy, _YN, _YN, yes, no)
+def _yn(text: str, proxy: str, yes: str, no: str, mild: str = "yes", yes_words: str | None = None) -> Question:
+    return Question("yesno", text, proxy, _YN, _YN, yes, no, mild, re.compile(yes_words) if yes_words else None)
 
 
 ONSET = Question(
@@ -87,34 +102,38 @@ ONSET = Question(
 _GROUPS: tuple[Group, ...] = (
     Group(
         "chest", re.compile(r"$^"),
-        _yn("숨이 차거나 가슴이 조이세요?", "숨차하시거나 가슴이 조인대요?", "", "그런 증상은 없어요"), "119",
+        _yn("숨이 차거나 가슴이 조이세요?", "숨차하시거나 가슴이 조인대요?", "", "그런 증상은 없어요",
+            yes_words=r"숨|가슴|조여|조이|답답|헐떡|헉헉"), "119",
         _yn("기침이나 열도 있으세요?", "기침이나 열도 있으시대요?", "기침이나 열도 있어요", "기침이나 열은 없어요"),
         "내과", "", "",
     ),
     Group(
         "numb", re.compile(r"저리|저려|저린|저림"),
-        _yn("한쪽 팔다리 힘이 갑자기 빠지세요?", "한쪽 팔다리 힘이 갑자기 빠지셨대요?", "", "힘이 빠지지는 않아요"), "119",
+        _yn("한쪽 팔다리 힘이 갑자기 빠지세요?", "한쪽 팔다리 힘이 갑자기 빠지셨대요?", "", "힘이 빠지지는 않아요",
+            yes_words=r"힘이빠|힘빠|빠져|빠지|안움직|못움직|마비|어눌"), "119",
         _yn("밤에 더 저리세요?", "밤에 더 저리시대요?", "밤에 더 저려요", "밤에 더 저리지는 않아요"),
         "신경과", "한쪽 팔다리 힘이 갑자기 빠지거나 말이 어눌해지면 바로 119에 전화하세요.",
         "한쪽 팔다리 힘이 갑자기 빠지시거나 말이 어눌해지시면 바로 119에 전화하세요.",
     ),
     Group(
         "dizzy", re.compile(r"어지"),
-        _yn("말이 어눌하거나 팔다리 힘이 빠지세요?", "말씀이 어눌하거나 팔다리 힘이 빠지세요?", "", "말이나 팔다리는 괜찮아요"), "119",
+        _yn("말이 어눌하거나 팔다리 힘이 빠지세요?", "말씀이 어눌하거나 팔다리 힘이 빠지세요?", "", "말이나 팔다리는 괜찮아요",
+            yes_words=r"어눌|말이이상|발음|힘이빠|힘빠|빠져|빠지|마비"), "119",
         _yn("속도 메스꺼우세요?", "속도 메스꺼우시대요?", "속도 메스꺼워요", "속은 괜찮아요"),
         "내과", "말이 어눌해지거나 팔다리 힘이 빠지면 바로 119에 전화하세요.",
         "말씀이 어눌해지시거나 팔다리 힘이 빠지시면 바로 119에 전화하세요.",
     ),
     Group(
         "head", re.compile(r"머리|두통"),
-        _yn("갑자기 아주 심하게 아프세요?", "갑자기 아주 심하게 아파하세요?", "", "갑자기 아주 심한 건 아니에요"), "119",
-        _yn("열도 나세요?", "열도 나신대요?", "열도 나요", "열은 없어요"),
+        _yn("갑자기 아주 심하게 아프세요?", "갑자기 아주 심하게 아파하세요?", "", "갑자기 아주 심한 건 아니에요", mild="no",
+            yes_words=r"깨질|터질|벼락|망치"), "119",
+        _yn("열도 나세요?", "열도 나신대요?", "열도 나요", "열은 없어요", yes_words=r"\d+(\.\d+)?도|미열|고열|열나|열이나|열있|열이있|뜨거|오한"),
         "신경과", "갑자기 아주 심하게 아프거나 말이 어눌해지면 바로 119에 전화하세요.",
         "갑자기 아주 심하게 아파하시거나 말씀이 어눌해지시면 바로 119에 전화하세요.",
     ),
     Group(
         "belly", re.compile(r"배|속|구토|토할|설사|변비|소화"),
-        _yn("참기 힘들 만큼 아프세요?", "참기 힘들 만큼 아파하세요?", "", "참을 만해요"), "119",
+        _yn("참기 힘들 만큼 아프세요?", "참기 힘들 만큼 아파하세요?", "", "참을 만해요", mild="no", yes_words=r"뒹굴|데굴|못참|참기힘"), "119",
         _yn("설사도 하세요?", "설사도 하신대요?", "설사도 해요", "설사는 안 해요"),
         "내과", "참기 힘들 만큼 아프거나 피를 토하면 바로 119에 전화하세요.",
         "참기 힘들 만큼 아파하시거나 피를 토하시면 바로 119에 전화하세요.",
@@ -123,19 +142,19 @@ _GROUPS: tuple[Group, ...] = (
         "joint",
         # 손·발은 통증 말만, 목은 뻐근·결림만(옛 답 칩 표와 같은 기준, 2026-11-03 점검 L-1).
         re.compile(r"무릎|허리|어깨|관절|뼈|손목|발목|다리|팔|손가락|발가락|손이아|발이아|손이쑤|발이쑤|목이뻐근|목뻐근|목이결|목결"),
-        _yn("다친 뒤로 많이 부었어요?", "다치신 뒤로 많이 부었대요?", "", "다쳐서 부은 건 아니에요"), "visit",
+        _yn("다친 뒤로 많이 부었어요?", "다치신 뒤로 많이 부었대요?", "", "다쳐서 부은 건 아니에요", yes_words=r"넘어|다쳤|다친|다쳐|삐었|삐끗|접질|부딪"), "visit",
         _yn("걸을 때 더 아프세요?", "걸으실 때 더 아프시대요?", "걸을 때 더 아파요", "걸을 때 더 아프지는 않아요"),
         "정형외과", "", "",
     ),
     Group(
         "cough", re.compile(r"기침|가래|감기|열|목|코|콧물"),
-        _yn("숨쉬기 힘드세요?", "숨쉬기 힘들어하세요?", "", "숨쉬기는 괜찮아요"), "119",
-        _yn("열도 나세요?", "열도 나신대요?", "열도 나요", "열은 없어요"),
+        _yn("숨쉬기 힘드세요?", "숨쉬기 힘들어하세요?", "", "숨쉬기는 괜찮아요", yes_words=r"숨|헐떡|헉헉|답답"), "119",
+        _yn("열도 나세요?", "열도 나신대요?", "열도 나요", "열은 없어요", yes_words=r"\d+(\.\d+)?도|미열|고열|열나|열이나|열있|열이있|뜨거|오한"),
         "내과", "숨쉬기 힘들어지면 바로 119에 전화하세요.", "숨쉬기 힘들어하시면 바로 119에 전화하세요.",
     ),
     Group(
         "default", re.compile(r""),
-        _yn("갑자기 아주 심해졌어요?", "갑자기 아주 심해지셨대요?", "", "갑자기 심해진 건 아니에요"), "visit",
+        _yn("갑자기 아주 심해졌어요?", "갑자기 아주 심해지셨대요?", "", "갑자기 심해진 건 아니에요", mild="no"), "visit",
         _yn("점점 심해지고 있어요?", "점점 심해지신대요?", "점점 심해져요", "점점 심해지지는 않아요"),
         "가까운 병원", "", "",
     ),
@@ -220,26 +239,45 @@ def _compact(text: str) -> str:
 def interpret(state: dict[str, Any], message: str) -> tuple[str, str | None]:
     """이번 답을 지금 질문의 답으로 해석한다. (판정, 결과 문장 조각 - 지금 질문에 답했으면 그 답 문장)
     판정: yes / no / answer(기간 답) / unknown(모름 - 넘어간다) / describe(설명 - 남은 질문 건너뜀) / unclear(다시 묻기).
-    describe 의 조각이 None 이 아니면 지금 질문에도 답한 것이다("아니요, 어제부터 아파요")."""
+    순서(2026-11-09 점검 반영): 되묻는 말 → "괜찮아요" → 부정 → 긍정·강조·그 질문의 증상 말 → 정도 말 → 위험 신호 낱말 →
+    다른 질문의 답·새 증상 → 모름 → 길이."""
     q = current_question(state)
     c = _compact(message)
     if not c:
         return "unclear", None
+    red_flag_question = state["index"] == 0
     if q.kind == "yesno":
-        negated = bool(_NO.match(c) or (_YES.match(c) and _NEG.search(c)))
-        if _YES.match(c) and not negated:
-            # 위험 신호(Q1) "네"는 길이와 상관없이 "네"다("네 갑자기 너무 아파요") - 119·오늘 진료 쪽으로 기운다.
-            if state["index"] == 0 or len(c) <= _SHORT_ANSWER_MAX:
-                return "yes", q.yes_phrase or None
-            return "describe", q.yes_phrase or None
+        if _PARDON.match(message or ""):
+            return "unclear", None
+        if _OKAY.fullmatch(c):
+            return "no", q.no_phrase
+        negated = bool(_NO.match(c) or _NEG.search(c))
+        about_this = bool(q.yes_words and q.yes_words.search(c))  # 이 질문이 묻는 증상을 부정("가슴은 괜찮아요")
+        if negated and not about_this and not _NO.match(c) and (_ONSET.search(c) or chat_keywords.FOLLOWUP_SYMPTOM_NOUN.search(c)):
+            # 다른 질문에 대한 부정("열은 없고 괜찮아요")은 이 질문의 답이 아니다 - 설명으로 본다.
+            return "describe", None
         if negated:
             return ("no" if len(c) <= _SHORT_ANSWER_MAX else "describe"), q.no_phrase
+        yes = bool(
+            _YES.match(c) or _YES_ALONE.fullmatch(c) or (q.yes_words and q.yes_words.search(c))
+            # 강조 말은 기간·"점점"이 없을 때만 - "일주일째인데 점점 심해져요"는 갑자기 심한 게 아니라 설명이다(시험지 fq.13)
+            # 심한 정도를 묻는 위험 신호 질문(mild="no" - 머리·배·기본 묶음)에만 쓴다. 관절("다친 뒤로 부었어요?")처럼 있는지를 묻는 질문에는 아니다(fq.19).
+            or (red_flag_question and q.mild == "no" and _INTENSE.search(c) and not _ONSET.search(c) and "점점" not in c)
+            or (red_flag_question and red_flag_action(state) == "119" and chat_keywords.has_red_flag(c))
+        )
+        if yes:
+            # 위험 신호(Q1) "네"는 길이와 상관없이 "네"다("네 갑자기 너무 아파요") - 119·오늘 진료 쪽으로 기운다.
+            if red_flag_question or len(c) <= _SHORT_ANSWER_MAX:
+                return "yes", q.yes_phrase or None
+            return "describe", q.yes_phrase or None
+        if _MILD.match(c) and len(c) <= _SHORT_ANSWER_MAX:
+            return ("yes", q.yes_phrase or None) if q.mild == "yes" else ("no", q.no_phrase)
+        # 위험 신호 낱말이 든 답은 설명으로 - 결과 턴 생성 후처리가 위험 신호 119 줄을 붙인다.
+        if chat_keywords.has_red_flag(c):
+            return "describe", None
         # 다른 질문의 답("어제부터요", "열은 없고 괜찮아요")·새 증상 말("배가 아파요")은 설명으로 본다 - 같은 질문을 되풀이하지 않는다.
         if _ONSET.search(c) or chat_keywords.FOLLOWUP_SYMPTOM_NOUN.search(c):
             return "describe", None
-        # 짧은 부정("아프지 않아요", "그런 적 없어요")도 "아니요". 긴 문장 속 부정은 "아니요"로 읽지 않는다(설명).
-        if len(c) <= _SHORT_ANSWER_MAX and _NEG.search(c):
-            return "no", q.no_phrase
     elif _ONSET.search(c):
         return ("answer" if len(c) <= _SHORT_ANSWER_MAX else "describe"), message.strip()
     if _UNKNOWN.match(c) and len(c) <= _SHORT_ANSWER_MAX:
@@ -249,13 +287,20 @@ def interpret(state: dict[str, Any], message: str) -> tuple[str, str | None]:
     return "unclear", None
 
 
+def is_okay_answer(state: dict[str, Any], message: str) -> bool:
+    """예/아니요 질문에 "괜찮아요"(앞에 "네"·"지금은" 정도만 붙은 말)로 답했는가 - 종료 인사로 보지 않고 "아니요"로 읽는다."""
+    return current_question(state).kind == "yesno" and bool(_OKAY.fullmatch(_compact(message)))
+
+
 def red_flag_action(state: dict[str, Any]) -> str:
     return _BY_NAME[state["group"]].red_flag_action
 
 
-def visit_today_lines(state: dict[str, Any]) -> list[str]:
+def visit_today_lines(state: dict[str, Any], symptom: str = "") -> list[str]:
+    """위험 신호 "네"(관절·기본 묶음) 끝맺음. 진료과는 증상 문장의 진료과(눈 → 안과 등), 없으면 묶음 기본값(2026-11-09 점검 L-2)."""
     g = _BY_NAME[state["group"]]
-    first = (_VISIT_TODAY_PROXY if state["proxy"] else _VISIT_TODAY).format(department=g.department)
+    department = chat_keywords.symptom_department(symptom) if symptom else None
+    first = (_VISIT_TODAY_PROXY if state["proxy"] else _VISIT_TODAY).format(department=department or g.department)
     return [first, _VISIT_WORSE]
 
 
