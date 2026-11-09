@@ -308,6 +308,12 @@ class ChatService:
                 _LOG.info("[CHAT-SAFETY] crisis_continues_fallback=true text_len=%s", len(message))
                 self_harm_trigger = "history"
                 route_info = {**route_info, "route": "symptom", "emergency": True, "reason": "crisis-continues-fallback"}
+            if router_failed and self_harm_trigger is None and chat_keywords.fallback_self_harm_signals(message):
+                # 라우터 실패: 애매한 자해 표현("다 끝내고 싶어" 꼴)은 라우터 self_harm 칸 대신 좁은 패턴으로 위기 응답(2026-11-09).
+                # 근거는 이번 문장이라 keyword 와 같이 다룬다(위기 해제 검사 대상 아님). 로그는 길이만.
+                _LOG.info("[CHAT-SAFETY] self_harm_fallback_pattern=true text_len=%s", len(message))
+                self_harm_trigger = "keyword"
+                route_info = {**route_info, "route": "symptom", "emergency": True, "reason": "self-harm-fallback-pattern"}
             prev_meta = (
                 self._previous_turn_meta(db, payload.userId, session_id, latest=latest_log) if message and not self_harm_keyword else {}
             )

@@ -17,12 +17,24 @@ from app.services.chat_service import ChatService
 from app.services.medical_llm_service import MedicalLlmService
 
 _EVAL = pathlib.Path(__file__).parent / "eval"
-# 설계상 라우터 몫: 애매한 자해 표현("다 끝내고 싶어")·다중 턴 위기 이어짐(_crisis_continues_without_router 가 맡음).
-_ROUTER_ONLY = {"sh.09", "sh.11"}
+# 라우터만 잡는 응급 문항 - 지금은 없다. 애매한 자해 표현(sh.09)은 라우터 실패 전용 패턴(2026-11-09)이, 다중 턴 위기 이어짐(sh.11)은
+# _crisis_continues_without_router 가 맡는다(2026-11-09 재측정 - 전에는 history 를 넘기지 않아 누락으로 셌다).
+_ROUTER_ONLY: set[str] = set()
 
 
 def _fallback_emergency(q: str) -> bool:
     return bool(ChatService._force_emergency(ChatService._keyword_route(q), q).get("emergency"))
+
+
+def _fallback_turn_emergency(q: str, history: list[dict] | None = None) -> bool:
+    """라우터 실패 턴의 응급·위기 판정 - process_message 와 같은 순서(자해 키워드 → 키워드 분류 → 위기 이어짐 → 자해 패턴)."""
+    history = history or []
+    if MedicalLlmService.self_harm_signals(q):
+        return True
+    route = ChatService._force_emergency(ChatService._keyword_route(q), q)
+    if ChatService._self_harm_trigger(False, route, history) is not None or route.get("emergency"):
+        return True
+    return ChatService._crisis_continues_without_router(q, history) or bool(kw.fallback_self_harm_signals(q))
 
 
 def _unique_items():
@@ -30,20 +42,21 @@ def _unique_items():
     for f in sorted(glob.glob(str(_EVAL / "*.json"))):
         for it in json.loads(pathlib.Path(f).read_text(encoding="utf-8")).get("items", []):
             q = it.get("q") or ""
-            if q and q not in seen:
-                seen.add(q)
+            key = q + "\x00" + json.dumps(it.get("history") or [], ensure_ascii=False)
+            if q and key not in seen:
+                seen.add(key)
                 yield it
 
 
 def test_eval_sets_emergency_caught_without_router() -> None:
     missed = [it["id"] for it in _unique_items()
-              if (it.get("expect") or {}).get("emergency") is True and not _fallback_emergency(it["q"])]
+              if (it.get("expect") or {}).get("emergency") is True and not _fallback_turn_emergency(it["q"], it.get("history"))]
     assert set(missed) <= _ROUTER_ONLY, missed
 
 
 def test_eval_sets_general_not_overtriaged() -> None:
     over = [it["id"] for it in _unique_items()
-            if (it.get("expect") or {}).get("emergency") is False and _fallback_emergency(it["q"])
+            if (it.get("expect") or {}).get("emergency") is False and _fallback_turn_emergency(it["q"], it.get("history"))
             and not MedicalLlmService.self_harm_signals(it["q"])]
     assert over == [], over
 
