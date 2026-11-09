@@ -41,7 +41,8 @@ router = APIRouter(
     dependencies=[Depends(require_companion_api_key)],
 )
 
-FRAME_MAX_BYTES = 2 * 1024 * 1024  # 프레임 한 장 상한 (JPEG/PNG)
+FRAME_MAX_BYTES = 1 * 1024 * 1024  # 프레임 한 장 상한 (JPEG/PNG). BE 기준 1MB (2026-11-09 맞춤)
+ANSWER_MAX_CHARS = 500  # 글 대답 상한 (BE 기준 1~500자)
 
 
 def get_transcriber():
@@ -89,7 +90,7 @@ class DialogueOpen(BaseModel):
 
 
 class ReplyText(BaseModel):
-    text: str = Field(default="", max_length=2000)
+    text: str = Field(default="")  # 길이(500자)는 핸들러에서 ANSWER_TOO_LONG 으로 거절한다
 
 
 class ReviewDecision(BaseModel):
@@ -265,6 +266,8 @@ def reply_text(
     d = _dialogue_or_404(dialogue_id)
     if not body.text.strip():
         raise CompanionError(422, "ANSWER_EMPTY", "대답 글자가 비어 있습니다.")
+    if len(body.text) > ANSWER_MAX_CHARS:
+        raise CompanionError(422, "ANSWER_TOO_LONG", f"대답은 {ANSWER_MAX_CHARS}자 이하여야 합니다.")
     face = _no_face()
     result = _run_turn(d, body.text, face, classify_text, llm)
     out = _turn_response(d, result)
@@ -274,7 +277,7 @@ def reply_text(
 @router.post(
     "/dialogues/{dialogue_id}/reply/audio",
     summary="음성 대답을 보낸다 (WAV·webm·mp3)",
-    description="음성 1턴을 처리한다 (multipart: `audio` 1개 10MB 이하, `frame` 최대 5장 장당 2MB 이하, JPEG·PNG). "
+    description="음성 1턴을 처리한다 (multipart: `audio` 1개 5MB 이하, `frame` 최대 5장 장당 1MB 이하, JPEG·PNG). "
                 "응답에 받아 적은 글(`transcript`)을 넣는다. 글자가 없으면 무응답 턴. 얼굴이 없으면 `face.usable=false`. "
                 "오류: 422 AUDIO_MISSING·AUDIO_FORMAT_UNSUPPORTED·FRAME_FORMAT_UNSUPPORTED, 413 AUDIO_TOO_LARGE·FRAMES_TOO_MANY·FRAME_TOO_LARGE, 503 STT_UNAVAILABLE.",
 )
@@ -313,7 +316,7 @@ async def reply_audio(
     if len(frames) > settings.companion_frame_max:
         raise CompanionError(413, "FRAMES_TOO_MANY", f"프레임은 한 턴에 {settings.companion_frame_max}장까지입니다.")
     if any(len(f.data) > FRAME_MAX_BYTES for f in frames):
-        raise CompanionError(413, "FRAME_TOO_LARGE", "프레임 한 장은 2MB 이하여야 합니다.")
+        raise CompanionError(413, "FRAME_TOO_LARGE", "프레임 한 장은 1MB 이하여야 합니다.")
     if any(detect_image_format(f.data) is None for f in frames):
         raise CompanionError(422, "FRAME_FORMAT_UNSUPPORTED", "얼굴 사진은 JPEG·PNG만 받습니다.")
     if detect_audio_format(part.data) is None:

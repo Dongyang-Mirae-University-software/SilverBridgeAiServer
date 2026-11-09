@@ -9,8 +9,8 @@ from pathlib import Path
 
 from app.core.config import get_settings
 
-RISK_PROMPT_VERSION = "risk-v2"  # 프롬프트 파일을 고치면 올린다
-RISK_THRESHOLD = 0.99  # 11/06 팀 측정 기준 (헛경보 0%대)
+RISK_PROMPT_VERSION = "risk-v4"  # 프롬프트 파일을 고치면 올린다
+RISK_THRESHOLD = 0.5  # 2026-11-09 측정. 검증 세트 B(개발에 안 쓴 새 문장 위험 20·평범 20): v4 18/20 포착, 헛경보 0/20
 _PROMPT = Path(__file__).parent / "prompts" / f"{RISK_PROMPT_VERSION}.txt"
 PREFIX = '{"risk": "'  # 모델이 이 뒤에 '있' 또는 '없'을 쓰도록 미리 적어 둔다
 CANDIDATES = ("있", "없")

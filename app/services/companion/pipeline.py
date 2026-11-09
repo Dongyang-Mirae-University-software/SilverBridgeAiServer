@@ -9,7 +9,7 @@ from app.core.config import get_settings
 from app.services.companion.answer_summary import summarize_answer
 from app.services.companion.fusion import GGARA_TO_TURN, HSEMOTION_TO_TURN, UNDECIDED, fuse_turn
 from app.services.companion.llm_client import LlmClient
-from app.services.companion.reply_service import generate_reply, no_response_reply
+from app.services.companion.reply_service import SAFETY_REPLY, ReplyResult, generate_reply, no_response_reply
 from app.services.companion.risk import is_risk, keyword_risk, risk_probability
 from app.services.companion.signals import extract_signals
 from app.services.companion.transcript_check import check_transcript, confirm_reply
@@ -111,6 +111,9 @@ def run_turn(
     # 위험 판정 = 낱말 규칙 또는 모델 확률 (모델이 꺼져 있어도 낱말 규칙으로 알린다)
     model_flag = is_risk(risk_prob) if risk_prob is not None else bool((signals or {}).get("riskFlag"))
     risk_flag = keyword_risk(transcript) or model_flag
+    if risk_flag:
+        # 위험 신호가 켜지면 평소 대답 대신 안내 문장으로 답한다 (식사 질문 등으로 넘기지 않는다)
+        reply = ReplyResult(text=SAFETY_REPLY, isFollowUp=reply.isFollowUp, source="SAFETY", failures=reply.failures)
     if signals is not None:
         signals = {**signals, "riskFlag": risk_flag}
     return {

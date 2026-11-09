@@ -321,7 +321,7 @@ class Settings(BaseModel):
     companion_face_min_rate: float = _as_float("COMPANION_FACE_MIN_RATE", 0.5)  # D6
     companion_confidence_min: float = _as_float("COMPANION_CONFIDENCE_MIN", 0.6)  # 확신도 0.6 기준
     companion_min_text_chars: int = _as_int("COMPANION_MIN_TEXT_CHARS", 10)  # 발화 최소 글자 수
-    companion_upload_max_mb: int = _as_int("COMPANION_UPLOAD_MAX_MB", 10)  # 명세 Q12
+    companion_upload_max_mb: int = _as_int("COMPANION_UPLOAD_MAX_MB", 5)  # BE 기준 5MB (2026-11-09 맞춤, 명세 Q12는 10MB였음)
     companion_reply_max_chars: int = _as_int("COMPANION_REPLY_MAX_CHARS", 140)  # D21 (사용자 결정 140자 이내)
     companion_fusion_rule: str = os.getenv("COMPANION_FUSION_RULE", "plan41")  # D9: plan41 | arch8
     companion_stt_subdir: str = os.getenv("COMPANION_STT_SUBDIR", "companion/stt")  # D19: MODEL_BASE_PATH 하위
@@ -345,8 +345,8 @@ class Settings(BaseModel):
     companion_llm_dtype: str = os.getenv("COMPANION_LLM_DTYPE", "bfloat16")  # 메모리 절약 (가중치는 float32 저장)
     # GPU가 있으면 GPU에 올린다. int8 이면 8비트로 줄인다 (CPU 메모리 부족 방지, 11/05·11/08 강제 종료 원인)
     companion_llm_quant: str = os.getenv("COMPANION_LLM_QUANT", "int8").strip().lower()
-    # 위험 판정 기준 (위험 '있' 확률). 팀 측정 기준 0.99. 프롬프트를 바꾸면 다시 맞춘다
-    companion_risk_threshold: float = _as_float("COMPANION_RISK_THRESHOLD", 0.99)
+    # 위험 판정 기준 (위험 '있' 확률). 2026-11-09 재측정 기준 0.5 (이전 팀 기준 0.99는 위험을 대부분 놓쳤다). 프롬프트를 바꾸면 다시 맞춘다
+    companion_risk_threshold: float = _as_float("COMPANION_RISK_THRESHOLD", 0.5)
     # 한 턴 전체 상한 (백엔드 요청: 60초). 넘으면 미리 정한 문장으로 답한다
     companion_turn_cap_sec: float = _as_float("COMPANION_TURN_CAP_SEC", 60.0)
     companion_llm_num_predict: int = _as_int("COMPANION_LLM_NUM_PREDICT", 256)
