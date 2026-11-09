@@ -169,6 +169,10 @@ Written for: 팀원 전체 (BE·FE·관리자 화면·AI 담당). 노션 요구�
 | `COMPANION_VAD` | silero | 말소리 감지: silero(말소리 합계 `COMPANION_VAD_MIN_SPEECH_SEC`=0.3초 이상) · rms(재희: 소리 크기 0.01) |
 | `COMPANION_STT_COLLAPSE_REPEATS` | true | turbo 결과에서 같은 1~4어절이 3번 이상 연달아 나오면 1번만 |
 | `COMPANION_CONFIRM_MODE` | logprob | 되묻기: logprob(turbo 토큰 평균 로그확률 < `COMPANION_CONFIRM_LOGPROB`=-0.3) · lexicon(재희 형태소·어휘 규칙). 확률이 없는 턴은 lexicon |
+| `COMPANION_CONFIRM_STREAK_LIMIT` | 3 | 확신도가 낮아 되묻는 턴(위험 아님)이 이 횟수만큼 연달아 나오면 마무리 문장으로 답하고 `NO_RESPONSE`로 끝냄. 0이면 끝내지 않음 |
+| `COMPANION_KEEP_FIXED_REPLIES` | true | 되묻는 문장·안전 안내 문장은 같은 대화에서 반복돼도 다른 문장으로 바꾸지 않음. false면 재희 동작 |
+| `COMPANION_TURBO_MAX_NEW_TOKENS` | 224 | turbo 30초 조각 하나의 최대 토큰 수(한국어 음절당 약 0.83토큰) |
+| `COMPANION_TURBO_RETRY_SEC` | 60 | turbo 로드 실패 뒤 다시 시도할 때까지 초. 0이면 재시작 전까지 안 함 |
 | `COMPANION_TEXT_MOOD_ENGINE` | e900 | 글 기분: e900(EXAONE + 기분 LoRA, 4코드 JOY·CALM·WORRY·DEPRESSED, 11/10) · ggara02(재희 KcELECTRA). 어댑터 폴더 `COMPANION_MOOD_LORA_SUBDIR`=companion/llm/lora-mood-e900 |
 | `COMPANION_MIN_TEXT_CHARS` | (비움) | 기분 판단에 쓰는 최소 글자 수. 비우면 e900 2자 · ggara02 10자 |
 | `COMPANION_FUSION_RULE` | prob_add | 말·표정 합치기: prob_add(글 4코드 확률 + 표정 코드 쪽으로 `COMPANION_FACE_WEIGHT`=0.2, 보류 없음) · plan41(재희: 방향 반대면 판단 보류) |

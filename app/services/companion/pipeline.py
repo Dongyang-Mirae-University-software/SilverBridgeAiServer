@@ -127,6 +127,8 @@ def _low_confidence_turn(transcript: str, llm: LlmClient) -> dict:
         "summary": None,
         "needsCheck": True,
         "riskFlag": risk_flag,
+        # 확신도가 낮아 되물은 턴 (연속 종료 횟수용, 응답에는 싣지 않는다). 위험 턴은 안전 안내가 우선이라 세지 않는다
+        "lowConfidence": not risk_flag,
     }
 
 

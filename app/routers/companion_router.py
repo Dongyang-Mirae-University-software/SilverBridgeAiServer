@@ -121,6 +121,11 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
             store.set_last_signals(d.dialogueId, result["signals"])
         if result.get("riskFlag"):
             store.mark_risk(d.dialogueId)  # 대화 결과의 alertLevel(URGENT)에 쓴다
+    limit = get_settings().companion_confirm_streak_limit
+    if result.get("lowConfidence") and limit and d.lowConfidenceStreak + 1 >= limit and not result.get("riskFlag"):
+        # 이번 턴으로 대화가 끝나므로 다시 말해 달라고 하지 않고 마무리 문장으로 답한다
+        result["reply"] = {"text": reply_service.FALLBACK_LAST[0], "isFollowUp": False}
+        result["replySource"] = "FALLBACK"
     result = _avoid_repeat(d, result, is_last_turn)
     _queue_for_review(d, result)
     return result
@@ -132,7 +137,9 @@ def _avoid_repeat(d: Dialogue, result: dict, is_last_turn: bool) -> dict:
     미리 정한 문장을 모두 써 버렸으면 그대로 둔다. 바꾼 문장은 대화 기록에 남긴다.
     """
     text = result["reply"]["text"]
-    if text in d.replies:
+    # 되묻는 문장·안전 안내 문장은 반복돼도 그대로 둔다. 바꾸면 못 알아들은 말·위험한 말에 평범한 대답을 하게 된다 (11/09 점검 H-1·H-2)
+    keep = get_settings().companion_keep_fixed_replies and result.get("replySource") in ("CONFIRM", "SAFETY")
+    if text in d.replies and not keep:
         candidates = reply_service.FALLBACK_LAST if is_last_turn else reply_service.FALLBACK_FOLLOWUP
         unused = [c for c in candidates if c not in d.replies]
         if unused:
@@ -219,7 +226,9 @@ def _turn_response(d: Dialogue, result: dict, transcript: str | None = None, fac
     face_label = (face or {}).get("label") if (face or {}).get("usable") else None  # 표정을 못 읽었으면 기록하지 않는다
     updated = store.add_turn(d.dialogueId, result["turnResult"]["label"], result["turnResult"]["source"],
                              get_settings().companion_no_response_limit, face=face_label,
-                             summary=result.get("summary"), needs_check=bool(result.get("needsCheck")))
+                             summary=result.get("summary"), needs_check=bool(result.get("needsCheck")),
+                             low_confidence=bool(result.get("lowConfidence")),
+                             low_confidence_limit=get_settings().companion_confirm_streak_limit)
     body = {
         "dialogueId": d.dialogueId,
         "turnNo": updated.turnNo,
@@ -332,6 +341,9 @@ async def reply_audio(
         raise CompanionError(503, "STT_UNAVAILABLE", "음성 인식 시간이 초과되었습니다.") from exc
     except SttUnavailable as exc:
         raise CompanionError(503, "STT_UNAVAILABLE", str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - 모델 실행 중 오류(GPU 메모리 등)도 500 대신 503 (11/09 점검 L-2). 로그는 클래스명만
+        stt_logger.warning("turn stt status=503 error=%s", type(exc).__name__)
+        raise CompanionError(503, "STT_UNAVAILABLE", "음성 인식에 실패했습니다.") from exc
     transcript = stt.text
     # 글자가 없으면 무응답 턴이다 (아키텍처 3·4절: 200 + noResponse). 표정은 보지 않는다.
     # 표정: 프레임이 없으면 사용 불가. 표정 모델이 없거나 시간을 넘겨도 대화는 계속된다 (대화 우선 원칙)
@@ -411,6 +423,9 @@ async def speech_to_text(request: Request, settings: Settings = Depends(get_sett
     except SttUnavailable as exc:
         stt_logger.info("stt status=503 seconds=%.1f", seconds)
         raise CompanionError(503, "STT_UNAVAILABLE", str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - 모델 실행 중 오류도 503 (11/09 점검 L-2). 로그는 클래스명만
+        stt_logger.warning("stt status=503 seconds=%.1f error=%s", seconds, type(exc).__name__)
+        raise CompanionError(503, "STT_UNAVAILABLE", "음성 인식에 실패했습니다.") from exc
     if result is None:
         stt_logger.info("stt status=503 seconds=%.1f busy", seconds)
         raise CompanionError(503, "STT_BUSY", "음성 인식이 바빠요. 잠시 뒤 다시 시도해 주세요.")
