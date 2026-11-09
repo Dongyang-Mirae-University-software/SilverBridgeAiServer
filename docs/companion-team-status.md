@@ -169,6 +169,15 @@ Written for: 팀원 전체 (BE·FE·관리자 화면·AI 담당). 노션 요구�
 | `COMPANION_VAD` | silero | 말소리 감지: silero(말소리 합계 `COMPANION_VAD_MIN_SPEECH_SEC`=0.3초 이상) · rms(재희: 소리 크기 0.01) |
 | `COMPANION_STT_COLLAPSE_REPEATS` | true | turbo 결과에서 같은 1~4어절이 3번 이상 연달아 나오면 1번만 |
 | `COMPANION_CONFIRM_MODE` | logprob | 되묻기: logprob(turbo 토큰 평균 로그확률 < `COMPANION_CONFIRM_LOGPROB`=-0.3) · lexicon(재희 형태소·어휘 규칙). 확률이 없는 턴은 lexicon |
+| `COMPANION_TEXT_MOOD_ENGINE` | e900 | 글 기분: e900(EXAONE + 기분 LoRA, 4코드 JOY·CALM·WORRY·DEPRESSED, 11/10) · ggara02(재희 KcELECTRA). 어댑터 폴더 `COMPANION_MOOD_LORA_SUBDIR`=companion/llm/lora-mood-e900 |
+| `COMPANION_MIN_TEXT_CHARS` | (비움) | 기분 판단에 쓰는 최소 글자 수. 비우면 e900 2자 · ggara02 10자 |
+| `COMPANION_FUSION_RULE` | prob_add | 말·표정 합치기: prob_add(글 4코드 확률 + 표정 코드 쪽으로 `COMPANION_FACE_WEIGHT`=0.2, 보류 없음) · plan41(재희: 방향 반대면 판단 보류) |
+| `COMPANION_FACE_HEAD` | head3 | 표정: head3(vgaf 특징 + 한국인 3분류 층, 부정은 `COMPANION_FACE_NEG_MIN`=0.8 이상만, 파일 `face-emotion/enet_b0_8_best_vgaf.onnx`·`head3_yunet.pt`) · hsemotion8(재희 afew). 파일이 없으면 hsemotion8 |
+| `COMPANION_RISK_PROMPT` | v9 | 위험 판정 프롬프트: v9(노인 자살 경고 신호) · v4(재희) |
+| `COMPANION_RISK_THRESHOLD` | (비움) | 위험 '있' 확률 기준. 비우면 v9 0.99 · v4 0.5 |
+| `COMPANION_RISK_KEYWORD_RULE` | kw4 | 위험 낱말 규칙: kw4('자살'·'자해' 앞이 한글이면 제외, '아파 죽겠' 같은 관용 제외) · jaehee |
+| `COMPANION_REPLY_LORA` | true | 꼬리질문 대답을 대답 LoRA(`COMPANION_REPLY_LORA_SUBDIR`=companion/llm/lora-reply-cc5)로 생성. 프롬프트·규칙 검사는 그대로, 마지막 인사는 기본 모델. 폴더가 없으면 기본 모델 |
+| `COMPANION_SUMMARY_STRIP_PREFIX` | true | 한 줄 요약 앞 "요약:"·"기록:" 머리말 지움 |
 | `COMPANION_FRAME_INTERVAL_SEC` | 2.0 | 표정 프레임 간격 (결정 D5) |
 | `COMPANION_FRAME_MAX` | 5 | 한 대답의 최대 프레임 수 |
 | `COMPANION_REPLY_MAX_CHARS` | 140 | 응답 최대 글자 수 (결정 D21) |
