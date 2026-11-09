@@ -352,6 +352,11 @@ def apply(
             if layout.get("headline"):
                 layout["body"] = [layout["headline"], *layout["body"]]
             layout["headline"] = CALL_119_HEADLINE
+    if kind in ("emergency", "crisis"):
+        # 응급·위기(119·109) 답 표시(2026-11-09, FE #227 점검 M-1): FE 가 핵심 줄을 "긴급" 경고 상자에 넣는 근거.
+        # 위기 뒤 해제 턴(crisisFollowup)은 경고 박스·위험도 high 가 없어 FE 가 알아볼 칸이 따로 필요했다.
+        # 표시 전용 - riskLevel·emergencyWarning·되묻기·답 칩 판정은 이 칸을 보지 않는다. 그 밖의 답에는 칸을 두지 않는다.
+        layout["urgent"] = True
     if concise:
         before = len([s for line in reply.split("\n") for s in _sentences(line) if not _FILLER.match(s)])
         after = len(_sentences(flatten(layout).replace("\n", " ")))
