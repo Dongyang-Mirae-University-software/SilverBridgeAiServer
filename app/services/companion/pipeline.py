@@ -7,7 +7,15 @@ from typing import Callable
 
 from app.core.config import get_settings
 from app.services.companion.answer_summary import summarize_answer
-from app.services.companion.fusion import GGARA_TO_TURN, HSEMOTION_TO_TURN, UNDECIDED, fuse_turn
+from app.services.companion.fusion import (
+    HSEMOTION_TO_TURN,
+    MOOD_CODES,
+    TEXT_TO_TURN,
+    UNDECIDED,
+    face_mood_code,
+    fuse_prob_add,
+    fuse_turn,
+)
 from app.services.companion.llm_client import LlmClient
 from app.services.companion.reply_service import SAFETY_REPLY, ReplyResult, generate_reply, no_response_reply
 from app.services.companion.risk import is_risk, keyword_risk, risk_probability
@@ -20,30 +28,51 @@ from app.services.companion.timeouts import call_with_timeout
 LOW_CONFIDENCE_REPLY = "잘 알아듣지 못했어요. 한 번 더 말씀해 주시겠어요?"
 
 
+def min_text_chars() -> int:
+    """말을 기분 판단에 쓰는 최소 글자 수. 설정이 없으면 엔진에 맞춘다 (e900 2자 · ggara02 10자)."""
+    s = get_settings()
+    if s.companion_min_text_chars is not None:
+        return s.companion_min_text_chars
+    return 2 if s.companion_text_mood_engine == "e900" else 10
+
+
 def analyze_turn_result(
     transcript: str,
     face: dict,
     classify_text: Callable[[str], TextEmotionResult],
 ) -> dict:
-    """말(GGARA02)과 표정(HSEmotion)을 아키텍처 08 결합 표로 합쳐 턴 결과를 만든다.
+    """말과 표정을 합쳐 턴 결과를 만든다.
 
+    prob_add(11/10 기본): 글 기분 4코드 확률 + 표정 코드 쪽으로 가중치 (fuse_prob_add).
+    plan41(재희): 아키텍처 08 결합 표 (fuse_turn). 글 결과에 4코드 확률이 없으면(GGARA02 등) prob_add 설정이어도 이 표를 쓴다.
     텍스트 모델을 못 쓰면 텍스트는 빠지고 표정만으로 판단한다.
     """
     s = get_settings()
     text = transcript.strip()
     text_label = None
     text_usable = False
+    text_probs = None
     if text:
         try:
             r = call_with_timeout(classify_text, s.companion_text_timeout_sec, text)
         except (TextEmotionUnavailable, TimeoutError):  # 시간 초과면 말은 빼고 표정만으로 판단 (S9-1)
             r = None
         if r is not None:
-            text_label = GGARA_TO_TURN.get(r.label)
-            # 발화 10자 이상이고 확신도가 기준 이상일 때만 말을 채택한다 (아키텍처 08)
-            text_usable = bool(r.usable and text_label and len(text) >= s.companion_min_text_chars)
+            text_label = TEXT_TO_TURN.get(r.label)
+            # 발화가 최소 글자 수 이상이고 쓸 수 있는 결과일 때만 말을 채택한다 (아키텍처 08. e900 은 2자, 재희 10자)
+            text_usable = bool(r.usable and text_label and len(text) >= min_text_chars())
+            if text_usable and all(c in r.scores for c in MOOD_CODES):
+                text_probs = {c: r.scores[c] for c in MOOD_CODES}
     face_label = HSEMOTION_TO_TURN.get(face["label"]) if face.get("label") else None
     face_usable = bool(face.get("usable") and face_label)
+    if s.companion_fusion_rule == "prob_add" and (text_probs is not None or not text_usable):
+        fused = fuse_prob_add(
+            no_response=not text,
+            text_probs=text_probs,
+            face_code=face_mood_code(face["label"]) if face_usable else None,
+            weight=s.companion_face_weight,
+        )
+        return {"label": fused.label, "source": fused.source}
     fused = fuse_turn(
         no_response=not text,
         text_label=text_label,

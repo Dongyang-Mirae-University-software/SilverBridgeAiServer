@@ -73,8 +73,11 @@ def test_pipeline_long_text_uses_text_label():
     assert r == {"label": "기쁨", "source": "TEXT"}
 
 
-def test_pipeline_short_text_falls_back_to_face():
+def test_pipeline_short_text_falls_back_to_face(monkeypatch):
+    from app.core.config import get_settings
     from app.services.companion import pipeline
+
+    monkeypatch.setattr(get_settings(), "companion_text_mood_engine", "ggara02")  # 재희: 10자 미만은 말을 쓰지 않는다
 
     face = {"label": "Sadness", "usable": True}
     r = pipeline.analyze_turn_result("네 좋아요", face, _clf("기쁨"))

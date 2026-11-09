@@ -226,7 +226,7 @@ def test_confident_turbo_turn_skips_the_lexicon_rule(settings):
 
 
 def test_low_confidence_turn_still_runs_risk_model(settings):
-    settings(companion_confirm_mode="logprob")
+    settings(companion_confirm_mode="logprob", companion_risk_prompt="v4")  # 이 가짜 모델은 재희 v4 확률 함수만 있다
     llm = ProbLlm(p_yes=0.9)
     r = _turn("요즘 그냥 다 귀찮아요", -0.8, llm)
     assert llm.prob_calls == 1
