@@ -351,7 +351,7 @@ class Settings(BaseModel):
     companion_turn_cap_sec: float = _as_float("COMPANION_TURN_CAP_SEC", 60.0)
     companion_llm_num_predict: int = _as_int("COMPANION_LLM_NUM_PREDICT", 256)
     companion_llm_temperature: float = _as_float("COMPANION_LLM_TEMPERATURE", 0.1)
-    companion_llm_retry: int = _as_int("COMPANION_LLM_RETRY", 0)  # D20 c: 1회 재시도 후 대체 문장
+    companion_llm_retry: int = _as_int("COMPANION_LLM_RETRY", 0)  # D20: 재시도 0회(2026-11-09 결정), 실패하면 바로 대체 문장. 1로 올리면 1회 재시도
     companion_pseudonym_salt: str = os.getenv("COMPANION_PSEUDONYM_SALT", "")  # 비면 개선 DB 적재 끔
     companion_log_transcript: bool = _as_bool("COMPANION_LOG_TRANSCRIPT", False)  # D10
     companion_log_database_url: str = os.getenv("COMPANION_LOG_DATABASE_URL", "")  # D11 결정(2026-11-02): 턴 기록은 백엔드 DB. 이 값은 비워 둔다

@@ -4,8 +4,10 @@ import time
 
 import pytest
 
-from app.services.companion import pipeline
+from app.core.config import get_settings
+from app.services.companion import pipeline, reply_service
 from app.services.companion.llm_client import LlmUnavailable
+from app.services.companion.transcript_check import check_transcript
 from app.services.companion.text_emotion_service import TextEmotionResult
 from app.services.companion.reply_service import (
     FALLBACK_FOLLOWUP,
@@ -13,6 +15,15 @@ from app.services.companion.reply_service import (
     check_reply,
     generate_reply,
 )
+
+# 어르신 대답 "입맛이 별로 없어요"의 낱말을 꼬리질문이 이어 받는다 (대답과 무관 규칙, 2026-11-08 추가)
+ANSWER = "입맛이 별로 없어요"
+
+
+def _retry_once(monkeypatch):
+    # 기본 재시도 횟수는 0(60초 턴 상한 때문). 이 시험들은 "재시도 1회"를 직접 켠다.
+    settings = get_settings().model_copy(update={"companion_llm_retry": 1})
+    monkeypatch.setattr(reply_service, "get_settings", lambda: settings)
 
 
 class ScriptedLlm:
@@ -54,21 +65,23 @@ def test_fallback_sentences_all_pass_their_own_rules():
 
 def test_good_llm_reply_is_used():
     llm = ScriptedLlm([GOOD])
-    r = generate_reply(llm, "잘 주무셨어요?", "네 잘 잤어요", None, is_last_turn=False, turn_no=1)
+    r = generate_reply(llm, "잘 주무셨어요?", ANSWER, None, is_last_turn=False, turn_no=1)
     assert (r.text, r.source, r.isFollowUp) == (GOOD, "LLM", True)
     assert llm.calls == 1
 
 
-def test_rule_failure_regenerates_once_then_succeeds():
+def test_rule_failure_regenerates_once_then_succeeds(monkeypatch):
+    _retry_once(monkeypatch)
     llm = ScriptedLlm(["지난번 여행 얘기네요?", GOOD])
-    r = generate_reply(llm, "잘 주무셨어요?", "네", None, is_last_turn=False, turn_no=1)
+    r = generate_reply(llm, "잘 주무셨어요?", ANSWER, None, is_last_turn=False, turn_no=1)
     assert r.source == "LLM" and r.text == GOOD
     assert llm.calls == 2
 
 
-def test_two_rule_failures_use_a_fallback_sentence():
+def test_two_rule_failures_use_a_fallback_sentence(monkeypatch):
+    _retry_once(monkeypatch)
     llm = ScriptedLlm(["지난번 여행 얘기네요?", "우울증 같으세요?"])
-    r = generate_reply(llm, "잘 주무셨어요?", "네", None, is_last_turn=False, turn_no=0)
+    r = generate_reply(llm, "잘 주무셨어요?", ANSWER, None, is_last_turn=False, turn_no=0)
     assert r.source == "FALLBACK"
     assert r.text in FALLBACK_FOLLOWUP
     assert llm.calls == 2
@@ -97,9 +110,11 @@ def test_run_turn_runs_signals_and_reply_in_parallel():
                        '"responseEvasion": false, "riskFlag": false}'
             return GOOD
 
+    # 형태소 분석기는 프로세스에서 처음 쓸 때 약 2초 로드된다. 그 비용은 측정에서 뺀다 (병렬성만 본다).
+    check_transcript(ANSWER)
     started = time.monotonic()
     out = pipeline.run_turn(
-        transcript="오늘은 괜찮아요 날씨도 좋고요",
+        transcript=ANSWER,
         face={"label": None, "usable": False},
         classify_text=lambda t: TextEmotionResult("기쁨", 0.9, True, {}),
         llm=SlowLlm(),
