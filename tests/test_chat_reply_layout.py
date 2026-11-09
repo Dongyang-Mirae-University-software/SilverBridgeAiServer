@@ -150,6 +150,51 @@ def test_emergency_warning_is_split_per_sentence_with_same_text() -> None:
     assert " ".join(out["emergencyWarning"]) == " ".join(raw["emergencyWarning"])  # 내용 그대로, 문장만 나눔
 
 
+# ── 응급·위기 표시 칸 layout.urgent (2026-11-09, FE #227 점검 M-1) ─────────────────────────────────
+
+def _crisis_followup_raw() -> dict[str, Any]:
+    raw = _gen("손주가 놀러 와서 기분이 좋아요", "general_chat", reply="좋으시겠어요. 즐거운 시간 보내세요.")
+    raw["reply"] = f"{_CRISIS_FOLLOWUP}\n{raw['reply']}"
+    raw["meta"]["crisisFollowup"] = True
+    return raw
+
+
+@pytest.mark.parametrize("emoji", [True, False])
+def test_urgent_flag_on_emergency_self_harm_and_crisis_followup(emoji: bool) -> None:
+    cases = [
+        _gen("숨을 못 쉬겠어요", "emergency_guidance", symptoms="호흡 곤란"),
+        MedicalLlmService.self_harm_response(),
+        MedicalLlmService.self_harm_response(family=True),
+        _crisis_followup_raw(),
+    ]
+    for raw in cases:
+        out = chat_layout.apply(dict(raw), DRUG_ALCOHOL_SENTENCES, emoji=emoji)
+        assert out["layout"]["urgent"] is True
+        assert out["layout"]["headline"]  # 상자에 넣을 핵심 줄이 있다
+
+
+def test_crisis_followup_urgent_does_not_change_judgment_fields() -> None:
+    """표시 칸만 더한다 - 위기 뒤 해제 턴의 위험도·경고 박스는 그대로(되묻기·답 칩 판정이 바뀌지 않게)."""
+    raw = _crisis_followup_raw()
+    before = (raw.get("riskLevel"), list(raw.get("emergencyWarning") or []))
+    out = _apply(raw)
+    assert out["layout"]["urgent"] is True and "109" in out["layout"]["headline"]
+    assert (out.get("riskLevel"), list(out.get("emergencyWarning") or [])) == before
+
+
+@pytest.mark.parametrize("emoji", [True, False])
+def test_non_urgent_answers_have_no_urgent_flag(emoji: bool) -> None:
+    for _, raw in _corpus_results():
+        out = chat_layout.apply(dict(raw), DRUG_ALCOHOL_SENTENCES, emoji=emoji)
+        layout = out.get("layout")
+        if not layout:
+            continue
+        urgent = bool(out.get("emergencyWarning")) or out["meta"].get("selfHarm") or out["meta"].get("crisisFollowup")
+        assert ("urgent" in layout) == bool(urgent)
+        if urgent:
+            assert layout["urgent"] is True
+
+
 # ── 줄마다 이모지 하나·줄 머리·허용 목록 ───────────────────────────────────────────────────────────
 
 def test_every_line_has_at_most_one_allowed_emoji_at_head() -> None:
