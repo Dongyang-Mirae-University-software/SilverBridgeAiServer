@@ -32,6 +32,16 @@ def _create_tables():
 
 
 @pytest.fixture(autouse=True)
+def _clear_claude_credit_skip():
+    """크레딧 소진 건너뛰기(프로세스 메모리, #189)가 테스트 사이에 새지 않게 한다 - 새면 뒤 테스트가 규칙 문장·503을 받는다(점검 L-1)."""
+    from app.services import claude_availability
+
+    claude_availability.reset_for_tests()
+    yield
+    claude_availability.reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _clear_purge_hold():
     """회원 데이터 삭제 뒤 예약 계정 재생성 보류(프로세스 메모리, 점검 L-2)가 테스트 사이에 새지 않게 한다."""
     from app.services import reservation_credential_service as rcs
