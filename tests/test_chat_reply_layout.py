@@ -195,6 +195,47 @@ def test_non_urgent_answers_have_no_urgent_flag(emoji: bool) -> None:
             assert layout["urgent"] is True
 
 
+def _side(raw: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    out = {**raw, **extra}
+    out["reply"] = f"{_CRISIS_FOLLOWUP}\n어느 병원으로 예약할까요?\n가까운 곳부터 보여 드릴게요."
+    out["meta"] = {**raw.get("meta", {}), "crisisFollowup": True}
+    return out
+
+
+@pytest.mark.parametrize("extra", [
+    {"ui": {"kind": "select", "field": "hospital", "options": [{"label": "가", "value": "1"}]}},
+    {"type": "tool_result", "tool": "search_hospital", "toolData": {"items": []}},
+    {"intent": "hospital_reservation"},
+])
+@pytest.mark.parametrize("emoji", [True, False])
+def test_crisis_followup_on_reservation_or_ui_answer_gets_small_urgent_layout(extra: dict[str, Any], emoji: bool) -> None:
+    """예약·선택지·도구 답에 위기 뒤 해제 109 줄이 붙으면 그 줄만 핵심 줄로(2026-11-09 FE #229 점검 L-5)."""
+    raw = _side(_gen("병원 예약할래요", "general_chat"), **extra)
+    before = {k: raw.get(k) for k in ("reply", "ui", "tool", "toolData", "type", "intent", "riskLevel", "emergencyWarning")}
+    out = chat_layout.apply(dict(raw), DRUG_ALCOHOL_SENTENCES, emoji=emoji)
+    assert out["layout"] == {
+        "headline": _CRISIS_FOLLOWUP,
+        "body": ["어느 병원으로 예약할까요?", "가까운 곳부터 보여 드릴게요."],
+        "questions": [], "homeCare": [], "visitHospitalIf": [], "urgent": True,
+    }
+    assert {k: out.get(k) for k in before} == before  # reply·선택지·도구·판정 칸 그대로
+
+
+def test_reservation_answer_without_crisis_followup_still_has_no_layout() -> None:
+    raw = _gen("병원 예약할래요", "general_chat")
+    raw["ui"] = {"kind": "select", "field": "hospital", "options": []}
+    raw["reply"] = f"{_CRISIS_FOLLOWUP}\n어느 병원으로 예약할까요?"  # 109 문장이 있어도 위기 뒤 해제 턴이 아니면 그대로
+    assert chat_layout.apply(dict(raw), DRUG_ALCOHOL_SENTENCES)["layout"] is None
+
+
+def test_crisis_followup_ui_answer_without_109_first_line_has_no_layout() -> None:
+    raw = _gen("병원 예약할래요", "general_chat")
+    raw["ui"] = {"kind": "select", "field": "hospital", "options": []}
+    raw["reply"] = "어느 병원으로 예약할까요?"
+    raw["meta"]["crisisFollowup"] = True
+    assert chat_layout.apply(dict(raw), DRUG_ALCOHOL_SENTENCES)["layout"] is None
+
+
 # ── 줄마다 이모지 하나·줄 머리·허용 목록 ───────────────────────────────────────────────────────────
 
 def test_every_line_has_at_most_one_allowed_emoji_at_head() -> None:
