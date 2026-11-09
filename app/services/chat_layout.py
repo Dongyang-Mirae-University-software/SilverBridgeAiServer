@@ -316,6 +316,20 @@ def split_warning(items: list[str] | None) -> list[str]:
     return out
 
 
+def _crisis_followup_side_layout(result: dict[str, Any]) -> dict[str, Any] | None:
+    """예약·선택지·도구 답(모양을 바꾸지 않는 답)에 위기 뒤 해제 109 줄이 붙었을 때만 작은 layout(2026-11-09, FE #229 점검 L-5).
+    핵심 줄 = 맨 앞 109 줄, 본문 = 나머지 reply 줄 그대로(문장·순서 불변), urgent = true - FE 가 109 줄을 "긴급" 상자에 넣는다.
+    reply·ui·tool·type·intent·판정 칸은 건드리지 않는다. 그 밖의 예약·선택지 답은 지금처럼 layout 없음(None)."""
+    meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+    reply = result.get("reply")
+    if not meta.get("crisisFollowup") or not isinstance(reply, str):
+        return None
+    lines = [line.strip() for line in reply.split("\n") if line.strip()]
+    if not lines or not _CALL_109.search(lines[0]):
+        return None
+    return {"headline": lines[0], "body": lines[1:], "questions": [], "homeCare": [], "visitHospitalIf": [], "urgent": True}
+
+
 def apply(
     result: dict[str, Any], drug_alcohol_sentences: list[str] | None = None, concise: bool = False, emoji: bool = True
 ) -> dict[str, Any]:
@@ -327,7 +341,7 @@ def apply(
     parts = result.pop("layoutParts", None) or {}
     kind = _kind(result)
     if kind is None:
-        result["layout"] = None
+        result["layout"] = _crisis_followup_side_layout(result)
         return result
     reply = _without_emoji(result["reply"])
     parts = {**parts, **{k: _without_emoji(str(parts.get(k) or "")) for k in ("empathy", "advice")}}
