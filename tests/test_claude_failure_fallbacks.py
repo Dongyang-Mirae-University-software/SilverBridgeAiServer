@@ -327,3 +327,20 @@ def test_reservation_free_text_still_reaches_confirmation_on_failure() -> None:
     msg = "서울 서초구 강남메디내과 내일 오전 10시 내과 예약해줘"
     out = orch.handle(make_request(msg), {"storedFlow": {}, "rawMessage": msg})
     assert out is not None and out["ui"].field == "reservation_confirm"  # 규칙 추출만으로 확인 카드까지
+
+
+# ---- 관리자 집계 상태(점검 L-2) ----------------------------------------------------------------
+
+
+def test_router_status_shows_credit_exhausted_seen_by_other_calls() -> None:
+    from app.services.router_failure_monitor import RouterFailureMonitor
+
+    monitor = RouterFailureMonitor(600, 3)
+    assert monitor.status(True)["state"] == "ok"
+    with pytest.raises(OcrUnavailableError):
+        ocr_service(FakeMessages(credit_error())).read(b"x")  # 라우터가 아니라 약 봉투가 먼저 소진을 만났다
+    assert monitor.status(True)["state"] == "credit_exhausted"
+    assert monitor.status(False)["state"] == "off"  # 키 없음이 먼저
+    ca.mark_ok()
+    assert monitor.status(True)["state"] == "ok"
+

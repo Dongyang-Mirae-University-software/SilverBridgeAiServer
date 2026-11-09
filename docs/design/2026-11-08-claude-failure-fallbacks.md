@@ -17,7 +17,7 @@
 ## 바꾼 것
 1. **크레딧 소진 감지 + 건너뛰기** (`app/services/claude_availability.py`, 새 파일)
    - 판정은 라우터 실패 분류(#188 `router_failure_monitor.failure_kind == "credit"`)와 같은 기준이다: 402, 본문 `billing_error`·지출 한도 코드, 400·403 + `credit balance` 같은 문구. 문구는 판정에만 쓰고, 로그에는 고정 코드 `credit_exhausted`만 남긴다.
-   - 소진을 감지하면 `CLAUDE_CREDIT_SKIP_SEC`(기본 1800초, 0~86400) 동안 **건너뛰기를 켠 호출자**는 Claude를 부르지 않는다. 시간이 지나면 다음 요청 1건이 다시 시도하고, 성공하면 바로 풀린다.
+   - 소진을 감지하면 `CLAUDE_CREDIT_SKIP_SEC`(기본 1800초, 0~86400, **0이면 건너뛰기 끔** - 매 요청이 다시 부른다) 동안 **건너뛰기를 켠 호출자**는 Claude를 부르지 않는다. 시간이 지나면 다음 요청 1건이 다시 시도하고, 성공하면 바로 풀린다.
    - 로그: `[CLAUDE-CREDIT] cause=credit_exhausted skip_sec=…`(처음 감지할 때 한 번), `[CLAUDE-CREDIT] cause=recovered`.
 2. **공용 클라이언트 선택 인자** (`claude_structured_client.generate_structured_text`)
    - `skip_when_exhausted=False`: 켜면 건너뛰는 동안 바로 `credit_exhausted`를 낸다. 크레딧 부족 응답도 `api_400` 대신 `credit_exhausted`로 받는다.
@@ -33,6 +33,12 @@
 - 키가 있고 호출이 성공할 때의 요청·응답·프롬프트·모델.
 - 라우터(`chat_router_service`)와 `chat_service`의 실패 처리.
 - `.env`와 키. 새 환경변수 `CLAUDE_CREDIT_SKIP_SEC`는 코드 기본값으로 돈다.
+
+## 기능 점검 후 반영 (2026-11-09)
+- L-1: 건너뛰기 상태를 `tests/conftest.py`에서 테스트마다 초기화한다(다른 테스트가 실제 클라이언트로 크레딧 오류를 만들어도 뒤 테스트로 새지 않게).
+- L-2: 관리자 집계 `routerStatus.state`의 `credit_exhausted`는 다른 Claude 호출(예약 추출·이어서 물어볼 질문·약 봉투)이 먼저 본 소진도 포함한다(건너뛰는 동안). 예전에는 라우터가 본 소진만 반영돼, 약 봉투가 먼저 소진을 만나면 `ok`로 보였다.
+- L-3: `CLAUDE_CREDIT_SKIP_SEC=0`의 뜻(건너뛰기 끔)을 위와 README에 적었다.
+- L-4: BE `MEDICATION_OCR_UNAVAILABLE` 문구를 "직접 입력해 주세요"로 맞췄다(BE PR). FE는 고정 문구를 쓰므로 화면은 그대로다.
 
 ## 남은 일 (이번 범위 밖)
 - **FE 사진 버튼 숨기기**: AI `GET /api/v1/medication/ocr/status` → `{available}`, BE 중계 API, FE 모달에서 버튼 숨기기. 세 저장소를 함께 바꿔야 한다. FE 문구가 이미 "직접 써 주세요"라 급하지 않다.

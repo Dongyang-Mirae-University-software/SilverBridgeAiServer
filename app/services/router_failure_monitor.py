@@ -130,12 +130,17 @@ class RouterFailureMonitor:
             _LOG.warning("[CHAT-ROUTER-CREDIT-RECOVERED]")
 
     def status(self, key_configured: bool) -> dict:
-        """관리자 집계용 지금 상태: off(키 없음) / credit_exhausted / failing(지금 창의 실패 N회) / ok. 개수만."""
+        """관리자 집계용 지금 상태: off(키 없음) / credit_exhausted / failing(지금 창의 실패 N회) / ok. 개수만.
+        credit_exhausted 는 라우터가 본 소진뿐 아니라 다른 Claude 호출(예약 추출·이어서 물어볼 질문·약 봉투)이 먼저 본 소진도 포함한다
+        (claude_availability 건너뛰기 중, #189 점검 L-2)."""
+        # claude_availability 가 이 모듈의 failure_kind 를 가져가므로 여기서는 늦게 가져온다(순환 방지).
+        from app.services import claude_availability
         with self._lock:
             now = self._clock()
             in_window = self._window_start is not None and now - self._window_start < self._window_sec
             recent = sum(self._causes.values()) if in_window else 0
             credit = self._credit_active
+        credit = credit or claude_availability.skipping()
         if not key_configured:
             state = "off"
         elif credit:
