@@ -165,7 +165,9 @@ def test_red_flag_yes_is_119_right_away(flow, prompt: str) -> None:
     assert "suggestedKind" not in out
 
 
-@pytest.mark.parametrize(("prompt", "department"), [("무릎이 아파요", "정형외과"), ("귀가 아파요", "가까운 병원")])
+@pytest.mark.parametrize(("prompt", "department"), [
+    ("무릎이 아파요", "정형외과"), ("귀가 아파요", "이비인후과"), ("눈이 아파요", "안과"),  # 2026-11-09 점검 L-2: 증상 문장의 진료과
+])
 def test_joint_and_default_red_flag_yes_is_visit_today(flow, prompt: str, department: str) -> None:
     _send(flow, prompt)
     out = _send(flow, "네")
@@ -308,3 +310,79 @@ def test_not_symptom_words_are_not_followup(message: str) -> None:
 @pytest.mark.parametrize("message", ["배가 아파요", "속이 쓰려요", "열이 나요", "배아퍼"])
 def test_real_symptoms_still_followup(message: str) -> None:
     assert M.needs_followup_question(message)
+
+
+
+# ---- 2026-11-09 기능 점검 반영(H-1·M-1·M-2·M-3·L-1·L-2) ---------------------------------------------------------
+
+
+def _at(message: str, index: int = 0) -> dict:
+    state = fs.new_state(message, False)
+    state.update(index=index, answers=["x"] * index, turns=index + 1)
+    return state
+
+
+@pytest.mark.parametrize(("prompt", "text", "verdict"), [
+    # H-1: 위험 신호 질문의 자연스러운 긍정·강조 말·그 질문의 증상 말은 "네"
+    ("머리가 아파요", "너무 아파요", "yes"), ("머리가 아파요", "많이 아파요", "yes"), ("머리가 아파요", "엄청 심해요", "yes"),
+    ("머리가 아파요", "넹", "yes"), ("머리가 아파요", "웅", "yes"), ("머리가 아파요", "엉", "yes"), ("머리가 아파요", "어", "yes"),
+    ("머리가 아파요", "그려", "yes"), ("머리가 아파요", "맞어요", "yes"), ("머리가 아파요", "ㅇㅇ", "yes"),
+    ("머리가 아파요", "머리가 깨질 것 같아요", "yes"),
+    ("머리가 아파요", "아파요", "unclear"),  # 강조 없는 한마디는 "아주 심하게"인지 몰라 한 번 더 묻는다
+    ("어지러워요", "말이 좀 어눌해요", "yes"), ("어지러워요", "팔에 힘이 빠져요", "yes"), ("어지러워요", "힘이 빠지진 않아요", "no"),
+    ("숨이 좀..", "식은땀 나요", "yes"), ("숨이 좀..", "가슴은 괜찮아요", "no"), ("기침이 나요", "숨이 차요", "yes"),
+    ("무릎이 아파요", "식은땀 나요", "describe"),
+    ("머리가 아파요", "일주일째인데 점점 심해져요", "describe"),  # 기간·점점 - 강조 말 규칙을 쓰지 않는다(fq.13)
+    ("무릎이 아파요", "계단 오를 때 심해요, 붓기도 있어요", "describe"),  # 다친 말이 없으면 설명(fq.19)
+    ("무릎이 아파요", "넘어져서 그래요", "yes"),  # 오늘 진료 묶음 - 위험 신호 낱말은 설명(결과에 119 줄)
+    # L-1: 정도 말 - 심한 정도를 묻는 질문은 "아니요", 증상이 있는지 묻는 질문은 "네"
+    ("머리가 아파요", "조금요", "no"), ("머리가 아파요", "그냥 그래요", "no"), ("어지러워요", "조금요", "yes"), ("숨이 좀..", "약간요", "yes"),
+    # M-1: 되묻는 말은 "네"가 아니다
+    ("머리가 아파요", "네?", "unclear"), ("머리가 아파요", "예?", "unclear"), ("머리가 아파요", "진짜요?", "unclear"),
+    # M-3: 예/아니요 질문의 "괜찮아요"는 "아니요"
+    ("머리가 아파요", "괜찮아요", "no"), ("머리가 아파요", "네 괜찮아요", "no"), ("기침이 나요", "지금은 괜찮아요", "no"),
+    ("머리가 아파요", "ㄴㄴ", "no"), ("머리가 아파요", "no", "no"), ("머리가 아파요", "yes", "yes"),
+])
+def test_interpret_audit_cases(prompt: str, text: str, verdict: str) -> None:
+    assert fs.interpret(_at(prompt), text)[0] == verdict
+
+
+@pytest.mark.parametrize(("text", "verdict"), [("38도요", "yes"), ("미열 있어요", "yes"), ("조금요", "yes"), ("없어", "no"), ("잘 모르겠어요", "unknown")])
+def test_interpret_fever_question(text: str, verdict: str) -> None:
+    assert fs.interpret(_at("머리가 아파요", 2), text)[0] == verdict
+
+
+def test_interpret_onset_unknown_memory() -> None:
+    assert fs.interpret(_at("머리가 아파요", 1), "기억 안 나요")[0] == "unknown"
+
+
+@pytest.mark.parametrize(("prompt", "answer"), [("머리가 아파요", "너무 아파요"), ("숨이 좀..", "식은땀 나요"), ("어지러워요", "팔에 힘이 빠져요")])
+def test_natural_yes_to_red_flag_is_119_right_away(flow, prompt: str, answer: str) -> None:
+    _send(flow, prompt)
+    out = _send(flow, answer)
+    assert out["riskLevel"] == "high" and out["emergencyWarning"] and flow.llm.calls == []
+
+
+def test_emergency_keyword_answer_goes_emergency_path_first(flow) -> None:
+    # "말이 어눌해요"는 응급 키워드 - 단계 처리보다 먼저 응급 경로(판정 순서 그대로).
+    _send(flow, "어지러워요")
+    out = _send(flow, "말이 어눌해요")
+    assert out["riskLevel"] == "high" and out["emergencyWarning"]
+
+
+def test_pardon_is_asked_again_not_119(flow) -> None:
+    _send(flow, "머리가 아파요")
+    out = _send(flow, "네?")
+    assert out["riskLevel"] != "high" and _question(out) == "갑자기 아주 심하게 아프세요?"
+
+
+def test_okay_answer_continues_steps(flow) -> None:
+    _send(flow, "머리가 아파요")
+    out = _send(flow, "괜찮아요")  # 종료 인사가 아니라 "아니요" - 다음 질문
+    assert _question(out) == "언제부터 그러셨어요?" and flow.llm.calls == []
+
+
+def test_department_question_mid_flow_gets_fixed_answer(flow) -> None:
+    _send(flow, "머리가 아파요")
+    out = _send(flow, "무슨 과에 가야 돼요?")
+    assert "신경과로 가시면 돼요" in out["reply"] and flow.llm.calls == []

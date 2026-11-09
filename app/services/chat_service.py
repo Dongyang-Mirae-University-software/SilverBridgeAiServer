@@ -253,7 +253,9 @@ class ChatService:
             route_info: dict = {}
             # 자해·자살 신호는 진료과 답변·예약·MedGemma보다 먼저 고정 응답으로 보낸다(키워드 판정, 라우터 결과와 무관).
             self_harm_keyword = bool(message) and bool(MedicalLlmService.self_harm_signals(message))
-            department_answer = self._department_question_reply(message, history) if message and not self_harm_keyword else None
+            department_answer = self._department_question_reply(
+                message, history, fallback_symptom=self._step_symptom(step_state, history)
+            ) if message and not self_harm_keyword else None
             if department_answer:
                 result = department_answer
             elif self_harm_keyword:
@@ -741,6 +743,15 @@ class ChatService:
         return followup_steps.valid_state(meta.get("followupStep")) if meta.get("followupAsked") else None
 
     @staticmethod
+    def _step_symptom(state: dict | None, history: list[dict[str, str]]) -> str:
+        """단계 되묻기를 시작한 증상 문장(이력의 사용자 발화 중 질문 턴 수만큼 앞). 없거나 못 찾으면 빈 문자열."""
+        if not state:
+            return ""
+        users = [h.get("content", "") for h in history or [] if h.get("role") == "user"]
+        turns = state["turns"]
+        return users[-turns].strip() if 0 < turns <= len(users) else ""
+
+    @staticmethod
     def _followup_step_outcome(
         state: dict | None, route_info: dict, message: str, ui_selection: dict | None, crisis_followup: bool,
         after_emergency: bool, history: list[dict[str, str]],
@@ -752,12 +763,11 @@ class ChatService:
             return None
         if route_info.get("emergency") or route_info.get("self_harm") or route_info.get("route") == "reservation":
             return None
-        if _is_closing_message(message):
+        # 예/아니요 질문의 "괜찮아요"는 종료 인사가 아니라 "아니요"다(2026-11-09 점검 M-3) - 그 밖의 인사·종료는 흐름을 끝낸다.
+        if _is_closing_message(message) and not followup_steps.is_okay_answer(state, message):
             return None
-        # 증상 문장 = 이 되묻기를 시작한 사용자 발화(질문 턴 수만큼 앞). 못 찾으면 단계 흐름을 쓰지 않는다.
-        users = [h.get("content", "") for h in history or [] if h.get("role") == "user"]
         turns = state["turns"]
-        symptom = users[-turns].strip() if 0 < turns <= len(users) else ""
+        symptom = ChatService._step_symptom(state, history)
         if not symptom:
             return None
         verdict, phrase = followup_steps.interpret(state, message)
@@ -766,8 +776,9 @@ class ChatService:
         if verdict == "yes" and index == 0:
             if followup_steps.red_flag_action(state) == "119":
                 _LOG.info("[CHAT-SAFETY] followup_red_flag=119 group=%s", state["group"])
-                return "reply", MedicalLlmService.followup_red_flag_emergency(symptom, state["proxy"])
-            return "reply", MedicalLlmService.followup_visit_today(state)
+                # 행동 줄(뇌졸중·가슴 통증 등)은 증상 + 이번 답으로 고른다("말이 어눌해요").
+                return "reply", MedicalLlmService.followup_red_flag_emergency(f"{symptom} {message}", state["proxy"])
+            return "reply", MedicalLlmService.followup_visit_today(state, symptom)
         if verdict == "unclear" and not state["retried"]:
             return "reply", MedicalLlmService.followup_step_response({**state, "retried": True, "turns": turns + 1})
         answers = [*state["answers"], phrase or ""]
@@ -1151,12 +1162,13 @@ class ChatService:
         return "low", "home_monitoring", False
 
     @staticmethod
-    def _department_question_reply(message: str, history: list[dict[str, str]]) -> dict | None:
-        """"무슨 과로 가야 해?"에는 직전 상담에서 권한 진료과를 한 줄로 답한다(같은 상담 답변을 반복하지 않게)."""
+    def _department_question_reply(message: str, history: list[dict[str, str]], fallback_symptom: str = "") -> dict | None:
+        """"무슨 과로 가야 해?"에는 직전 상담에서 권한 진료과를 한 줄로 답한다(같은 상담 답변을 반복하지 않게).
+        단계 되묻기 도중(직전 답이 질문 하나라 진료과가 없다)이면 처음 증상 문장의 진료과로 답한다(2026-11-09 점검 M-2)."""
         if not re.search(r"(무슨|어느|어떤)\s*과", message or ""):
             return None
         last_assistant = next((h.get("content", "") for h in reversed(history) if h.get("role") == "assistant"), "")
-        department = _find_department(last_assistant)
+        department = _find_department(last_assistant) or (chat_keywords.symptom_department(fallback_symptom) if fallback_symptom else None)
         if not department:
             return None
         return {

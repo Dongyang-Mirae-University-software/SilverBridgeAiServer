@@ -964,10 +964,10 @@ class MedicalLlmService:
         }
 
     @staticmethod
-    def followup_visit_today(state: dict[str, Any]) -> dict[str, Any]:
+    def followup_visit_today(state: dict[str, Any], symptom: str = "") -> dict[str, Any]:
         """되묻기 위험 신호 질문에 "네"(관절·기본 묶음, 2026-11-09 사용자 결정) - 119 대신 오늘 진료 권유로 끝낸다."""
         return {
-            "reply": "\n".join(followup_steps.visit_today_lines(state)),
+            "reply": "\n".join(followup_steps.visit_today_lines(state, symptom)),
             "riskLevel": "medium",
             "recommendedAction": "hospital_visit",
             "reservationRequired": False,
