@@ -28,11 +28,10 @@ def _send(env, message: str, session: str = "s1", ward_id: str | None = None) ->
 
 
 def _assert_shape(out: dict[str, Any]) -> None:
-    """답 모양 규칙(#151·#154): 첫 줄 🚨 + 119, 🚨 말고 다른 줄 머리 이모지 없음, 박스 문장에 이모지 없음."""
+    """답 모양 규칙(#151·#154 → 2026-11-09 이모지 끔): 첫 줄 119 전화 문장, 어느 줄에도 이모지 없음, 박스 문장에 이모지 없음."""
     lines = out["reply"].split("\n")
-    assert lines[0].startswith("🚨") and "119" in lines[0]
-    assert sum(line.count("🚨") for line in lines) == 1
-    assert all(kw.strip_layout_emoji(line) == line for line in lines[1:])
+    assert "119" in lines[0] and "전화" in lines[0]
+    assert all(kw.strip_layout_emoji(line) == line for line in lines)
     assert all(kw.strip_layout_emoji(w) == w for w in out["emergencyWarning"])
 
 

@@ -7,6 +7,8 @@
   FE 는 layout 이 있으면 layout 으로, 없으면 reply 로 그린다(옛 AI·옛 기록 호환).
 - reply: layout 을 한 줄에 한 문장으로 펼친 글(줄마다 이모지). 기록·옛 FE·이력은 이 글을 쓴다.
 - 응급·자해·위기 답: 맨 위 "🚨 119(위기는 109)" 한 줄, 다른 줄에는 이모지를 붙이지 않는다.
+- 2026-11-09: 챗 서비스는 emoji=False(CHAT_LAYOUT_EMOJI 기본 끔)로 부른다 - 모든 줄 머리 이모지를 빼고, 응급 답 핵심 줄은
+  119 전화 문장(없으면 CALL_119_HEADLINE). 단계 되묻기 질문 턴은 _step_layout(질문 하나 + 본문, 카드 없음).
 - 예약 흐름(버튼·도구 결과) 답은 건드리지 않는다(layout 없음).
 """
 from __future__ import annotations
@@ -27,6 +29,8 @@ _HEADLINE_CALL = re.compile(r"전화|연락")
 # 따옴표 안 낱말은 안내할 말의 예시다("병원 찾아줘"라고 말씀해 주세요) - 병원 문장·핵심 줄 판단에서 뺀다(2026-11-01 점검 M-2).
 _QUOTED = re.compile(r"\"[^\"]*\"|“[^”]*”|'[^']*'|‘[^’]*’")
 BODY_MAX_LINES = 4
+# 이모지를 끈 응급 답의 핵심 줄에 전화 안내가 없을 때 쓰는 문장(2026-11-09).
+CALL_119_HEADLINE = "119에 바로 전화하세요."
 # 피보호자(WARD) 본인 답(2026-11-04): 모델이 쓴 문장은 핵심 줄 포함 3문장·공백 포함 120자까지.
 # 119·109 문장과 서버 고정 문장(약·약 + 술·진료 권유 보장·위험 신호)은 세지 않고 늘 남긴다.
 WARD_MODEL_MAX_SENTENCES = 3
@@ -107,6 +111,32 @@ def _urgent_layout(
     rest = [s for s in lines if s not in summary and s not in empathy]
     # 피보호자 본인 응급 답은 공감·증상 줄만 뺀다 - 119 줄·행동 문장·경고 박스는 그대로(concise).
     return {"headline": headline, "body": rest if concise else rest + empathy + summary, "questions": [], "homeCare": [], "visitHospitalIf": []}
+
+
+def _step_layout(reply: str) -> dict[str, Any]:
+    """단계 되묻기 질문 턴(2026-11-09): 질문 하나는 questions 칸, 나머지(첫 턴 앞말·위험 신호 119 줄·다시 묻기 앞말)는 본문. 카드는 비운다."""
+    body, questions = [], []
+    for line in reply.split("\n"):
+        text = line.strip()
+        if not text:
+            continue
+        q = _QUESTION_LINE.match(text)
+        if q:
+            questions.append(f"{kw.LAYOUT_QUESTION_EMOJI} {q.group(1).strip()}")
+        else:
+            body.extend(_emoji(s) if _hospital(s) else f"{kw.LAYOUT_EMPATHY_EMOJI} {s}" for s in _sentences(text))
+    return {"headline": None, "body": body, "questions": questions, "homeCare": [], "visitHospitalIf": []}
+
+
+def _strip_emoji(layout: dict[str, Any]) -> dict[str, Any]:
+    """줄 머리 이모지를 뺀 layout(CHAT_LAYOUT_EMOJI=false, 2026-11-09 기본). 문장·칸·순서는 그대로다."""
+    def plain(s: str) -> str:
+        return kw.strip_layout_emoji(s).strip()
+    out = dict(layout)
+    out["headline"] = plain(layout["headline"]) if layout.get("headline") else layout.get("headline")
+    for key in ("body", "questions", "homeCare", "visitHospitalIf"):
+        out[key] = [plain(s) for s in layout.get(key) or [] if plain(s)]
+    return out
 
 
 def _followup_layout(reply: str) -> dict[str, Any]:
@@ -286,11 +316,14 @@ def split_warning(items: list[str] | None) -> list[str]:
     return out
 
 
-def apply(result: dict[str, Any], drug_alcohol_sentences: list[str] | None = None, concise: bool = False) -> dict[str, Any]:
+def apply(
+    result: dict[str, Any], drug_alcohol_sentences: list[str] | None = None, concise: bool = False, emoji: bool = True
+) -> dict[str, Any]:
     """result 의 reply 를 새 모양으로 바꾸고 layout 을 붙인다(제자리 수정 후 반환). 판정 값은 건드리지 않는다.
     result["layoutParts"](생성 경로의 공감·권고 칸)은 여기서 꺼내 버린다 - 기록·응답에 남기지 않는다.
     concise: 피보호자 본인(WARD) 답 - 일반 답은 모델 문장을 줄이고, 응급 답은 공감·증상 줄만 뺀다.
-    위기(109)·되묻기·예약 답은 concise 여도 그대로다(질문·전화 안내가 답의 전부라 줄일 것이 없다)."""
+    위기(109)·되묻기·예약 답은 concise 여도 그대로다(질문·전화 안내가 답의 전부라 줄일 것이 없다).
+    emoji=False(챗 서비스 기본, CHAT_LAYOUT_EMOJI): 모양을 다 정한 뒤 줄 머리 이모지만 뺀다 - 응급 핵심 줄의 🚨도."""
     parts = result.pop("layoutParts", None) or {}
     kind = _kind(result)
     if kind is None:
@@ -305,11 +338,20 @@ def apply(result: dict[str, Any], drug_alcohol_sentences: list[str] | None = Non
         layout = _urgent_layout(reply, _CALL_109)
         result["emergencyWarning"] = split_warning(result.get("emergencyWarning"))
     elif kind == "followup":
-        layout = _followup_layout(reply)
+        meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+        layout = _step_layout(reply) if meta.get("followupStep") else _followup_layout(reply)
     else:
         pool = [x for sentence in (drug_alcohol_sentences or []) for x in _sentences(str(sentence))]
         layout = _general_layout(reply, parts, pool, concise=concise)
     ward_dropped = layout.pop("_wardDropped", None)
+    if not emoji:
+        layout = _strip_emoji(layout)
+        if kind == "emergency" and "전화" not in (layout.get("headline") or ""):
+            # 🚨 표시 대신 할 일을 문장으로(2026-11-09): 핵심 줄에 전화 안내가 없으면(폴백 "119 또는 가까운 응급실 방문을 권장합니다")
+            # "119에 바로 전화하세요."를 핵심 줄로 두고 원래 핵심 줄은 본문 맨 위로 - 문장은 버리지 않는다.
+            if layout.get("headline"):
+                layout["body"] = [layout["headline"], *layout["body"]]
+            layout["headline"] = CALL_119_HEADLINE
     if concise:
         before = len([s for line in reply.split("\n") for s in _sentences(line) if not _FILLER.match(s)])
         after = len(_sentences(flatten(layout).replace("\n", " ")))

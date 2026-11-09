@@ -144,7 +144,9 @@ def test_service_busy_generation_still_sends_cpr_line(monkeypatch) -> None:
         db.close()
     assert out["riskLevel"] == "high"
     assert CPR.search(out["reply"]) and "AED" in out["reply"]
-    assert out["reply"].split("\n")[0].startswith("🚨")
+    # 2026-11-09 이모지 끔(기본): 🚨 대신 첫 줄이 119 전화 문장, 답 어디에도 이모지 없음.
+    first = out["reply"].split("\n")[0]
+    assert "119" in first and "전화" in first and EMOJI.findall(out["reply"]) == []
 
 
 @pytest.mark.parametrize("message", [

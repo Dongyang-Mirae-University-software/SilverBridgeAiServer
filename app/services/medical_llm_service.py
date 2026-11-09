@@ -9,7 +9,7 @@ from app.core.config import Settings, get_settings
 from app.models.medgemma_loader import MedGemmaLoader
 from app.prompts.medical_chat_prompts import SYSTEM_PROMPT, build_user_prompt
 from app.services.chat_deadline import call_timeout, gen_min_sec
-from app.services import chat_keywords
+from app.services import chat_keywords, followup_steps
 from app.services.chat_keywords import symptom_department as _symptom_department
 from app.utils.conversation import format_recent_history, normalize_history
 from app.utils.json_extract import extract_json_fields_lenient, extract_json_object
@@ -451,19 +451,7 @@ _FOLLOWUP_SYMPTOM_NOUN = chat_keywords.FOLLOWUP_SYMPTOM_NOUN
 _FOLLOWUP_DISTRESS = re.compile(r"그만두|그만하|힘들|힘드|싫어|싫다|우울|죽겠|못살|외로|불안|무서|괴로|속상|열받|열이받")
 # 증상 낱말("배")이 들어 있어도 증상이 아닌 말 - 되묻기·답 칩("먹고 나면 더 아파요")이 어색하다(2026-11-03 답 칩 점검 M-2).
 _FOLLOWUP_NOT_SYMPTOM = re.compile(r"배가?(고프|고파|불러|부르)")
-_FOLLOWUP_INTRO = "말씀해 주셔서 고마워요. 더 정확히 안내해 드리려고 몇 가지 여쭤볼게요."
-_FOLLOWUP_QUESTIONS = (
-    "· 언제부터 그러셨나요?",
-    "· 얼마나 심하신가요? (참을 만한지, 점점 심해지는지)",
-    "· 같이 나타나는 증상(열·통증 등)이 있나요?",
-)
-# 보호자가 어르신 대신 상담할 때(대리 상담 wardId 또는 가족이 주어인 문장) 묻는 대상만 바꾼다(Q4).
-_FOLLOWUP_QUESTIONS_PROXY = (
-    "· 어르신께서 언제부터 그러셨나요?",
-    "· 얼마나 심해 보이시나요? (참으실 만한지, 점점 심해지는지)",
-    "· 같이 나타나는 증상(열·통증 등)이 있나요?",
-)
-_FOLLOWUP_CLOSING = "갑자기 심해지면 바로 진료를 받으세요."
+# 되묻기 질문·버튼·끝맺음 문장은 followup_steps 표에 있다(2026-11-09 단계 문답 - 한 턴에 질문 하나).
 
 
 def _department_family(name: str) -> str:
@@ -517,8 +505,6 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_CHEST_INDIGESTION_INFO": ("neutral", None),
     "_HYPOGLYCEMIA_SENTENCE": ("self", "의식이 있으시면 사탕이나 단 음료를 드시게 하고, 의식이 흐리시면 억지로 먹이지 마세요."),
     "_HYPOGLYCEMIA_RECHECK": ("self", "15분쯤 뒤 혈당을 다시 재 드리고, 계속 낮거나 증상이 이어지면 의사에게 알려 주세요."),
-    "_FOLLOWUP_INTRO": ("own_variant", None),
-    "_FOLLOWUP_CLOSING": ("own_variant", None),
     "_DRUG_ALCOHOL_RULES.diabetes": ("self", "어르신이 당뇨약을 드시는 중에 술을 드시면 저혈당(식은땀·떨림·어지럼)이 늦게 올 수 있어요. 드시기 전에 의사·약사와 꼭 상의해 주세요."),
     "_DRUG_ALCOHOL_RULES.sedative": ("self", "어르신이 수면제나 안정제를 술과 함께 드시면 숨이 약해지거나 깨어나기 어려울 만큼 위험할 수 있어요. 술과 함께 드시지 않게 해 주세요."),
     "_DRUG_ALCOHOL_RULES.acetaminophen": ("self", "어르신이 타이레놀(아세트아미노펜)을 드시는 중에 술을 드시면 간이 상할 수 있어요. 함께 드시지 않게 해 주시고, 술을 자주 드시면 의사·약사와 상의해 주세요."),
@@ -923,13 +909,20 @@ class MedicalLlmService:
 
     @staticmethod
     def followup_question_response(message: str, proxy: bool = False) -> dict[str, Any]:
-        """되묻기 답(MedGemma 를 부르지 않는다). 진료과 한 줄을 함께 둔다 - 답하지 않고 떠나는 분도 갈 곳은 알도록(Q2)."""
-        department = _symptom_department(message or "")
-        lines = [_FOLLOWUP_INTRO, *(_FOLLOWUP_QUESTIONS_PROXY if proxy else _FOLLOWUP_QUESTIONS)]
-        lines.append(f"{department} 진료를 생각해 보셔도 좋아요." if department else "가까운 병원 진료를 생각해 보셔도 좋아요.")
-        # 위험 신호 단어가 있는 말이면 마무리를 위험 신호 119 한 줄로(되묻는 동안에도 119 기준은 알도록, 2026-11-02).
+        """되묻기 첫 턴(MedGemma 를 부르지 않는다). 질문 하나(위험 신호)와 답 버튼 - followup_steps 표(2026-11-09).
+        위험 신호 낱말이 있는 말이면 119 기준 한 줄을 첫 턴에 바로 함께 둔다(2026-11-02 그대로)."""
+        state = followup_steps.new_state(message, proxy)
         red_flag = chat_keywords.has_red_flag(message)
-        lines.append(_RED_FLAG_119_SENTENCE if red_flag else _FOLLOWUP_CLOSING)
+        lines = followup_steps.question_lines(state, first=True, red_flag_line=_RED_FLAG_119_SENTENCE if red_flag else None)
+        return MedicalLlmService._followup_step_result(lines, state, red_flag=red_flag)
+
+    @staticmethod
+    def followup_step_response(state: dict[str, Any]) -> dict[str, Any]:
+        """되묻기 다음 질문 턴(또는 못 알아들은 답에 같은 질문 한 번 더). MedGemma 를 부르지 않는다."""
+        return MedicalLlmService._followup_step_result(followup_steps.question_lines(state, first=False), state, red_flag=False)
+
+    @staticmethod
+    def _followup_step_result(lines: list[str], state: dict[str, Any], *, red_flag: bool) -> dict[str, Any]:
         return {
             "reply": "\n".join(lines),
             "riskLevel": "medium",
@@ -943,7 +936,50 @@ class MedicalLlmService:
             "homeCare": [],
             "visitHospitalIf": [],
             "emergencyWarning": [],
-            "meta": {"followupAsked": True, "followupProxy": proxy, "redFlag119": red_flag},
+            # followupStep: 다음 턴이 복원할 진행 상태(묶음·순번·답 문장 조각). 답 본문·증상 원문은 넣지 않는다.
+            "meta": {"followupAsked": True, "followupProxy": state["proxy"], "redFlag119": red_flag, "followupStep": dict(state)},
+        }
+
+    @staticmethod
+    def followup_red_flag_emergency(symptom: str, proxy: bool) -> dict[str, Any]:
+        """되묻기 위험 신호 질문에 "네"(119 묶음) - 그 자리에서 규칙 응급 답(라우터·MedGemma 를 기다리지 않는다).
+        문장은 응급 답과 같은 _EMERGENCY_REPLY·경고 박스, 증상 유형 행동 줄(가슴 통증·뇌졸중 등)이 있으면 함께."""
+        reply = _EMERGENCY_REPLY.pick(proxy)
+        for _, sentence in MedicalLlmService.emergency_action_sentences(symptom, proxy):
+            reply = f"{reply}\n{sentence}"
+        return {
+            "reply": reply,
+            "riskLevel": "high",
+            "recommendedAction": "hospital_visit",
+            "reservationRequired": True,
+            "intent": "emergency_guidance",
+            "engine": "rule",
+            "modelName": None,
+            "summary": None,
+            "possibleCauses": [],
+            "homeCare": [],
+            "visitHospitalIf": [],
+            "emergencyWarning": [_EMERGENCY_REPLY.pick(proxy)],
+            "meta": {"followupRedFlag": "119"},
+        }
+
+    @staticmethod
+    def followup_visit_today(state: dict[str, Any]) -> dict[str, Any]:
+        """되묻기 위험 신호 질문에 "네"(관절·기본 묶음, 2026-11-09 사용자 결정) - 119 대신 오늘 진료 권유로 끝낸다."""
+        return {
+            "reply": "\n".join(followup_steps.visit_today_lines(state)),
+            "riskLevel": "medium",
+            "recommendedAction": "hospital_visit",
+            "reservationRequired": False,
+            "intent": "medical_advice",
+            "engine": "rule",
+            "modelName": None,
+            "summary": None,
+            "possibleCauses": [],
+            "homeCare": [],
+            "visitHospitalIf": [],
+            "emergencyWarning": [],
+            "meta": {"followupRedFlag": "visit"},
         }
 
     @staticmethod

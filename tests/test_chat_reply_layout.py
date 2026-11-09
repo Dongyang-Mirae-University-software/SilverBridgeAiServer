@@ -244,7 +244,7 @@ def _slot_of(layout: dict[str, Any], sentence: str) -> str:
 
 NON_URGENT_FIXED = [f for f in FIXED_SENTENCES if not (
     f.name.startswith("_EMERGENCY_ACTIONS.") or f.name in {"_EMERGENCY_REPLY", "_SELF_HARM_REPLY", "_SELF_HARM_REPLY_FAMILY",
-                                                          "_SELF_HARM_WARNING", "_FOLLOWUP_INTRO", "_FOLLOWUP_CLOSING"}
+                                                          "_SELF_HARM_WARNING"}
 )]
 
 
@@ -298,13 +298,22 @@ def test_emergency_followup_sentence_goes_to_hospital_card() -> None:
     assert any(kw.strip_layout_emoji(x) == _EMERGENCY_FOLLOWUP for x in out["layout"]["visitHospitalIf"])
 
 
-def test_followup_layout_questions_and_department_headline() -> None:
+def test_followup_step_layout_one_question_no_cards() -> None:
+    # 2026-11-09 단계 되묻기: 질문 하나(questions 1개), 카드 칸은 비운다. 이모지 켬(apply 기본)이면 질문 줄은 ❓.
     out = _apply(MedicalLlmService.followup_question_response("어지러워요"))
     layout = out["layout"]
-    assert layout["headline"].startswith("🏥 ") and "신경과" in layout["headline"]
-    assert len(layout["questions"]) == 3 and all(q.startswith("❓ ") for q in layout["questions"])
-    assert "(참을 만한지, 점점 심해지는지)" in layout["questions"][1]  # 질문 줄은 쪼개지 않는다
-    assert any("갑자기 심해지면" in x for x in layout["visitHospitalIf"])
+    assert layout["headline"] is None
+    assert len(layout["questions"]) == 1 and layout["questions"][0].startswith("❓ ")
+    assert layout["homeCare"] == [] and layout["visitHospitalIf"] == []
+    assert len(layout["body"]) == 1  # 첫 턴 앞말 한 줄
+
+
+def test_followup_step_layout_red_flag_line_stays_in_body() -> None:
+    out = chat_layout.apply(MedicalLlmService.followup_question_response("숨이 좀.."), emoji=False)
+    layout = out["layout"]
+    assert any("119" in x for x in layout["body"]) and layout["visitHospitalIf"] == []
+    assert len(layout["questions"]) == 1
+    assert kw.strip_layout_emoji(out["reply"]) == out["reply"]
 
 
 # ── 본문 줄 수 상한 ─────────────────────────────────────────────────────────────────────────────────
