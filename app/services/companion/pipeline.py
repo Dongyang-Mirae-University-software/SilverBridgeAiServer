@@ -16,6 +16,9 @@ from app.services.companion.transcript_check import check_transcript, confirm_re
 from app.services.companion.text_emotion_service import TextEmotionResult, TextEmotionUnavailable
 from app.services.companion.timeouts import call_with_timeout
 
+# 확신도가 낮을 때 되묻는 문장 (11/09). 후보 낱말을 넣지 않는다
+LOW_CONFIDENCE_REPLY = "잘 알아듣지 못했어요. 한 번 더 말씀해 주시겠어요?"
+
 
 def analyze_turn_result(
     transcript: str,
@@ -60,11 +63,46 @@ def run_turn(
     prev_signals: dict | None,
     is_last_turn: bool,
     turn_no: int,
+    stt_logprob: float | None = None,
 ) -> dict:
     """한 턴을 처리한다 (S6-4, S7-7). 신호 추출과 응답 생성은 같은 시점에 함께 돌린다.
 
     응답은 직전 턴 신호만 쓰므로 이번 턴 신호를 기다리지 않는다 (아키텍처 6번 단계).
+    stt_logprob: turbo 받아쓰기의 토큰 평균 로그확률 (글 대답·확률을 내지 않는 엔진은 None).
     """
+    s = get_settings()
+    if s.companion_confirm_mode == "logprob" and stt_logprob is not None:
+        # 11/09: 받아쓰기 확신도가 낮으면 되묻는다. 후보 낱말은 내지 않는다 (틀린 후보를 말하면 더 헷갈린다)
+        if stt_logprob < s.companion_confirm_logprob:
+            return _low_confidence_turn(transcript, llm)
+    else:
+        return _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no)
+    return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no)
+
+
+def _low_confidence_turn(transcript: str, llm: LlmClient) -> dict:
+    """확신도가 낮아 되묻는 턴. 감정·신호·대답은 만들지 않지만 위험 판정(낱말 규칙 + 모델 확률)은 돌린다.
+
+    위험이면 되묻는 문장 대신 안전 안내 문장으로 답한다 (일반 턴과 같은 규칙).
+    """
+    try:
+        risk_prob = call_with_timeout(risk_probability, get_settings().companion_turn_cap_sec, llm, transcript)
+    except TimeoutError:
+        risk_prob = None
+    risk_flag = keyword_risk(transcript) or is_risk(risk_prob)
+    return {
+        "turnResult": {"label": UNDECIDED, "source": "TEXT"},
+        "reply": {"text": SAFETY_REPLY if risk_flag else LOW_CONFIDENCE_REPLY, "isFollowUp": True},
+        "signals": None,
+        "replySource": "SAFETY" if risk_flag else "CONFIRM",
+        "summary": None,
+        "needsCheck": True,
+        "riskFlag": risk_flag,
+    }
+
+
+def _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no) -> dict:
+    """재희 버전 되묻기: 형태소·어휘 목록 규칙으로 실제 단어가 아닐 수 있는 말을 찾는다."""
     check = check_transcript(transcript)
     if check.suspicious:
         # 실제 단어가 아닐 수 있는 말이 있으면 뜻을 추측하지 않는다: 감정·신호·대답을 만들지 않고 다시 확인한다
@@ -77,6 +115,11 @@ def run_turn(
             "needsCheck": True,
             "riskFlag": keyword_risk(transcript),  # 낱말 규칙은 확인 턴에도 적용한다
         }
+    return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no)
+
+
+def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no) -> dict:
+    """감정·신호·대답·요약·위험을 함께 만드는 일반 턴."""
     # 한 턴 전체 상한 (백엔드 요청 60초). 넘게 걸리는 작업은 기다리지 않고, 그 결과는 쓰지 않는다
     cap = get_settings().companion_turn_cap_sec
     started = time.monotonic()

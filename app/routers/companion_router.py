@@ -25,9 +25,8 @@ from app.services.companion.multipart_memory import read_file_part, read_file_pa
 from app.services.companion import reply_service
 from app.services.companion.reply_service import REPLY_PROMPT_VERSION
 from app.services.companion.review_store import STATUSES, review_store
-from app.services.companion.stt_engine import get_stt_engine
+from app.services.companion.stt_engine import get_stt_api_transcriber, transcribe_turn_audio
 from app.services.companion.audio_decode import TARGET_RATE, decode_to_pcm16k
-from app.services.companion.sensevoice_service import sensevoice_service
 from app.services.companion.stt_service import SttUnavailable
 from app.services.companion.text_emotion_service import text_emotion_service
 from app.services.companion.timeouts import call_with_timeout
@@ -46,8 +45,8 @@ ANSWER_MAX_CHARS = 500  # 글 대답 상한 (BE 기준 1~500자)
 
 
 def get_transcriber():
-    """음성 인식 함수 (테스트에서 가짜로 바꿔 끼운다). 실제는 설정된 엔진 (기본 SenseVoice, 팀 합의 10/26)."""
-    return get_stt_engine().transcribe
+    """음성 인식 함수 (테스트에서 가짜로 바꿔 끼운다). 실제는 말소리 감지 + 설정된 엔진 (11/09 기본 Silero + turbo)."""
+    return transcribe_turn_audio
 
 
 def get_face_analyzer():
@@ -61,8 +60,8 @@ def get_text_classifier():
 
 
 def get_pcm_transcriber():
-    """글자 변환 함수 (음성 인식 API용, 테스트에서 바꿔 끼운다). 실제는 SenseVoice."""
-    return sensevoice_service.transcribe_pcm
+    """글자 변환 함수 (음성 인식 API용, 테스트에서 바꿔 끼운다). 실제는 COMPANION_STT_API_ENGINE (기본 SenseVoice 그대로)."""
+    return get_stt_api_transcriber()
 
 
 def get_llm():
@@ -97,7 +96,7 @@ class ReviewDecision(BaseModel):
     decision: Literal["approved", "rejected"]
 
 
-def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm) -> dict:
+def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_logprob: float | None = None) -> dict:
     """턴 하나를 처리하고, 직전 신호와 검수 목록을 갱신한다. 답이 비었으면 무응답 턴이다 (S7-8)."""
     turn_no = d.turnNo + 1
     is_last_turn = turn_no >= d.maxTurns
@@ -113,6 +112,7 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm) -> d
             prev_signals=d.lastSignals,
             is_last_turn=is_last_turn,
             turn_no=turn_no,
+            stt_logprob=stt_logprob,
         )
         if result["signals"] is not None:  # 신호가 없는 턴(무응답·다시 확인)은 직전 신호를 그대로 둔다
             store.set_last_signals(d.dialogueId, result["signals"])
@@ -339,7 +339,7 @@ async def reply_audio(
                                                 [f.data for f in frames]))
         except (FaceUnavailable, TimeoutError):
             face = _no_face()
-    result = _run_turn(d, transcript, face, classify_text, llm)
+    result = _run_turn(d, transcript, face, classify_text, llm, stt_logprob=getattr(stt, "avg_logprob", None))
     out = _turn_response(d, result, transcript=transcript, face=face)
     return success_response("턴 분석 완료", out)
 

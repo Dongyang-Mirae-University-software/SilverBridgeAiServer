@@ -19,6 +19,8 @@ class SttResult:
     text: str
     confidence: float  # 0~1. D13: 세그먼트 평균 로그확률을 지수 변환해 얻는다
     elapsed_ms: int
+    # turbo 토큰 평균 로그확률 (되묻기 기준에 쓴다). 확률을 내지 않는 엔진·무음은 None
+    avg_logprob: float | None = None
 
 
 def confidence_from_logprobs(avg_logprobs: list[float]) -> float:

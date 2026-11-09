@@ -162,7 +162,13 @@ Written for: 팀원 전체 (BE·FE·관리자 화면·AI 담당). 노션 요구�
 | `COMPANION_BACKEND_API_KEY` | (비움) | 백엔드를 부를 때 쓰는 키 |
 | `COMPANION_MAX_TURNS` | 8 | 한 대화의 최대 답 수 |
 | `COMPANION_NO_RESPONSE_LIMIT` | 3 | 연속 무응답 종료 기준 (팀 결정 2026-11-02) |
-| `COMPANION_STT_ENGINE` | sensevoice | 받아쓰기 엔진 (sensevoice 또는 whisper) |
+| `COMPANION_STT_ENGINE` | turbo | 말벗 턴 받아쓰기 엔진: turbo(Whisper large-v3-turbo GPU fp16, 11/09) · sensevoice(재희 버전) · whisper |
+| `COMPANION_TURBO_SUBDIR` | companion/stt-turbo | turbo 모델 폴더 (`MODEL_BASE_PATH` 아래, `openai/whisper-large-v3-turbo` 파일). 없으면 턴이 503 → `sensevoice`로 되돌린다 |
+| `COMPANION_TURBO_DEVICE` | cuda | turbo 장치 (cuda=fp16, cpu=fp32) |
+| `COMPANION_STT_API_ENGINE` | sensevoice | 챗봇 받아쓰기 API(`/companion/stt`) 엔진. turbo로 켜면 말소리 감지·반복 정리도 함께 적용 |
+| `COMPANION_VAD` | silero | 말소리 감지: silero(말소리 합계 `COMPANION_VAD_MIN_SPEECH_SEC`=0.3초 이상) · rms(재희: 소리 크기 0.01) |
+| `COMPANION_STT_COLLAPSE_REPEATS` | true | turbo 결과에서 같은 1~4어절이 3번 이상 연달아 나오면 1번만 |
+| `COMPANION_CONFIRM_MODE` | logprob | 되묻기: logprob(turbo 토큰 평균 로그확률 < `COMPANION_CONFIRM_LOGPROB`=-0.3) · lexicon(재희 형태소·어휘 규칙). 확률이 없는 턴은 lexicon |
 | `COMPANION_FRAME_INTERVAL_SEC` | 2.0 | 표정 프레임 간격 (결정 D5) |
 | `COMPANION_FRAME_MAX` | 5 | 한 대답의 최대 프레임 수 |
 | `COMPANION_REPLY_MAX_CHARS` | 140 | 응답 최대 글자 수 (결정 D21) |

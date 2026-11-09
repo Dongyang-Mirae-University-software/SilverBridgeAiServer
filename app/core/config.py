@@ -329,9 +329,24 @@ class Settings(BaseModel):
     companion_fusion_rule: str = os.getenv("COMPANION_FUSION_RULE", "plan41")  # D9: plan41 | arch8
     companion_stt_subdir: str = os.getenv("COMPANION_STT_SUBDIR", "companion/stt")  # D19: MODEL_BASE_PATH 하위
     companion_stt_model: str = os.getenv("COMPANION_STT_MODEL", "large-v3")  # D23
-    # 받아쓰기 엔진: sensevoice(팀 합의 10/26, 기본) | whisper(faster-whisper, 비교용)
-    companion_stt_engine: str = os.getenv("COMPANION_STT_ENGINE", "sensevoice")
+    # 받아쓰기 엔진: turbo(Whisper large-v3-turbo GPU, 11/09 기본) | sensevoice(재희 버전 기본) | whisper(faster-whisper, 비교용)
+    # 근거: 어르신 200문장 글자 오류 turbo 2.4% · SenseVoice 4.7% (노션 "AI 안부말벗·정서분석 모델 학습 기록")
+    companion_stt_engine: str = os.getenv("COMPANION_STT_ENGINE", "turbo")
+    # 챗봇 받아쓰기 API(/companion/stt) 엔진: sensevoice(기본, 지금 그대로) | turbo (2026-11-09 사용자 결정: 챗봇은 그대로 둔다)
+    companion_stt_api_engine: str = os.getenv("COMPANION_STT_API_ENGINE", "sensevoice")
     companion_sensevoice_subdir: str = os.getenv("COMPANION_SENSEVOICE_SUBDIR", "companion/stt-sensevoice")
+    companion_turbo_subdir: str = os.getenv("COMPANION_TURBO_SUBDIR", "companion/stt-turbo")  # openai/whisper-large-v3-turbo 폴더
+    companion_turbo_device: str = os.getenv("COMPANION_TURBO_DEVICE", "cuda")  # cuda 는 fp16, cpu 는 fp32
+    companion_turbo_max_new_tokens: int = _as_int("COMPANION_TURBO_MAX_NEW_TOKENS", 128)  # 30초 창 하나에서 만들 최대 토큰 수
+    # 받아쓰기 결과에서 같은 1~4어절이 3번 이상 연달아 나오면 1번만 남긴다 (turbo 결과에만. false 면 그대로)
+    companion_stt_collapse_repeats: bool = _as_bool("COMPANION_STT_COLLAPSE_REPEATS", True)
+    # 말소리 감지: silero(말소리 합계가 기준 초 이상일 때만 받아쓰기, 11/09 기본) | rms(재희: 전체 소리 크기 0.01 기준)
+    companion_vad: str = os.getenv("COMPANION_VAD", "silero")
+    companion_vad_min_speech_sec: float = _as_float("COMPANION_VAD_MIN_SPEECH_SEC", 0.3)
+    # 되묻기: logprob(turbo 토큰 평균 로그확률이 기준보다 낮으면 되묻기, 11/09 기본) | lexicon(재희: 형태소·어휘 목록 규칙)
+    # 확률이 없는 턴(글 대답, SenseVoice)은 logprob 모드에서도 재희 규칙을 쓴다
+    companion_confirm_mode: str = os.getenv("COMPANION_CONFIRM_MODE", "logprob")
+    companion_confirm_logprob: float = _as_float("COMPANION_CONFIRM_LOGPROB", -0.3)
     companion_stt_api_max_sec: float = _as_float("COMPANION_STT_API_MAX_SEC", 30.0)  # 챗봇 공유 음성 인식 API 길이 상한
     companion_stt_api_max_mb: int = _as_int("COMPANION_STT_API_MAX_MB", 10)  # 받아쓰기 API(챗봇 공유) 음성 크기 상한 (2026-11-09 결정: 10MB)
     companion_stt_api_concurrency: int = _as_int("COMPANION_STT_API_CONCURRENCY", 2)  # 동시에 돌릴 음성 인식 수
