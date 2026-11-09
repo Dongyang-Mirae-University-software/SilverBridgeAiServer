@@ -90,3 +90,9 @@ def test_answer_of_exactly_500_chars_is_accepted():
         assert r.status_code == 200
     finally:
         app.dependency_overrides.clear()
+
+
+def test_stt_endpoint_limit_is_10mb_and_reply_audio_stays_5mb():
+    # 2026-11-09 결정: 받아쓰기 API(챗봇 공유)는 10MB, 말벗 대화 음성은 BE 기준 5MB
+    assert get_settings().companion_stt_api_max_mb == 10
+    assert get_settings().companion_upload_max_mb == 5

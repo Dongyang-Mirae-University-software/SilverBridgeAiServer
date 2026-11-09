@@ -330,6 +330,7 @@ class Settings(BaseModel):
     companion_stt_engine: str = os.getenv("COMPANION_STT_ENGINE", "sensevoice")
     companion_sensevoice_subdir: str = os.getenv("COMPANION_SENSEVOICE_SUBDIR", "companion/stt-sensevoice")
     companion_stt_api_max_sec: float = _as_float("COMPANION_STT_API_MAX_SEC", 30.0)  # 챗봇 공유 음성 인식 API 길이 상한
+    companion_stt_api_max_mb: int = _as_int("COMPANION_STT_API_MAX_MB", 10)  # 받아쓰기 API(챗봇 공유) 음성 크기 상한 (2026-11-09 결정: 10MB)
     companion_stt_api_concurrency: int = _as_int("COMPANION_STT_API_CONCURRENCY", 2)  # 동시에 돌릴 음성 인식 수
     companion_stt_api_wait_sec: float = _as_float("COMPANION_STT_API_WAIT_SEC", 5.0)  # 자리가 날 때까지 기다리는 시간
     companion_stt_api_timeout_sec: float = _as_float("COMPANION_STT_API_TIMEOUT_SEC", 20.0)  # 받아쓰기 한 번의 제한 시간 (넘으면 503 STT_UNAVAILABLE)

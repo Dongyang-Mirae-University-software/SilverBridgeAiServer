@@ -378,10 +378,10 @@ async def speech_to_text(request: Request, settings: Settings = Depends(get_sett
                          transcribe_pcm=Depends(get_pcm_transcriber)) -> dict:
     """음성 파일 1개(audio)를 받아 글자만 돌려준다. 음성과 글자는 저장하지 않고, 로그에도 남기지 않는다."""
     started = time.monotonic()
-    max_bytes = settings.companion_upload_max_mb * 1024 * 1024
+    max_bytes = settings.companion_stt_api_max_mb * 1024 * 1024
     body = await request.body()
     if len(body) > max_bytes + 4096:
-        raise CompanionError(413, "AUDIO_TOO_LARGE", f"음성 파일이 {settings.companion_upload_max_mb}MB를 넘습니다.")
+        raise CompanionError(413, "AUDIO_TOO_LARGE", f"음성 파일이 {settings.companion_stt_api_max_mb}MB를 넘습니다.")
     try:
         part = read_file_part(request.headers.get("content-type", ""), body, "audio")
     except ValueError as exc:
@@ -389,7 +389,7 @@ async def speech_to_text(request: Request, settings: Settings = Depends(get_sett
     if part is None:
         raise CompanionError(422, "AUDIO_MISSING", "audio 파일이 없습니다.")
     if len(part.data) > max_bytes:
-        raise CompanionError(413, "AUDIO_TOO_LARGE", f"음성 파일이 {settings.companion_upload_max_mb}MB를 넘습니다.")
+        raise CompanionError(413, "AUDIO_TOO_LARGE", f"음성 파일이 {settings.companion_stt_api_max_mb}MB를 넘습니다.")
     if detect_audio_format(part.data) is None:
         raise CompanionError(422, "AUDIO_FORMAT_UNSUPPORTED", f"{'·'.join(ALLOWED_FORMATS)} 파일만 받습니다.")
     try:
