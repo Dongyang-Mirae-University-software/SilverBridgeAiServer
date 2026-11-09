@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.config import get_settings
-from app.services.companion.llm_client import LlmClient, LlmUnavailable
+from app.services.companion.llm_client import REPLY_ADAPTER, LlmClient, LlmUnavailable
 
 REPLY_PROMPT_VERSION = "reply-v2"  # 응답 프롬프트 파일을 고치면 올린다 (v2: 대답 속 낱말을 이어 가는 꼬리질문)
 # 대답과 관계없는 문장을 거를 때 기준으로 삼지 않는 흔한 낱말의 앞 두 글자 (조사가 붙은 말도 걸리도록 앞 글자로 본다)
@@ -87,6 +87,23 @@ def _fallback(turn_no: int, is_last_turn: bool) -> str:
     return options[turn_no % len(options)]  # 턴마다 다른 문장이 나오도록 번갈아 쓴다
 
 
+def _generate(llm: LlmClient, prompt: str, is_last_turn: bool) -> str:
+    """꼬리질문 턴은 대답 어댑터(cc5)로 만든다 (11/10, COMPANION_REPLY_LORA). 프롬프트는 reply-v2 그대로다.
+
+    어댑터는 꼬리질문 프롬프트로만 학습돼서 마지막 인사 턴은 기본 모델로 만든다.
+    어댑터가 없으면(파일 없음, 어댑터 기능이 없는 LLM) 기본 모델로 만든다 (재희 동작).
+    """
+    s = get_settings()
+    kwargs = {"temperature": s.companion_llm_temperature, "num_predict": s.companion_llm_num_predict,
+              "timeout": s.companion_llm_timeout_sec}
+    if s.companion_reply_lora and not is_last_turn:
+        gen = getattr(llm, "generate_adapter", None)
+        has = getattr(llm, "has_adapter", None)
+        if gen is not None and (has is None or has(REPLY_ADAPTER)):
+            return gen(prompt, adapter=REPLY_ADAPTER, **kwargs)
+    return llm.generate(prompt, **kwargs)
+
+
 def generate_reply(
     llm: LlmClient,
     question: str,
@@ -105,8 +122,7 @@ def generate_reply(
     failures: list[str] = []
     for _ in range(1 + s.companion_llm_retry):
         try:
-            raw = llm.generate(prompt, temperature=s.companion_llm_temperature,
-                               num_predict=s.companion_llm_num_predict, timeout=s.companion_llm_timeout_sec)
+            raw = _generate(llm, prompt, is_last_turn)
         except LlmUnavailable:
             failures = ["LLM 실패"]
             continue

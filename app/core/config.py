@@ -20,6 +20,23 @@ def _as_bool(name: str, default: bool) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _opt_float(name: str) -> float | None:
+    """값이 없거나 숫자가 아니면 None (쓰는 곳에서 다른 설정에 맞춰 기본값을 정한다)."""
+    raw = os.getenv(name, "").strip()
+    try:
+        return float(raw) if raw else None
+    except ValueError:
+        return None
+
+
+def _opt_int(name: str) -> int | None:
+    raw = os.getenv(name, "").strip()
+    try:
+        return int(raw) if raw else None
+    except ValueError:
+        return None
+
+
 def _as_choice(name: str, default: str, choices: tuple[str, ...]) -> str:
     """선택형 설정. 앞뒤 공백·대소문자는 무시하고, 모르는 값이면 경고를 남기고 기본값을 쓴다 (값 자체는 로그에 남기지 않는다)."""
     raw = os.getenv(name, "").strip().lower()
@@ -336,10 +353,19 @@ class Settings(BaseModel):
     companion_frame_max: int = _as_int("COMPANION_FRAME_MAX", 5)  # D5 (말풍선당 최대 5장)
     companion_face_min_rate: float = _as_float("COMPANION_FACE_MIN_RATE", 0.5)  # D6
     companion_confidence_min: float = _as_float("COMPANION_CONFIDENCE_MIN", 0.6)  # 확신도 0.6 기준
-    companion_min_text_chars: int = _as_int("COMPANION_MIN_TEXT_CHARS", 10)  # 발화 최소 글자 수
+    # 발화 최소 글자 수. 비우면 기분 엔진에 맞춘다: e900 = 2자(짧은 대답도 판단, 11/10) · ggara02 = 10자(재희)
+    companion_min_text_chars: int | None = _opt_int("COMPANION_MIN_TEXT_CHARS")
     companion_upload_max_mb: int = _as_int("COMPANION_UPLOAD_MAX_MB", 5)  # BE 기준 5MB (2026-11-09 맞춤, 명세 Q12는 10MB였음)
     companion_reply_max_chars: int = _as_int("COMPANION_REPLY_MAX_CHARS", 140)  # D21 (사용자 결정 140자 이내)
-    companion_fusion_rule: str = os.getenv("COMPANION_FUSION_RULE", "plan41")  # D9: plan41 | arch8
+    # 말·표정 합치기: prob_add(글 기분 4코드 확률 + 표정 코드 쪽으로 COMPANION_FACE_WEIGHT, 11/10 기본) | plan41(재희 fuse_turn: 방향 반대면 보류)
+    # 근거: 무표정(= 평온) 상황에서 걱정·우울 찾음 plan41 0.3% · prob_add 81% (노션 "AI 안부말벗·정서분석 모델 학습 기록", fuse_cmp)
+    companion_fusion_rule: str = _as_choice("COMPANION_FUSION_RULE", "prob_add", ("prob_add", "plan41"))
+    companion_face_weight: float = _as_float("COMPANION_FACE_WEIGHT", 0.2)
+    # 글 기분 엔진: e900(EXAONE + 기분 LoRA, 4코드 JOY·CALM·WORRY·DEPRESSED, 11/10 기본) | ggara02(재희: KcELECTRA 6감정)
+    companion_text_mood_engine: str = _as_choice("COMPANION_TEXT_MOOD_ENGINE", "e900", ("e900", "ggara02"))
+    # 표정 판정: head3(vgaf 특징 + 한국인 3분류 층 웃음·평온·부정, 부정은 0.8 이상만, 11/10 기본) | hsemotion8(재희: afew 8감정 최댓값)
+    companion_face_head: str = _as_choice("COMPANION_FACE_HEAD", "head3", ("head3", "hsemotion8"))
+    companion_face_neg_min: float = _as_float("COMPANION_FACE_NEG_MIN", 0.8)
     companion_stt_subdir: str = os.getenv("COMPANION_STT_SUBDIR", "companion/stt")  # D19: MODEL_BASE_PATH 하위
     companion_stt_model: str = os.getenv("COMPANION_STT_MODEL", "large-v3")  # D23
     # 받아쓰기 엔진: turbo(Whisper large-v3-turbo GPU, 11/09 기본) | sensevoice(재희 버전 기본) | whisper(faster-whisper, 비교용)
@@ -383,8 +409,19 @@ class Settings(BaseModel):
     companion_llm_dtype: str = os.getenv("COMPANION_LLM_DTYPE", "bfloat16")  # 메모리 절약 (가중치는 float32 저장)
     # GPU가 있으면 GPU에 올린다. int8 이면 8비트로 줄인다 (CPU 메모리 부족 방지, 11/05·11/08 강제 종료 원인)
     companion_llm_quant: str = os.getenv("COMPANION_LLM_QUANT", "int8").strip().lower()
-    # 위험 판정 기준 (위험 '있' 확률). 2026-11-09 재측정 기준 0.5 (이전 팀 기준 0.99는 위험을 대부분 놓쳤다). 프롬프트를 바꾸면 다시 맞춘다
-    companion_risk_threshold: float = _as_float("COMPANION_RISK_THRESHOLD", 0.5)
+    # 위험 판정 프롬프트: v9(노인 자살 경고 신호, 11/10 기본) | v4(재희)
+    companion_risk_prompt: str = _as_choice("COMPANION_RISK_PROMPT", "v9", ("v9", "v4"))
+    # 위험 판정 기준 (위험 '있' 확률). 비우면 프롬프트에 맞춘다: v9 = 0.99 (평범한 안부 통화 강제 알림 11% → 1% 미만) · v4 = 0.5 (재희 11/09 측정)
+    companion_risk_threshold: float | None = _opt_float("COMPANION_RISK_THRESHOLD")
+    # 위험 낱말 규칙: kw4('자살'·'자해'는 앞이 한글이면 제외 - '혼자 살다', 관용 '아파 죽겠' 제외, 11/10 기본) | jaehee(띄어쓰기만 지우고 찾음)
+    companion_risk_keyword_rule: str = _as_choice("COMPANION_RISK_KEYWORD_RULE", "kw4", ("kw4", "jaehee"))
+    # LoRA 어댑터 (MODEL_BASE_PATH 아래). 폴더가 없으면 그 단계만 기본 모델로 돌린다
+    companion_mood_lora_subdir: str = os.getenv("COMPANION_MOOD_LORA_SUBDIR", "companion/llm/lora-mood-e900")
+    companion_reply_lora_subdir: str = os.getenv("COMPANION_REPLY_LORA_SUBDIR", "companion/llm/lora-reply-cc5")
+    # 공감 대답(꼬리질문 턴) 생성을 대답 어댑터로: true(11/10 기본) | false(재희: 기본 모델). 프롬프트·규칙 검사는 같다
+    companion_reply_lora: bool = _as_bool("COMPANION_REPLY_LORA", True)
+    # 한 줄 요약 앞의 "요약:"·"기록:" 머리말을 지운다 (false 면 재희 그대로)
+    companion_summary_strip_prefix: bool = _as_bool("COMPANION_SUMMARY_STRIP_PREFIX", True)
     # 한 턴 전체 상한 (백엔드 요청: 60초). 넘으면 미리 정한 문장으로 답한다
     companion_turn_cap_sec: float = _as_float("COMPANION_TURN_CAP_SEC", 60.0)
     companion_llm_num_predict: int = _as_int("COMPANION_LLM_NUM_PREDICT", 256)

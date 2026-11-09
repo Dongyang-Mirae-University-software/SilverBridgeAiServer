@@ -67,6 +67,7 @@ def s(monkeypatch, tmp_path):
     monkeypatch.setattr(st, "companion_confirm_mode", "logprob")
     monkeypatch.setattr(st, "companion_keep_fixed_replies", True)
     monkeypatch.setattr(st, "companion_confirm_streak_limit", 3)
+    monkeypatch.setattr(st, "companion_risk_prompt", st.companion_risk_prompt)  # 테스트에서 바꿔도 끝나면 되돌린다
     yield st
     app.dependency_overrides.clear()
 
@@ -107,6 +108,7 @@ def test_repeated_low_confidence_turns_keep_asking(s):
 
 
 def test_repeated_risk_turns_keep_the_safety_reply(s):
+    s.companion_risk_prompt = "v4"  # 이 가짜 모델은 재희 v4 확률 함수만 있다 (11/10 기본 v9 는 기준 0.99)
     out = [_data(r) for r in _dialogue([("요즘 다 귀찮고 그래요 정말", -0.1)] * 2, risk_p=0.9)]  # 일반 턴
     assert [d["reply"]["text"] for d in out] == [SAFETY_REPLY] * 2
     out = [_data(r) for r in _dialogue([("요즘 다 귀찮아요", -0.8)] * 2, risk_p=0.9)]  # 되묻는 턴
@@ -137,6 +139,7 @@ def test_a_clear_answer_resets_the_streak(s):
 
 
 def test_risky_low_confidence_turns_do_not_end_the_dialogue(s):
+    s.companion_risk_prompt = "v4"  # 이 가짜 모델은 재희 v4 확률 함수만 있다 (11/10 기본 v9 는 기준 0.99)
     out = [_data(r) for r in _dialogue([("다 귀찮아요", -0.9)] * 3, risk_p=0.9)]
     assert not any(d["ended"] for d in out) and all(d["reply"]["text"] == SAFETY_REPLY for d in out)
 

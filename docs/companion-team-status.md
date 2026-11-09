@@ -173,6 +173,15 @@ Written for: 팀원 전체 (BE·FE·관리자 화면·AI 담당). 노션 요구�
 | `COMPANION_KEEP_FIXED_REPLIES` | true | 되묻는 문장·안전 안내 문장은 같은 대화에서 반복돼도 다른 문장으로 바꾸지 않음. false면 재희 동작 |
 | `COMPANION_TURBO_MAX_NEW_TOKENS` | 224 | turbo 30초 조각 하나의 최대 토큰 수(한국어 음절당 약 0.83토큰) |
 | `COMPANION_TURBO_RETRY_SEC` | 60 | turbo 로드 실패 뒤 다시 시도할 때까지 초. 0이면 재시작 전까지 안 함 |
+| `COMPANION_TEXT_MOOD_ENGINE` | e900 | 글 기분: e900(EXAONE + 기분 LoRA, 4코드 JOY·CALM·WORRY·DEPRESSED, 11/10) · ggara02(재희 KcELECTRA). 어댑터 폴더 `COMPANION_MOOD_LORA_SUBDIR`=companion/llm/lora-mood-e900 |
+| `COMPANION_MIN_TEXT_CHARS` | (비움) | 기분 판단에 쓰는 최소 글자 수. 비우면 e900 2자 · ggara02 10자 |
+| `COMPANION_FUSION_RULE` | prob_add | 말·표정 합치기: prob_add(글 4코드 확률 + 표정 코드 쪽으로 `COMPANION_FACE_WEIGHT`=0.2, 보류 없음) · plan41(재희: 방향 반대면 판단 보류) |
+| `COMPANION_FACE_HEAD` | head3 | 표정: head3(vgaf 특징 + 한국인 3분류 층, 부정은 `COMPANION_FACE_NEG_MIN`=0.8 이상만, 파일 `face-emotion/enet_b0_8_best_vgaf.onnx`·`head3_yunet.pt`) · hsemotion8(재희 afew). 파일이 없으면 hsemotion8 |
+| `COMPANION_RISK_PROMPT` | v9 | 위험 판정 프롬프트: v9(노인 자살 경고 신호) · v4(재희) |
+| `COMPANION_RISK_THRESHOLD` | (비움) | 위험 '있' 확률 기준. 비우면 v9 0.99 · v4 0.5 |
+| `COMPANION_RISK_KEYWORD_RULE` | kw4 | 위험 낱말 규칙: kw4('자살'·'자해' 앞이 한글이면 제외, '아파 죽겠' 같은 관용 제외) · jaehee |
+| `COMPANION_REPLY_LORA` | true | 꼬리질문 대답을 대답 LoRA(`COMPANION_REPLY_LORA_SUBDIR`=companion/llm/lora-reply-cc5)로 생성. 프롬프트·규칙 검사는 그대로, 마지막 인사는 기본 모델. 폴더가 없으면 기본 모델 |
+| `COMPANION_SUMMARY_STRIP_PREFIX` | true | 한 줄 요약 앞 "요약:"·"기록:" 머리말 지움 |
 | `COMPANION_FRAME_INTERVAL_SEC` | 2.0 | 표정 프레임 간격 (결정 D5) |
 | `COMPANION_FRAME_MAX` | 5 | 한 대답의 최대 프레임 수 |
 | `COMPANION_REPLY_MAX_CHARS` | 140 | 응답 최대 글자 수 (결정 D21) |

@@ -2,10 +2,21 @@
 
 import json
 
+import pytest
+
+from app.core.config import get_settings
 from app.services.companion import pipeline
 from app.services.companion.llm_client import LlmUnavailable
 from app.services.companion.risk import RISK_THRESHOLD, is_risk, risk_probability
 from app.services.companion.text_emotion_service import TextEmotionResult
+
+
+@pytest.fixture(autouse=True)
+def _jaehee_risk_v4(monkeypatch):
+    """이 파일은 재희 v4 위험 판정(기준 0.5)을 본다. 11/10 기본 v9 는 tests/test_companion_judgment_stage.py."""
+    s = get_settings()
+    monkeypatch.setattr(s, "companion_risk_prompt", "v4")
+    monkeypatch.setattr(s, "companion_risk_threshold", None)
 
 
 class ProbLlm:

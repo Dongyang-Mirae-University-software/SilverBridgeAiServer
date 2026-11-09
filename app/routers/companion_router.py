@@ -28,6 +28,7 @@ from app.services.companion.review_store import STATUSES, review_store
 from app.services.companion.stt_engine import get_stt_api_transcriber, transcribe_turn_audio
 from app.services.companion.audio_decode import TARGET_RATE, decode_to_pcm16k
 from app.services.companion.stt_service import SttUnavailable
+from app.services.companion.mood_service import mood_service
 from app.services.companion.text_emotion_service import text_emotion_service
 from app.services.companion.timeouts import call_with_timeout
 from app.services.companion.turn_record import build_dialogue_result
@@ -55,7 +56,9 @@ def get_face_analyzer():
 
 
 def get_text_classifier():
-    """글자 감정 함수 (테스트에서 바꿔 끼운다). 실제는 GGARA02 래퍼 (S5-1)."""
+    """글자 감정 함수 (테스트에서 바꿔 끼운다). 실제는 e900 기분(11/10 기본) 또는 GGARA02 래퍼(재희, S5-1)."""
+    if get_settings().companion_text_mood_engine == "e900":
+        return mood_service.classify
     return text_emotion_service.classify
 
 
