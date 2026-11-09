@@ -28,3 +28,5 @@ funasr==1.4.20
 kaldi-native-fbank==1.22.5
 # 음성 인식 결과 검증 (실제 단어가 아닌 말 찾기). 말벗 턴에서 쓴다
 kiwipiepy==0.24.1
+# 말벗 말소리 감지 (11/09): Silero VAD. MIT. 모델 파일이 패키지 안에 있어 따로 받지 않는다. 필수 의존성은 torch·packaging 뿐 (DGX 측정과 같은 판)
+silero-vad==6.2.3
