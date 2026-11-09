@@ -76,7 +76,9 @@ def test_short_red_flag_message_asks_back_with_119_line(message: str) -> None:
     assert MedicalLlmService.needs_followup_question(message)
     result = MedicalLlmService.followup_question_response(message)
     assert result["reply"].count("119") == 1
-    assert "언제부터" in result["reply"]
+    # 2026-11-09 단계 되묻기: 질문은 하나 - 위험 신호 낱말이 있는 말은 숨·가슴 위험 신호 질문부터("네"면 규칙 119).
+    assert result["reply"].count("· ") == 1 and "숨이 차거나 가슴이 조이세요?" in result["reply"]
+    assert result["meta"]["followupStep"]["group"] == "chest"
     assert result["riskLevel"] != "high"
 
 

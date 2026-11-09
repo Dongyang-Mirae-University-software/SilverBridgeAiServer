@@ -170,7 +170,8 @@ def test_fallback_uses_history_when_emergency(env) -> None:
 @pytest.mark.parametrize("message", ["엄마가 죽고 싶다고 하세요", "아버지께서 자살 얘기를 하세요", "남편이 살기가 싫대요"])
 def test_family_subject_gets_family_reply(env, message: str) -> None:
     out = _send(env, message)
-    assert out["reply"].startswith("🚨 ") and "119" in out["reply"].split("\n")[0] and "많이 놀라셨겠어요." in out["reply"]  # 🚨 119 줄이 맨 위(2026-11-01)
+    # 2026-11-09 이모지 끔(기본): 🚨 없이 첫 줄이 119 전화 문장.
+    assert not out["reply"].startswith("🚨") and "119" in out["reply"].split("\n")[0] and "전화" in out["reply"].split("\n")[0] and "많이 놀라셨겠어요." in out["reply"]  # 🚨 119 줄이 맨 위(2026-11-01)
     assert "가족도 24시간" in out["reply"] and "119" in out["reply"]
     assert out["emergencyWarning"] and any("109" in w for w in out["emergencyWarning"])
 

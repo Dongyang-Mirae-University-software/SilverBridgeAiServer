@@ -191,6 +191,9 @@ class Settings(BaseModel):
     # 응급 턴은 줄을 오래 서지 않는다 - 넘기면 바로 119 안내 고정 문구로 답한다.
     medgemma_gen_wait_timeout_emergency_sec: int = _as_int_in_range("MEDGEMMA_GEN_WAIT_TIMEOUT_EMERGENCY_SEC", 3, 1, 30)
     chat_history_keep_turns: int = _as_int("CHAT_HISTORY_KEEP_TURNS", 8)
+    # 답 줄 머리 이모지(2026-11-01 가독성). 2026-11-09 기본 끔 - 어르신 화면에서 문장만 보이게(응급 🚨도 끈다, 핵심 줄은 119 전화 문장).
+    # 판정은 원래 이모지 없는 문장 기준이라 이 값과 무관하다. 다시 켜려면 CHAT_LAYOUT_EMOJI=true.
+    chat_layout_emoji: bool = _as_bool("CHAT_LAYOUT_EMOJI", False)
     # 라우터 실패 누적 알림(2026-11-08): 창(초) 안에서 실패가 기준 횟수에 닿으면 ERROR 한 번(창마다 1회).
     # 크레딧 소진·API 장애처럼 실패가 이어지는 상황을 사람이 알게 한다. 코드 기본값으로 동작(.env 불필요).
     chat_router_failure_alert_window_sec: int = _as_int_in_range("CHAT_ROUTER_FAILURE_ALERT_WINDOW_SEC", 600, 60, 86400)

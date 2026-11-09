@@ -204,9 +204,10 @@ def _fixed_texts() -> dict[str, str]:
     for name, value in vars(mls).items():
         if re.fullmatch(r"_[A-Z0-9_]+", name) and isinstance(value, str) and re.search(r"[가-힣]", value):
             texts[name] = value.format(department="내과") if "{department}" in value else value
-    for name in ("_FOLLOWUP_QUESTIONS", "_FOLLOWUP_QUESTIONS_PROXY"):
-        for i, value in enumerate(getattr(mls, name)):
-            texts[f"{name}[{i}]"] = value
+    # 단계 되묻기 질문(2026-11-09). 결과 답의 위험 신호 기준·오늘 진료 문장은 생성 후처리 뒤에 붙어 빼기 규칙을 지나지 않는다.
+    from app.services import followup_steps
+    for i, q in enumerate(followup_steps.all_questions()):
+        texts[f"followup_steps.q[{i}]"], texts[f"followup_steps.q[{i}].proxy"] = q.text, q.proxy
     for table in ("_DRUG_ALCOHOL_RULES", "_DRUG_DIRECT_RULES", "_LIFESTYLE_RULES", "_SYMPTOM_RULES", "_EMERGENCY_ACTIONS"):
         for rule in getattr(mls, table):
             texts[f"{table}.{rule.name}"] = rule.sentence

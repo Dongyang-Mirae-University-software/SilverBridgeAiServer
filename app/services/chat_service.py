@@ -20,7 +20,7 @@ from app.services.reservation_credential_service import (
     get_reservation_credential_service, recently_proxy_purged, recently_purged)
 from app.services.chat_deadline import ChatDeadlineExceeded, chat_deadline, tighter_deadline
 from app.services.chat_router_service import ROUTER_RESERVE_SEC, get_chat_router_service
-from app.services import follow_up_questions, followup_answer_chips
+from app.services import follow_up_questions, followup_answer_chips, followup_steps
 from app.services.claude_structured_client import failure_cause
 from app.services.router_failure_monitor import failure_kind, get_router_failure_monitor
 from app.services import chat_keywords, chat_layout
@@ -216,6 +216,11 @@ class ChatService:
         after_emergency = self._previous_turn_was_emergency(latest_log, session_id, ward_id)
         # 직전 턴이 같은 상담(세션·피보호자)의 되묻기였는가(C-1) - 이번 턴은 되묻지 않고 앞 질문과 이어 답한다.
         after_followup = self._previous_turn_was_followup(latest_log, session_id, ward_id)
+        # 단계 되묻기(2026-11-09)의 진행 상태 - 서버가 쓴 직전 기록에서만 읽는다(요청 값은 보지 않는다). 옛 되묻기 기록이면 None.
+        step_state = self._previous_followup_step(latest_log, session_id, ward_id) if after_followup else None
+        step: tuple[str, Any] | None = None
+        # 단계 되묻기를 마치고 MedGemma 를 부르는 턴이면 (이어 붙인 문장, 위험 신호 질문에 답했는가, 대리 여부).
+        step_generate: tuple[str, bool, bool] | None = None
         payload = payload.model_copy(update={"history": [ChatHistoryItem(**item) for item in history]})
         log_message = message
         # 위기 응답 직후 첫 일반 턴이면 답 앞에 109 안내 한 줄을 붙인다(한 번만 - 이 턴 기록엔 selfHarm이 없다).
@@ -435,6 +440,11 @@ class ChatService:
                         "decisionTrace": [{"event": "reservation_credential_unavailable" if credential_unavailable
                                            else "reservation_disabled" if reservation_disabled else "reservation_flow_fallback"}],
                     }
+            elif (step := self._followup_step_outcome(
+                step_state, route_info, message, ui_selection, crisis_followup, after_emergency, history
+            )) is not None and step[0] == "reply":
+                # 단계 되묻기 다음 질문·다시 묻기·위험 신호 "네" 끝맺음(규칙 답, MedGemma 를 부르지 않는다).
+                result = step[1]
             elif self._is_off_topic_turn(route_info, message, ui_selection, crisis_followup, after_emergency, after_followup):
                 # 의료·예약과 무관한 질문(2026-11-08) - 생성 결과마다 답이 달라지지 않게 고정 안내(MedGemma 를 부르지 않는다).
                 _LOG.info("[CHAT-QUALITY] off_topic=true engine=%s", route_info.get("engine"))
@@ -454,7 +464,11 @@ class ChatService:
                     else:
                         llm_intent = "general_chat"
                     processed_symptom = route_info.get("symptom_summary") if route_info["route"] == "symptom" else None
-                    followup_answer = self._followup_answer_text(route_info, message, history, after_followup)
+                    if step is not None and step[0] == "generate":
+                        step_generate = step[1]
+                    followup_answer = (
+                        step_generate[0] if step_generate else self._followup_answer_text(route_info, message, history, after_followup)
+                    )
                     if followup_answer:
                         # 되묻기에 답한 턴: 짧은 답("어제부터요")만으로는 증상을 모르니 앞 질문과 이어서 상담한다.
                         _LOG.info("[CHAT-QUALITY] followup_answered=true route=%s", route_info["route"])
@@ -468,9 +482,10 @@ class ChatService:
                         history,
                         intent=llm_intent,
                         processed_symptom=processed_symptom,
-                        proxy=self._is_proxy(payload, proxy_text),
+                        proxy=(step_generate[2] if step_generate else False) or self._is_proxy(payload, proxy_text),
                         # WARD 일 때만 넘긴다 - 보호자·role 없음 호출은 이전과 글자 그대로(인자 모양도 같다).
-                        **({"concise": True} if ward_reader else {}),
+                        # 단계 되묻기 결과 턴은 보호자 경로도 짧게(2026-11-09 사용자 결정 - 모델 3문장·120자).
+                        **({"concise": True} if ward_reader or step_generate else {}),
                         **self._router_hints(route_info),
                     )
                     timing["llmMs"] = _elapsed_ms(llm_started)
@@ -478,8 +493,9 @@ class ChatService:
                     timing["llmMs"] = _elapsed_ms(llm_started)
                     # 옛 챗 서버로 넘기던 폴백은 없앴다(2026-10-22) - 고정 문구로 끝낸다. 로그는 예외 클래스명만(상담 내용 금지).
                     _LOG.warning("[CHAT-LLM-FAILED] %s", type(exc).__name__)
+                    # 단계 되묻기 결과 턴은 이어 붙인 문장으로("네"만으로는 증상을 모른다).
                     result = _mark_generation_failed(self._fallback_reply(
-                        message, history, emergency=bool(route_info.get("emergency")), history_basis=not crisis_released,
+                        step_generate[0] if step_generate else message, history, emergency=bool(route_info.get("emergency")), history_basis=not crisis_released,
                         proxy=self._is_proxy(payload, proxy_text), **self._router_hints(route_info),
                     ))
         except Exception as exc:
@@ -490,6 +506,13 @@ class ChatService:
                 message or log_message, history, emergency=after_emergency, proxy=self._is_proxy(payload, message or log_message)
             ))
             route_info = {}
+        if step_generate and isinstance(result.get("reply"), str) and isinstance(result.get("meta", {}), dict):
+            result.setdefault("meta", {})["followupResult"] = True
+            # 위험 신호 질문에 답하지 않고 설명으로 결과에 온 답 - 그 묶음의 119 기준 한 줄(이미 119 안내가 있으면 두지 않는다).
+            if not step_generate[1] and step_state is not None and "119" not in result["reply"] and result.get("riskLevel") != "high":
+                line = followup_steps.skipped_red_flag_line(step_state)
+                if line:
+                    result["reply"] = f"{result['reply']}\n{line}"
         if crisis_followup and route_info and isinstance(result.get("reply"), str):
             result["reply"] = f"{_CRISIS_FOLLOWUP}\n{result['reply']}"
             result.setdefault("meta", {})
@@ -529,7 +552,9 @@ class ChatService:
             )
         # 답 모양(2026-11-01 가독성): 모든 판정·고정 문장·이어서 물어볼 질문이 끝난 뒤 모양만 바꾼다(문장 뜻·판정 값 그대로).
         # 피보호자 본인(WARD)이면 같은 자리에서 모델 문장만 줄인다 - 119·109·고정 문장·과 안내 핵심 줄·되묻기는 그대로.
-        chat_layout.apply(result, DRUG_ALCOHOL_SENTENCES, concise=ward_reader)
+        chat_layout.apply(
+            result, DRUG_ALCOHOL_SENTENCES, concise=ward_reader or bool(step_generate), emoji=bool(getattr(self._settings, "chat_layout_emoji", False))
+        )
         post_started = time.perf_counter()
         if route_info:
             result.setdefault("meta", {})
@@ -700,6 +725,61 @@ class ChatService:
             return False
         meta = ctx.get("upstreamMeta") if isinstance(ctx.get("upstreamMeta"), dict) else {}
         return bool(meta.get("followupAsked"))
+
+    @staticmethod
+    def _previous_followup_step(latest: ChatLog | None, session_id: str, ward_id: str) -> dict | None:
+        """직전 기록(같은 세션·피보호자의 되묻기)의 단계 상태. 옛 되묻기·손상 값이면 None(옛 한 번 되묻기 흐름)."""
+        if latest is None:
+            return None
+        try:
+            ctx = json.loads(latest.context_json or "{}")
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(ctx, dict) or ctx.get("sessionId") != session_id or ChatService._row_ward_id(ctx) != ward_id:
+            return None
+        meta = ctx.get("upstreamMeta") if isinstance(ctx.get("upstreamMeta"), dict) else {}
+        return followup_steps.valid_state(meta.get("followupStep")) if meta.get("followupAsked") else None
+
+    @staticmethod
+    def _followup_step_outcome(
+        state: dict | None, route_info: dict, message: str, ui_selection: dict | None, crisis_followup: bool,
+        after_emergency: bool, history: list[dict[str, str]],
+    ) -> tuple[str, Any] | None:
+        """단계 되묻기 다음 턴의 처리. None 이면 단계 흐름을 쓰지 않는다(지금 규칙 그대로).
+        ("reply", 결과) - 다음 질문·다시 묻기·위험 신호 "네" 끝맺음 / ("generate", (이어 붙인 문장, 위험 신호에 답했나, 대리)) - MedGemma.
+        응급·자해·위기·예약·버튼(UI) 턴, 인사·종료 말은 None - 판정 순서(응급 → 자해 → 위험 신호 → 되묻기 → 상담)를 지킨다."""
+        if state is None or not message or ui_selection or crisis_followup or after_emergency:
+            return None
+        if route_info.get("emergency") or route_info.get("self_harm") or route_info.get("route") == "reservation":
+            return None
+        if _is_closing_message(message):
+            return None
+        # 증상 문장 = 이 되묻기를 시작한 사용자 발화(질문 턴 수만큼 앞). 못 찾으면 단계 흐름을 쓰지 않는다.
+        users = [h.get("content", "") for h in history or [] if h.get("role") == "user"]
+        turns = state["turns"]
+        symptom = users[-turns].strip() if 0 < turns <= len(users) else ""
+        if not symptom:
+            return None
+        verdict, phrase = followup_steps.interpret(state, message)
+        index = state["index"]
+        _LOG.info("[CHAT-QUALITY] followup_step=%s verdict=%s group=%s", index + 1, verdict, state["group"])
+        if verdict == "yes" and index == 0:
+            if followup_steps.red_flag_action(state) == "119":
+                _LOG.info("[CHAT-SAFETY] followup_red_flag=119 group=%s", state["group"])
+                return "reply", MedicalLlmService.followup_red_flag_emergency(symptom, state["proxy"])
+            return "reply", MedicalLlmService.followup_visit_today(state)
+        if verdict == "unclear" and not state["retried"]:
+            return "reply", MedicalLlmService.followup_step_response({**state, "retried": True, "turns": turns + 1})
+        answers = [*state["answers"], phrase or ""]
+        # 위험 신호 질문에 짧고 분명한 "아니요"로 답했을 때만 답한 것으로 본다 - 긴 설명이면 결과에 그 묶음의 119 기준 한 줄.
+        answered_red_flag = index > 0 or verdict == "no"
+        if verdict == "describe" or index + 1 >= followup_steps.MAX_QUESTIONS:
+            extra = message if verdict == "describe" else None
+            text = followup_steps.generation_text(symptom, answers if verdict != "describe" else state["answers"], extra)
+            return "generate", (text, answered_red_flag, state["proxy"])
+        return "reply", MedicalLlmService.followup_step_response(
+            {**state, "index": index + 1, "answers": answers, "retried": False, "turns": turns + 1}
+        )
 
     @staticmethod
     def _should_ask_followup(
