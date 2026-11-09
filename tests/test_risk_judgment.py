@@ -1,4 +1,4 @@
-"""위험 판정: '있' 확률이 0.99 이상이면 위험. 계산이 안 되면 신호 추출의 riskFlag 를 쓴다."""
+"""위험 판정: '있' 확률이 기준(0.5) 이상이면 위험. 계산이 안 되면 신호 추출의 riskFlag 를 쓴다."""
 
 import json
 
@@ -43,11 +43,11 @@ def _run(llm, transcript="이렇게 오래 살아서 뭐 하냐"):
                              question="오늘 하루는 어떠세요?", prev_signals=None, is_last_turn=False, turn_no=1)
 
 
-def test_threshold_is_point_nine_nine():
-    assert RISK_THRESHOLD == 0.99
-    assert is_risk(0.995) is True
-    assert is_risk(0.99) is True
-    assert is_risk(0.989) is False
+def test_threshold_is_point_five_after_recalibration():
+    assert RISK_THRESHOLD == 0.5
+    assert is_risk(0.5) is True
+    assert is_risk(0.95) is True
+    assert is_risk(0.49) is False
     assert is_risk(None) is False
 
 
@@ -57,7 +57,7 @@ def test_high_probability_marks_risk():
 
 
 def test_low_probability_does_not_mark_risk():
-    result = _run(ProbLlm(0.5))
+    result = _run(ProbLlm(0.3))
     assert result["riskFlag"] is False
 
 
