@@ -1,6 +1,10 @@
 """대화 자동 정리: 마지막 활동 뒤 제한 시간이 지난 대화만 메모리에서 지운다."""
 
-from app.services.companion.dialogue_store import DialogueStore
+from app.services.companion.dialogue_store import IDLE_LIMIT_SEC, DialogueStore
+
+
+def test_default_idle_limit_matches_be_ten_minutes():
+    assert IDLE_LIMIT_SEC == 10 * 60  # BE 자동 종료 기준(10분)과 맞춘다
 
 
 def _make(store: DialogueStore, ward: str = "w"):

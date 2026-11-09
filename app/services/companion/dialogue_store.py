@@ -49,8 +49,8 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# 마지막 활동 뒤 이 시간(초)이 지나면 대화를 메모리에서 지운다 (30분). 끝난 대화도 같이 지운다.
-IDLE_LIMIT_SEC = 30 * 60
+# 마지막 활동 뒤 이 시간(초)이 지나면 대화를 메모리에서 지운다 (10분, BE 기준에 맞춤). 끝난 대화도 같이 지운다.
+IDLE_LIMIT_SEC = 10 * 60
 
 
 class DialogueStore:
