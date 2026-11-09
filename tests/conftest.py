@@ -6,7 +6,11 @@ import tempfile
 # app.core.config 는 임포트 시점에 기본값을 굳히고, app.database.session 은 임포트 시점에 엔진을 만든다.
 # 어떤 테스트가 먼저 임포트하든 psycopg2·실 DB 없이 돌도록 수집 전에 정해 둔다(이미 설정돼 있으면 존중).
 # 인메모리 sqlite 는 스레드마다 DB 가 달라 TestClient(별도 스레드)에서 테이블이 안 보인다 → 임시 파일.
-os.environ.setdefault("DATABASE_URL", f"sqlite:///{tempfile.mkdtemp(prefix='sb_ai_test_')}/test.db")
+_TEST_DB_DIR = tempfile.mkdtemp(prefix="sb_ai_test_")
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TEST_DB_DIR}/test.db")
+# 말벗 검수 DB 기본값은 ./data/companion_review.db 다. 그대로 두면 data/ 가 없는 사본에서는 열리지 않고,
+# gosky 체크아웃에서는 data/ 가 운영 컨테이너 /app/data 라 테스트 행이 운영 검수 DB 에 쌓인다 → 같은 임시 폴더로.
+os.environ.setdefault("COMPANION_REVIEW_DATABASE_URL", f"sqlite:///{_TEST_DB_DIR}/companion_review.db")
 os.environ.setdefault("STREAM_STATE_BACKEND", "memory")
 
 
