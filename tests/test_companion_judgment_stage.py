@@ -94,6 +94,7 @@ def test_gate_runs_same_adapter_together_and_waits_for_others():
         with gate.use(None, log.append):
             inside.wait()  # 둘 다 동시에 안에 있어야 통과한다
             time.sleep(0.05)
+            log.append("same-done")
 
     def other(started):
         started.wait()
@@ -106,7 +107,8 @@ def test_gate_runs_same_adapter_together_and_waits_for_others():
     t1.start(); t2.start(); time.sleep(0.01); started.set(); t3.start()  # noqa: E702
     for t in (t1, t2, t3):
         t.join(3)
-    assert log == ["reply", ("reply-running", "reply")]
+    # 다른 어댑터는 진행 중인 두 호출이 끝난 뒤에야 바꾼다
+    assert log == ["same-done", "same-done", "reply", ("reply-running", "reply")]
 
 
 class _FakeBase:
