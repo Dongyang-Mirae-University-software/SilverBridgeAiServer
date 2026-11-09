@@ -169,6 +169,10 @@ Written for: 팀원 전체 (BE·FE·관리자 화면·AI 담당). 노션 요구�
 | `COMPANION_VAD` | silero | 말소리 감지: silero(말소리 합계 `COMPANION_VAD_MIN_SPEECH_SEC`=0.3초 이상) · rms(재희: 소리 크기 0.01) |
 | `COMPANION_STT_COLLAPSE_REPEATS` | true | turbo 결과에서 같은 1~4어절이 3번 이상 연달아 나오면 1번만 |
 | `COMPANION_CONFIRM_MODE` | logprob | 되묻기: logprob(turbo 토큰 평균 로그확률 < `COMPANION_CONFIRM_LOGPROB`=-0.3) · lexicon(재희 형태소·어휘 규칙). 확률이 없는 턴은 lexicon |
+| `COMPANION_CONFIRM_STREAK_LIMIT` | 3 | 확신도가 낮아 되묻는 턴(위험 아님)이 이 횟수만큼 연달아 나오면 마무리 문장으로 답하고 `NO_RESPONSE`로 끝냄. 0이면 끝내지 않음 |
+| `COMPANION_KEEP_FIXED_REPLIES` | true | 되묻는 문장·안전 안내 문장은 같은 대화에서 반복돼도 다른 문장으로 바꾸지 않음. false면 재희 동작 |
+| `COMPANION_TURBO_MAX_NEW_TOKENS` | 224 | turbo 30초 조각 하나의 최대 토큰 수(한국어 음절당 약 0.83토큰) |
+| `COMPANION_TURBO_RETRY_SEC` | 60 | turbo 로드 실패 뒤 다시 시도할 때까지 초. 0이면 재시작 전까지 안 함 |
 | `COMPANION_FRAME_INTERVAL_SEC` | 2.0 | 표정 프레임 간격 (결정 D5) |
 | `COMPANION_FRAME_MAX` | 5 | 한 대답의 최대 프레임 수 |
 | `COMPANION_REPLY_MAX_CHARS` | 140 | 응답 최대 글자 수 (결정 D21) |

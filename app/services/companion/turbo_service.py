@@ -19,7 +19,9 @@ from app.services.companion.audio_decode import TARGET_RATE, decode_to_pcm16k
 from app.services.companion.repetition import clean_transcript
 from app.services.companion.stt_service import SttResult, SttUnavailable
 
-WINDOW_SEC = 30  # Whisper 한 번에 듣는 길이. 더 긴 음성은 30초씩 나눠 받아쓴다
+WINDOW_SEC = 30  # Whisper 한 번에 듣는 길이. 더 긴 음성은 나눠 받아쓴다
+CUT_SEARCH_SEC = 5  # 나눌 때 창 끝 5초 안에서 가장 조용한 곳을 고른다 (말 중간에서 끊지 않게, 11/09 점검 M-1)
+_FRAME = 320  # 20ms
 _EMPTY_LOGPROB = -9.0  # 토큰이 하나도 없을 때 (근거 코드와 같은 값)
 
 
@@ -33,6 +35,22 @@ def mean_logprob(values: list[float]) -> float:
     return sum(values) / len(values) if values else _EMPTY_LOGPROB
 
 
+def split_points(pcm: np.ndarray) -> list[tuple[int, int]]:
+    """30초를 넘는 소리를 30초 이하 조각으로 나눈다. 각 조각의 끝은 마지막 5초 안에서 소리가 가장 작은 20ms 지점이다."""
+    window, search = WINDOW_SEC * TARGET_RATE, CUT_SEARCH_SEC * TARGET_RATE
+    out: list[tuple[int, int]] = []
+    start = 0
+    while pcm.size - start > window:
+        lo, hi = start + window - search, start + window
+        frames = pcm[lo:hi][: (hi - lo) // _FRAME * _FRAME].reshape(-1, _FRAME)
+        quiet = int(np.argmin(np.mean(np.square(frames), axis=1)))
+        cut = lo + quiet * _FRAME + _FRAME // 2
+        out.append((start, cut))
+        start = cut
+    out.append((start, pcm.size))
+    return out
+
+
 class TurboService:
     name = "whisper-large-v3-turbo"
 
@@ -41,6 +59,7 @@ class TurboService:
         self._processor = None
         self._lock = threading.Lock()  # 모델 올리기·GPU 추론을 한 번에 하나씩
         self._load_error: str | None = None
+        self._load_error_at = 0.0
 
     def model_dir(self) -> Path:
         s = get_settings()
@@ -50,13 +69,18 @@ class TurboService:
         if self._model is not None:
             return self._model, self._processor
         if self._load_error is not None:
-            raise SttUnavailable(self._load_error)
+            retry = get_settings().companion_turbo_retry_sec
+            # 일시적인 오류(GPU 메모리 부족 등)가 재시작 전까지 503으로 굳지 않게, 일정 시간이 지나면 다시 올려 본다 (11/09 점검 L-3)
+            if not retry or time.monotonic() - self._load_error_at < retry:
+                raise SttUnavailable(self._load_error)
+            self._load_error = None
         with self._lock:
             if self._model is not None:
                 return self._model, self._processor
             folder = self.model_dir()
             if not (folder / "config.json").is_file():
                 self._load_error = "받아쓰기 모델 파일이 없습니다 (whisper-large-v3-turbo)"
+                self._load_error_at = time.monotonic()
                 raise SttUnavailable(self._load_error)
             try:
                 import torch
@@ -69,6 +93,7 @@ class TurboService:
             except Exception as exc:  # noqa: BLE001 - 실패는 상태로 남겨 같은 실패를 반복하지 않는다
                 self._model = None
                 self._load_error = f"받아쓰기 모델을 불러오지 못했습니다 ({type(exc).__name__})"
+                self._load_error_at = time.monotonic()
                 raise SttUnavailable(self._load_error) from exc
             return self._model, self._processor
 
@@ -106,11 +131,10 @@ class TurboService:
         started = time.monotonic()
         if pcm.size == 0:
             return SttResult(text="", confidence=0.0, elapsed_ms=0)
-        step = WINDOW_SEC * TARGET_RATE
         texts: list[str] = []
         logprobs: list[float] = []
-        for i in range(0, pcm.size, step):
-            text, lps = self._generate(pcm[i:i + step])
+        for a, b in split_points(pcm):
+            text, lps = self._generate(pcm[a:b])
             if text:
                 texts.append(text)
             logprobs.extend(window_logprobs(lps))

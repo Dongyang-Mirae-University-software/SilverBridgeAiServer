@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -17,6 +18,18 @@ def _as_bool(name: str, default: bool) -> bool:
     if not raw:
         return default
     return raw in {"1", "true", "yes", "on"}
+
+
+def _as_choice(name: str, default: str, choices: tuple[str, ...]) -> str:
+    """선택형 설정. 앞뒤 공백·대소문자는 무시하고, 모르는 값이면 경고를 남기고 기본값을 쓴다 (값 자체는 로그에 남기지 않는다)."""
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    if raw in choices:
+        return raw
+    logging.getLogger("app.config").warning("[CONFIG] %s 값을 알 수 없어 기본값 %s 을(를) 씁니다 (허용: %s)",
+                                            name, default, "|".join(choices))
+    return default
 
 
 def _as_int(name: str, default: int) -> int:
@@ -331,22 +344,28 @@ class Settings(BaseModel):
     companion_stt_model: str = os.getenv("COMPANION_STT_MODEL", "large-v3")  # D23
     # 받아쓰기 엔진: turbo(Whisper large-v3-turbo GPU, 11/09 기본) | sensevoice(재희 버전 기본) | whisper(faster-whisper, 비교용)
     # 근거: 어르신 200문장 글자 오류 turbo 2.4% · SenseVoice 4.7% (노션 "AI 안부말벗·정서분석 모델 학습 기록")
-    companion_stt_engine: str = os.getenv("COMPANION_STT_ENGINE", "turbo")
+    companion_stt_engine: str = _as_choice("COMPANION_STT_ENGINE", "turbo", ("turbo", "sensevoice", "whisper"))
     # 챗봇 받아쓰기 API(/companion/stt) 엔진: sensevoice(기본, 지금 그대로) | turbo (2026-11-09 사용자 결정: 챗봇은 그대로 둔다)
-    companion_stt_api_engine: str = os.getenv("COMPANION_STT_API_ENGINE", "sensevoice")
+    companion_stt_api_engine: str = _as_choice("COMPANION_STT_API_ENGINE", "sensevoice", ("sensevoice", "turbo"))
     companion_sensevoice_subdir: str = os.getenv("COMPANION_SENSEVOICE_SUBDIR", "companion/stt-sensevoice")
     companion_turbo_subdir: str = os.getenv("COMPANION_TURBO_SUBDIR", "companion/stt-turbo")  # openai/whisper-large-v3-turbo 폴더
     companion_turbo_device: str = os.getenv("COMPANION_TURBO_DEVICE", "cuda")  # cuda 는 fp16, cpu 는 fp32
-    companion_turbo_max_new_tokens: int = _as_int("COMPANION_TURBO_MAX_NEW_TOKENS", 128)  # 30초 창 하나에서 만들 최대 토큰 수
+    # 30초 창 하나에서 만들 최대 토큰 수. 한국어는 음절당 약 0.83토큰이라 128이면 빠르게 긴 대답이 잘린다 (11/09 점검 M-1). 디코더 한도 448 안
+    companion_turbo_max_new_tokens: int = _as_int("COMPANION_TURBO_MAX_NEW_TOKENS", 224)
+    companion_turbo_retry_sec: float = _as_float("COMPANION_TURBO_RETRY_SEC", 60.0)  # 모델 로드 실패 뒤 다시 시도할 때까지 (0이면 재시작 전까지 안 함)
     # 받아쓰기 결과에서 같은 1~4어절이 3번 이상 연달아 나오면 1번만 남긴다 (turbo 결과에만. false 면 그대로)
     companion_stt_collapse_repeats: bool = _as_bool("COMPANION_STT_COLLAPSE_REPEATS", True)
     # 말소리 감지: silero(말소리 합계가 기준 초 이상일 때만 받아쓰기, 11/09 기본) | rms(재희: 전체 소리 크기 0.01 기준)
-    companion_vad: str = os.getenv("COMPANION_VAD", "silero")
+    companion_vad: str = _as_choice("COMPANION_VAD", "silero", ("silero", "rms"))
     companion_vad_min_speech_sec: float = _as_float("COMPANION_VAD_MIN_SPEECH_SEC", 0.3)
     # 되묻기: logprob(turbo 토큰 평균 로그확률이 기준보다 낮으면 되묻기, 11/09 기본) | lexicon(재희: 형태소·어휘 목록 규칙)
     # 확률이 없는 턴(글 대답, SenseVoice)은 logprob 모드에서도 재희 규칙을 쓴다
-    companion_confirm_mode: str = os.getenv("COMPANION_CONFIRM_MODE", "logprob")
+    companion_confirm_mode: str = _as_choice("COMPANION_CONFIRM_MODE", "logprob", ("logprob", "lexicon"))
     companion_confirm_logprob: float = _as_float("COMPANION_CONFIRM_LOGPROB", -0.3)
+    # 확신도가 낮아 되묻는 턴이 이 횟수만큼 연달아 나오면 무응답처럼 대화를 끝낸다 (TV·옆 사람 말소리, 11/09 점검 M-2). 0이면 끝내지 않는다
+    companion_confirm_streak_limit: int = _as_int("COMPANION_CONFIRM_STREAK_LIMIT", 3)
+    # 되묻는 문장·안전 안내 문장은 같은 대화에서 반복돼도 다른 문장으로 바꾸지 않는다 (11/09 점검 H-1·H-2). false 면 재희 동작
+    companion_keep_fixed_replies: bool = _as_bool("COMPANION_KEEP_FIXED_REPLIES", True)
     companion_stt_api_max_sec: float = _as_float("COMPANION_STT_API_MAX_SEC", 30.0)  # 챗봇 공유 음성 인식 API 길이 상한
     companion_stt_api_max_mb: int = _as_int("COMPANION_STT_API_MAX_MB", 10)  # 받아쓰기 API(챗봇 공유) 음성 크기 상한 (2026-11-09 결정: 10MB)
     companion_stt_api_concurrency: int = _as_int("COMPANION_STT_API_CONCURRENCY", 2)  # 동시에 돌릴 음성 인식 수

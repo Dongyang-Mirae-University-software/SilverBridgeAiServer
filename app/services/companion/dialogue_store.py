@@ -38,6 +38,7 @@ class Dialogue:
     resultSent: bool = False  # 대화 결과를 백엔드로 보냈는지 (한 번만 보낸다)
     lastSignals: dict | None = None  # 직전 턴의 7개 신호. 다음 턴 응답 프롬프트에 쓴다 (S7-1)
     noResponseStreak: int = 0  # 연속 무응답 횟수 (D15). 무응답 턴이 아니면 0으로 돌아간다
+    lowConfidenceStreak: int = 0  # 확신도가 낮아 되물은 턴의 연속 횟수 (11/09 점검 M-2). 다른 턴이면 0으로 돌아간다
     replies: list[str] = field(default_factory=list)  # 이 대화에서 AI가 낸 문장 (질문 포함). 같은 문장 반복을 막는다
 
     @property
@@ -81,7 +82,8 @@ class DialogueStore:
             return self._items.get(dialogue_id)
 
     def add_turn(self, dialogue_id: str, label: str | None, source: str, no_response_limit: int,
-                 face: str | None = None, summary: str | None = None, needs_check: bool = False) -> Dialogue | None:
+                 face: str | None = None, summary: str | None = None, needs_check: bool = False,
+                 low_confidence: bool = False, low_confidence_limit: int = 0) -> Dialogue | None:
         with self._lock:
             d = self._items.get(dialogue_id)
             if d is None or d.ended:
@@ -89,7 +91,9 @@ class DialogueStore:
             d.last_active = time.monotonic()
             d.turns.append(TurnRecord(d.turnNo + 1, label, source, face, summary, needs_check))
             d.noResponseStreak = d.noResponseStreak + 1 if source == "NO_RESPONSE" else 0
-            if d.noResponseStreak >= no_response_limit:
+            d.lowConfidenceStreak = d.lowConfidenceStreak + 1 if low_confidence else 0
+            if d.noResponseStreak >= no_response_limit or (low_confidence_limit and d.lowConfidenceStreak >= low_confidence_limit):
+                # 알아들을 수 있는 대답이 계속 없으면(TV·옆 사람 말소리 포함) 무응답 종료와 같은 이유 코드로 끝낸다
                 d.ended, d.endReason = True, "NO_RESPONSE"  # D15 (백엔드 요청 결정 D: 영문 코드)
             elif d.turnNo >= d.maxTurns:
                 d.ended, d.endReason = True, "MAX_TURNS"

@@ -161,8 +161,10 @@ def test_turbo_splits_long_audio_and_cleans(settings, monkeypatch):
         return ("네 네 네 네" if len(seen) == 1 else "밥 먹었어요"), [-0.2, -0.4, -9.0]
 
     monkeypatch.setattr(svc, "_generate", gen)
-    r = svc.transcribe_pcm(np.zeros(SR * 45, dtype=np.float32))
-    assert seen == [SR * 30, SR * 15]
+    pcm = _noise(45.0, 0.1)
+    pcm[SR * 27:SR * 27 + 800] = 0.0  # 27초 근처 조용한 틈에서 나뉜다
+    r = svc.transcribe_pcm(pcm)
+    assert len(seen) == 2 and SR * 27 <= seen[0] <= SR * 27 + 800 and sum(seen) == SR * 45
     assert r.text == "네 밥 먹었어요"
     assert r.avg_logprob == pytest.approx(-0.3)  # 창마다 끝 토큰(-9.0)을 빼고 평균
 
