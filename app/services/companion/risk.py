@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import logging
+import math
 import re
 from pathlib import Path
 
@@ -27,12 +29,40 @@ def risk_prompt_version() -> str:
     return RISK_V9_PROMPT_VERSION if get_settings().companion_risk_prompt == "v9" else RISK_PROMPT_VERSION
 
 
+logger = logging.getLogger(__name__)
+_warned: set[str] = set()
+
+
+def _warn_once(key: str, msg: str, *args) -> None:
+    if key not in _warned:
+        _warned.add(key)
+        logger.warning(msg, *args)
+
+
 def risk_threshold() -> float:
-    """설정값이 있으면 그 값, 없으면 프롬프트에 맞춘 기준 (v9 0.99 · v4 0.5)."""
+    """설정값이 있으면 그 값, 없으면 프롬프트에 맞춘 기준 (v9 0.99 · v4 0.5).
+
+    11/10 점검 M-3: 0 이하·1 이상·숫자가 아닌 값(nan·inf)은 위험 모델을 사실상 끄거나 모든 턴을 강제 알림으로 만든다.
+    그런 값은 경고 후 기본 기준을 쓴다.
+    """
     s = get_settings()
-    if s.companion_risk_threshold is not None:
-        return s.companion_risk_threshold
-    return RISK_V9_THRESHOLD if s.companion_risk_prompt == "v9" else RISK_THRESHOLD
+    default = RISK_V9_THRESHOLD if s.companion_risk_prompt == "v9" else RISK_THRESHOLD
+    t = s.companion_risk_threshold
+    if t is None:
+        return default
+    if not (math.isfinite(t) and 0 < t < 1):
+        _warn_once("threshold", "[COMPANION-RISK] COMPANION_RISK_THRESHOLD 가 0과 1 사이가 아니어서 기본 기준 %.2f 을 씁니다", default)
+        return default
+    return t
+
+
+def _finite(p) -> float | None:
+    """확률이 숫자가 아니면(NaN·무한대) 계산 못 한 것으로 본다 - 그래야 신호 추출의 riskFlag 로 넘어간다 (M-3)."""
+    try:
+        p = float(p)
+    except (TypeError, ValueError):
+        return None
+    return p if math.isfinite(p) else None
 
 
 def _risk_probability_v9(llm, transcript: str) -> float | None:
@@ -43,9 +73,10 @@ def _risk_probability_v9(llm, transcript: str) -> float | None:
         # 위험은 어댑터를 끈 기본 모델로 본다 (기분·대답 어댑터는 위험 판정에 학습되지 않았다)
         probs = probs_fn(_PROMPT_V9.read_text(encoding="utf-8"), "대답:\n" + transcript, PREFIX, CANDIDATES,
                          adapter=None, timeout=get_settings().companion_llm_timeout_sec)
-    except Exception:  # noqa: BLE001 - 위험 판정이 실패해도 대화를 막지 않는다
+    except Exception as exc:  # noqa: BLE001 - 위험 판정이 실패해도 대화를 막지 않는다
+        logger.warning("[COMPANION-RISK] model probability unavailable (%s)", type(exc).__name__)  # 원문·메시지 없이
         return None
-    return probs.get("있")
+    return _finite(probs.get("있"))
 
 
 def risk_probability(llm, transcript: str) -> float | None:
@@ -60,9 +91,10 @@ def risk_probability(llm, transcript: str) -> float | None:
     prompt = _PROMPT.read_text(encoding="utf-8").replace("{{TRANSCRIPT}}", transcript)
     try:
         probs = probs_fn(prompt, PREFIX, CANDIDATES, timeout=get_settings().companion_llm_timeout_sec)
-    except Exception:  # noqa: BLE001 - 위험 판정이 실패해도 대화를 막지 않는다
+    except Exception as exc:  # noqa: BLE001 - 위험 판정이 실패해도 대화를 막지 않는다
+        logger.warning("[COMPANION-RISK] model probability unavailable (%s)", type(exc).__name__)
         return None
-    return probs.get("있")
+    return _finite(probs.get("있"))
 
 
 def is_risk(probability: float | None) -> bool:
@@ -80,8 +112,17 @@ RISK_KEYWORDS = (
 # 11/10 kw4: '아파 죽겠어' 같은 관용 표현의 '죽겠'은 위험으로 보지 않는다 (DGX cmp/jh_kw2.py 목록 그대로)
 IDIOM = re.compile(r"(아파|아퍼|바빠|답답해|피곤해|미안해|힘들어|더워|추워|배고파|졸려|심심해|궁금해|귀찮아|가려워|짜증나|배불러|"
                    r"미치겠|좋아|웃겨|속상해|걱정돼|무서워|외로워|지겨워|서러워|저려|쑤셔|결려)(서)?\s*죽겠")
-# '자살'·'자해'는 바로 앞이 한글이면 다른 낱말이 붙어 생긴 것으로 본다 ('혼자 살다' → 혼자살다 → '자살')
+# '자살'·'자해' 앞에 붙은 한글이 다른 낱말의 끝일 때만 뺀다 (11/10 점검 H-4).
+# 예전 kw4 는 앞이 한글이면 모두 뺐는데, 띄어쓰기를 빠뜨린 "그냥자살하고싶어"·"난자살할거야"까지 놓쳤다.
+# 이제는 ① 이미 아는 '○자' 낱말(혼자 살다·여자살인·손자 살) 이거나 ② 띄어 쓴 "○자 살/해" 꼴일 때만 뺀다.
 BOUND_KEYWORDS = frozenset({"자살", "자해"})
+JA_WORDS = frozenset({"혼자", "손자", "여자", "남자", "부자", "왕자", "의자", "사자", "이자", "감자", "과자", "모자", "피자",
+                      "액자", "상자", "탁자", "제자", "효자", "박자", "숫자", "글자", "문자", "한자", "투자", "환자", "기자",
+                      "원자", "전자", "양자", "유자", "가자", "하자", "주자", "타자", "아자"})
+# kw4 에만 더하는 낱말 (재희 목록 RISK_KEYWORDS 는 그대로) - 두 규칙 모두 놓치던 말 (M-4)
+KW4_EXTRA = ("죽어버리", "죽고 시퍼", "죽고시퍼", "죽어 버리")
+# 낱말 사이에 끼어 비교를 막는 문장부호 ("자.살", "자-해") - 지우고 비교한다 (M-4)
+_PUNCT = re.compile(r"[.\-,·~!?'\"…_/]")
 
 
 def _keyword_risk_jaehee(transcript: str) -> bool:
@@ -89,13 +130,28 @@ def _keyword_risk_jaehee(transcript: str) -> bool:
     return any(k.replace(" ", "") in text for k in RISK_KEYWORDS)
 
 
+def _bound_hit(text: str, word: str) -> bool:
+    """'자살'·'자해'가 위험한 뜻으로 쓰였는지. 다른 낱말의 끝 '자'에 '살/해'가 이어진 경우만 뺀다."""
+    for m in re.finditer(word[0] + r"(\s*)" + word[1], text):
+        i = m.start()
+        prev = text[i - 1] if i > 0 else ""
+        if not re.match(r"[가-힣]", prev):
+            return True  # 앞이 한글이 아니면(문장 처음·띄어쓰기 뒤) 위험
+        if prev + "자" in JA_WORDS:
+            continue  # 혼자살다·여자살인·손자 살 쪘어
+        if m.group(1):
+            continue  # "○자 살" 처럼 띄어 쓴 꼴은 다른 낱말로 본다
+        return True  # 그냥자살·난자살·엄마자해
+    return False
+
+
 def _keyword_risk_kw4(transcript: str) -> bool:
-    text = IDIOM.sub("", transcript)
+    text = IDIOM.sub("", _PUNCT.sub("", transcript))
     flat = text.replace(" ", "")
-    for k in dict.fromkeys(RISK_KEYWORDS):
+    for k in dict.fromkeys(RISK_KEYWORDS + KW4_EXTRA):
         kk = k.replace(" ", "")
         if kk in BOUND_KEYWORDS:
-            if re.search(r"(?<![가-힣])" + r"\s*".join(kk), text):
+            if _bound_hit(text, kk):
                 return True
         elif kk in flat:
             return True

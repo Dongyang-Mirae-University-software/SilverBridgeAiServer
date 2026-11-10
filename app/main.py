@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import threading
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -105,10 +106,32 @@ async def lifespan(_: FastAPI):
     get_fall_detector().try_load()
     get_medication_ocr_service()  # 모델 설정 확인(haiku 면 기동 시 경고 후 sonnet 대체)
     get_drug_name_list()  # 약 이름 허가 목록을 한 번 메모리에 올린다(없으면 WARN 후 대조 생략)
+    _start_companion_warmup()
     yield
     if torch is not None and torch.cuda.is_available():
         torch.cuda.empty_cache()
     gc.collect()
+
+
+def _start_companion_warmup() -> None:
+    """말벗이 켜져 있으면(키 있음) EXAONE·어댑터를 백그라운드에서 미리 올린다 (11/10 점검 M-1).
+
+    올리지 않으면 재시작 뒤 첫 턴이 요청 안에서 모델을 올리고(약 22초), 그동안 위험 판정이 낱말 규칙으로만 된다.
+    서버 기동은 기다리지 않는다. 실패해도 첫 턴에서 다시 시도한다 (오류 내용은 클래스명만 남긴다).
+    """
+    if not (settings.companion_api_key and settings.companion_llm_warmup):
+        return
+
+    def run() -> None:
+        from app.services.companion.llm_client import llm_client
+
+        try:
+            llm_client.warm_up()
+            _LOG.info("[COMPANION-LLM] warm-up done")
+        except Exception as exc:  # noqa: BLE001
+            _LOG.warning("[COMPANION-LLM] warm-up failed (%s)", type(exc).__name__)
+
+    threading.Thread(target=run, name="companion-llm-warmup", daemon=True).start()
 
 
 app = FastAPI(

@@ -182,6 +182,11 @@ Written for: 팀원 전체 (BE·FE·관리자 화면·AI 담당). 노션 요구�
 | `COMPANION_RISK_KEYWORD_RULE` | kw4 | 위험 낱말 규칙: kw4('자살'·'자해' 앞이 한글이면 제외, '아파 죽겠' 같은 관용 제외) · jaehee |
 | `COMPANION_REPLY_LORA` | true | 꼬리질문 대답을 대답 LoRA(`COMPANION_REPLY_LORA_SUBDIR`=companion/llm/lora-reply-cc5)로 생성. 프롬프트·규칙 검사는 그대로, 마지막 인사는 기본 모델. 폴더가 없으면 기본 모델 |
 | `COMPANION_SUMMARY_STRIP_PREFIX` | true | 한 줄 요약 앞 "요약:"·"기록:" 머리말 지움 |
+| `COMPANION_RISK_FIRST` | true | 위험·기분 확률(각 0.1초 안팎)을 생성(신호·요약·대답)보다 먼저 계산 (11/10 점검 H-1). false 면 넷을 함께 보냄 |
+| `COMPANION_CONFIRM_RISK_MODEL` | true | 단어 확인(되묻기) 턴에서도 위험 모델을 돌리고 위험이면 안전 안내 (H-3). false 면 낱말 규칙만 |
+| `COMPANION_LLM_GEN_CONCURRENCY` | 2 | 말벗 생성 동시 실행 상한(0 = 없음). 위험·기분 확률은 상한 밖. 마감 시각을 넘긴 작업은 계산하지 않음 (H-5, GPU) |
+| `COMPANION_LLM_WARMUP` | true | 말벗 키가 있으면 서버 시작 때 EXAONE·어댑터를 백그라운드로 미리 올림 (M-1, 기동 직후 GPU 약 +2.9GB) |
+| `LIVE_DETECT_OOM_RETRY` | true | 실시간 감지가 GPU 메모리 부족이면 캐시를 비우고 그 프레임을 한 번 더 봄 (`[LIVE-DETECT-OOM]`) |
 | `COMPANION_FRAME_INTERVAL_SEC` | 2.0 | 표정 프레임 간격 (결정 D5) |
 | `COMPANION_FRAME_MAX` | 5 | 한 대답의 최대 프레임 수 |
 | `COMPANION_REPLY_MAX_CHARS` | 140 | 응답 최대 글자 수 (결정 D21) |

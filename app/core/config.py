@@ -21,11 +21,12 @@ def _as_bool(name: str, default: bool) -> bool:
 
 
 def _opt_float(name: str) -> float | None:
-    """값이 없거나 숫자가 아니면 None (쓰는 곳에서 다른 설정에 맞춰 기본값을 정한다)."""
+    """값이 없거나 숫자가 아니면 None (쓰는 곳에서 다른 설정에 맞춰 기본값을 정한다). 숫자가 아니면 경고한다 (값은 남기지 않음)."""
     raw = os.getenv(name, "").strip()
     try:
         return float(raw) if raw else None
     except ValueError:
+        logging.getLogger("app.config").warning("[CONFIG] %s 값이 숫자가 아니어서 기본값을 씁니다", name)
         return None
 
 
@@ -34,6 +35,7 @@ def _opt_int(name: str) -> int | None:
     try:
         return int(raw) if raw else None
     except ValueError:
+        logging.getLogger("app.config").warning("[CONFIG] %s 값이 정수가 아니어서 기본값을 씁니다", name)
         return None
 
 
@@ -422,6 +424,17 @@ class Settings(BaseModel):
     companion_reply_lora: bool = _as_bool("COMPANION_REPLY_LORA", True)
     # 한 줄 요약 앞의 "요약:"·"기록:" 머리말을 지운다 (false 면 재희 그대로)
     companion_summary_strip_prefix: bool = _as_bool("COMPANION_SUMMARY_STRIP_PREFIX", True)
+    # 11/10 판단 단계 점검(AI #209) 반영 - 끄면 #206 동작
+    # 위험·기분 확률(각 0.1초 안팎)을 생성(신호·요약·대답)보다 먼저 계산한다. 끄면 넷을 함께 보낸다 (H-1)
+    companion_risk_first: bool = _as_bool("COMPANION_RISK_FIRST", True)
+    # 단어 확인(되묻기) 턴에서도 위험 모델을 돌리고, 위험이면 안전 안내 문장으로 답한다 (H-3). 끄면 낱말 규칙만
+    companion_confirm_risk_model: bool = _as_bool("COMPANION_CONFIRM_RISK_MODEL", True)
+    # 말벗 생성(신호·요약·대답) 동시 실행 상한. 0이면 상한 없음. 위험·기분 확률 계산은 상한 밖 (H-5, GPU 자원)
+    companion_llm_gen_concurrency: int = _as_int("COMPANION_LLM_GEN_CONCURRENCY", 2)
+    # 말벗이 켜져 있으면(키 있음) 서버를 켤 때 EXAONE·어댑터를 백그라운드로 미리 올린다 (M-1)
+    companion_llm_warmup: bool = _as_bool("COMPANION_LLM_WARMUP", True)
+    # 실시간 감지가 GPU 메모리 부족(CUDA OOM)이면 캐시를 비우고 그 프레임을 한 번 더 본다 (GPU 자원 ⑤)
+    live_detect_oom_retry: bool = _as_bool("LIVE_DETECT_OOM_RETRY", True)
     # 한 턴 전체 상한 (백엔드 요청: 60초). 넘으면 미리 정한 문장으로 답한다
     companion_turn_cap_sec: float = _as_float("COMPANION_TURN_CAP_SEC", 60.0)
     companion_llm_num_predict: int = _as_int("COMPANION_LLM_NUM_PREDICT", 256)

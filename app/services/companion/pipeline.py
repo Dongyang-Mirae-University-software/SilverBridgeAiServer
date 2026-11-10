@@ -52,7 +52,7 @@ def analyze_turn_result(
     text_label = None
     text_usable = False
     text_probs = None
-    if text:
+    if text and len(text) >= min_text_chars():  # 최소 글자 수 미만은 어차피 쓰지 않으므로 모델을 부르지 않는다 (L-2)
         try:
             r = call_with_timeout(classify_text, s.companion_text_timeout_sec, text)
         except (TextEmotionUnavailable, TimeoutError):  # 시간 초과면 말은 빼고 표정만으로 판단 (S9-1)
@@ -109,6 +109,13 @@ def run_turn(
     return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no)
 
 
+def _risk_prob_capped(llm: LlmClient, transcript: str) -> float | None:
+    try:
+        return call_with_timeout(risk_probability, get_settings().companion_turn_cap_sec, llm, transcript)
+    except TimeoutError:
+        return None
+
+
 def _low_confidence_turn(transcript: str, llm: LlmClient) -> dict:
     """확신도가 낮아 되묻는 턴. 감정·신호·대답은 만들지 않지만 위험 판정(낱말 규칙 + 모델 확률)은 돌린다.
 
@@ -137,14 +144,20 @@ def _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_s
     check = check_transcript(transcript)
     if check.suspicious:
         # 실제 단어가 아닐 수 있는 말이 있으면 뜻을 추측하지 않는다: 감정·신호·대답을 만들지 않고 다시 확인한다
+        if get_settings().companion_confirm_risk_model:
+            # 11/10 점검 H-3: 확인 턴에서도 위험 모델을 돌리고, 위험이면 되묻는 대신 안전 안내로 답한다 (확신도 낮은 턴과 같은 규칙)
+            risk_flag = keyword_risk(transcript) or is_risk(_risk_prob_capped(llm, transcript))
+            reply_text, source = (SAFETY_REPLY, "SAFETY") if risk_flag else (confirm_reply(check), "CONFIRM")
+        else:
+            risk_flag, reply_text, source = keyword_risk(transcript), confirm_reply(check), "CONFIRM"  # 낱말 규칙만 (#206)
         return {
             "turnResult": {"label": UNDECIDED, "source": "TEXT"},
-            "reply": {"text": confirm_reply(check), "isFollowUp": True},
+            "reply": {"text": reply_text, "isFollowUp": True},
             "signals": None,
-            "replySource": "CONFIRM",
+            "replySource": source,
             "summary": None,
             "needsCheck": True,
-            "riskFlag": keyword_risk(transcript),  # 낱말 규칙은 확인 턴에도 적용한다
+            "riskFlag": risk_flag,
         }
     return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no)
 
@@ -158,12 +171,19 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
     def left() -> float:
         return max(0.05, cap - (time.monotonic() - started))
 
+    risk_first = get_settings().companion_risk_first
+    turn_result = None
+    if risk_first:
+        # 11/10 점검 H-1: 위험(0.1초)·기분(0.07초) 확률을 생성보다 먼저 끝낸다.
+        # 함께 보내면 어댑터 문에서 대답 생성 뒤에 줄을 서 시간 제한에 걸리고, 위험이 낱말 규칙으로만 판정됐다.
+        risk_prob = _risk_prob_capped(llm, transcript)
+        turn_result = analyze_turn_result(transcript, face, classify_text)
     pool = ThreadPoolExecutor(max_workers=4)
     try:
         signal_future = pool.submit(extract_signals, transcript, llm, get_settings().companion_llm_retry)
         reply_future = pool.submit(generate_reply, llm, question, transcript, prev_signals, is_last_turn, turn_no)
         summary_future = pool.submit(summarize_answer, llm, transcript)
-        risk_future = pool.submit(risk_probability, llm, transcript)
+        risk_future = None if risk_first else pool.submit(risk_probability, llm, transcript)
         try:
             signals = signal_future.result(timeout=left())
         except FutureTimeout:
@@ -176,10 +196,11 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
             summary = summary_future.result(timeout=left())
         except FutureTimeout:
             summary = None
-        try:
-            risk_prob = risk_future.result(timeout=left())
-        except FutureTimeout:
-            risk_prob = None
+        if risk_future is not None:
+            try:
+                risk_prob = risk_future.result(timeout=left())
+            except FutureTimeout:
+                risk_prob = None
     finally:
         pool.shutdown(wait=False)  # 늦게 끝나는 작업은 백그라운드에서 끝나고, 결과는 버린다
     # 위험 판정 = 낱말 규칙 또는 모델 확률 (모델이 꺼져 있어도 낱말 규칙으로 알린다)
@@ -191,7 +212,7 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
     if signals is not None:
         signals = {**signals, "riskFlag": risk_flag}
     return {
-        "turnResult": analyze_turn_result(transcript, face, classify_text),
+        "turnResult": turn_result if turn_result is not None else analyze_turn_result(transcript, face, classify_text),
         "reply": {"text": reply.text, "isFollowUp": reply.isFollowUp},
         "signals": signals,
         "replySource": reply.source,

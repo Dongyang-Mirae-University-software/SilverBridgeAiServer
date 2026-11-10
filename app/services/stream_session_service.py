@@ -33,6 +33,26 @@ _LOG = logging.getLogger(__name__)
 _analysis_clock = time.monotonic
 
 
+def _is_cuda_oom(exc: BaseException) -> bool:
+    """torch 의 GPU 메모리 부족 예외인지 (torch 가 없으면 False)."""
+    try:
+        import torch
+    except Exception:  # noqa: BLE001
+        return False
+    oom = getattr(getattr(torch, "cuda", None), "OutOfMemoryError", None)
+    return bool(oom is not None and isinstance(exc, oom))
+
+
+def _empty_cuda_cache() -> None:
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001 - 캐시 비우기 실패는 재시도를 막지 않는다
+        pass
+
+
 class StreamFrameStore:
     def __init__(self) -> None:
         self._frames: dict[str, bytes] = {}
@@ -256,7 +276,7 @@ class StreamSessionService:
         for kind, detector in self._enabled_detectors():
             started = time.perf_counter()
             try:
-                result = detector.detect_from_jpeg(frame_bytes)
+                result = self._detect_with_oom_retry(kind, detector, frame_bytes, session_id)
             except Exception:  # noqa: BLE001 - 한 종류의 오류가 다른 종류(특히 화재) 판정을 막지 않게
                 _LOG.exception("[LIVE-DETECT-FAILED] kind=%s sessionId=%s", kind, session_id)
                 result = {"detectedType": "unknown", "confidence": 0.0, "danger": False, "detections": []}
@@ -291,6 +311,21 @@ class StreamSessionService:
         except Exception:  # noqa: BLE001 - 학습용 수집이 분석 응답에 영향을 주면 안 된다
             pass
         return payload
+
+    def _detect_with_oom_retry(self, kind: str, detector: Any, frame_bytes: bytes, session_id: str) -> dict[str, Any]:
+        """GPU 메모리가 잠깐 모자라(CUDA OOM) 감지가 실패하면 캐시를 비우고 그 프레임을 한 번 더 본다.
+
+        감지(화재·낙상·칼)는 말벗·상담과 같은 GPU를 쓴다. 다른 기능이 잠깐 메모리를 많이 쓸 때 화재 프레임을 버리지 않게 한다
+        (11/10 말벗 판단 단계 점검 GPU ⑤, LIVE_DETECT_OOM_RETRY). 재시도도 실패하면 예외를 그대로 올린다.
+        """
+        try:
+            return detector.detect_from_jpeg(frame_bytes)
+        except Exception as exc:  # noqa: BLE001
+            if not (self.settings.live_detect_oom_retry and _is_cuda_oom(exc)):
+                raise
+            _LOG.warning("[LIVE-DETECT-OOM] kind=%s sessionId=%s - empty cache and retry once", kind, session_id)
+            _empty_cuda_cache()
+            return detector.detect_from_jpeg(frame_bytes)
 
     def _assess_frame_quality(self, frame_bytes: bytes) -> frame_quality.QualityVerdict | None:
         """화재 판정용 화면 품질. 꺼져 있거나 판정할 수 없으면(디코딩 실패·오류) None - 이때는 막지 않는다."""
