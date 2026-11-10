@@ -94,6 +94,25 @@ def _reject_declared_oversize(request: Request, max_bytes: int) -> None:
         raise _frame_too_large()
 
 
+def _limit_request_body(request: Request, max_bytes: int) -> None:
+    """본문을 받는 중에도 상한을 센다 - Content-Length 없이 나눠 보내는(chunked) 요청도 상한에서 끊는다(전체 점검 M-1 남은 부분).
+    폼 파싱은 표준 파서가 그대로 하고, 파서가 읽는 바이트 수만 센다."""
+    limit = max_bytes + 64 * 1024
+    received = 0
+    receive = request._receive  # noqa: SLF001 - starlette 가 본문을 읽는 통로. 감싸서 바이트 수만 센다
+
+    async def counted():
+        nonlocal received
+        message = await receive()
+        if message.get("type") == "http.request":
+            received += len(message.get("body") or b"")
+            if received > limit:
+                raise _frame_too_large()
+        return message
+
+    request._receive = counted  # noqa: SLF001
+
+
 def _check_jpeg_header(frame_bytes: bytes, max_side: int) -> None:
     """JPEG 매직 바이트(FF D8 FF)와 헤더의 해상도를 본다. 픽셀을 디코딩하지 않는다."""
     if frame_bytes[:3] != b"\xff\xd8\xff":
@@ -115,6 +134,7 @@ async def ingest_stream_frame(
     settings: Settings = Depends(get_settings),
 ) -> dict:
     _reject_declared_oversize(request, settings.stream_frame_max_bytes)
+    _limit_request_body(request, settings.stream_frame_max_bytes)
     form = await request.form()
     frame = form.get("frame")
     if not isinstance(frame, UploadFile):

@@ -103,3 +103,14 @@ def _route_status(flag: str | None) -> str:
 def test_legacy_camera_routes_off_by_default_and_on_by_flag() -> None:
     assert _route_status(None) == "0 0 1"  # 프레임 업로드 경로는 그대로
     assert _route_status("true") == "1 1 1"
+
+
+def test_purge_hold_seconds_come_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(rcs, "get_settings", lambda: SimpleNamespace(member_purge_hold_sec=10.0))
+    assert rcs._hold_sec() == 10.0
+    monkeypatch.setattr(rcs, "get_settings", lambda: SimpleNamespace(member_purge_hold_sec=-1))
+    assert rcs._hold_sec() == rcs._PURGE_HOLD_SEC  # 잘못된 값이면 기본 150초
+    monkeypatch.setattr(rcs, "get_settings", lambda: SimpleNamespace())
+    assert rcs._hold_sec() == rcs._PURGE_HOLD_SEC

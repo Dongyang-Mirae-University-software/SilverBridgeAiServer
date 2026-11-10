@@ -130,3 +130,26 @@ def test_breathing_but_unresponsive_gets_no_cpr() -> None:
 def test_fallback_how_to_question_keeps_cpr_line() -> None:
     # 라우터 실패 때 "숨 안 쉬는 사람은 어떻게…"에는 가슴압박 줄을 붙인다(안전 쪽, 2026-11-09 사용자 결정과 같은 기준).
     assert kw.fallback_arrest_signal("숨 안 쉬는 사람은 어떻게 해야 해요?")
+
+
+# ---- M-9 두 사람이 섞인 문장(2026-11-10 후속) ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("q", [
+    "아버지는 의식이 없어요. 어머니는 숨은 쉬세요",
+    "할아버지가 불러도 반응이 없어요 할머니는 말은 하세요",
+    "남편이 숨을 안 쉬어요. 아들은 옆에서 말은 해요",
+])
+def test_other_person_awake_does_not_cancel_cpr(q: str) -> None:
+    assert not kw.arrest_conscious(kw.compact(q))
+    assert _cpr(q, hint=False) and _cpr(q, hint=True)
+
+
+@pytest.mark.parametrize("q", [
+    "아버지는 의식이 없어요. 숨은 쉬세요",          # 사람이 한 번만 적힘 - 같은 사람
+    "아버지가 의식이 없는데 아버지가 숨은 쉬세요",     # 같은 사람
+    "의식이 없어요. 어머니는 숨은 쉬세요",           # 환자가 누구인지 적히지 않음 - 지금처럼 같은 사람으로 본다
+    "숨은 쉬는데 불러도 반응이 없어요",
+])
+def test_same_person_awake_still_cancels_cpr(q: str) -> None:
+    assert kw.arrest_conscious(kw.compact(q))
+    assert not _cpr(q, hint=True)
