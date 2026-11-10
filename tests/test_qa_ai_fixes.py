@@ -289,3 +289,58 @@ def test_access_log_redacts_user_ids_in_query_but_keeps_path_session() -> None:
     assert "user-77" not in out and "g-1" not in out and "w-2" not in out
     assert "userId=***&guardianId=***&wardId=***&x=1" in out
     assert "/ward_abc123" in out  # 경로의 세션 ID 는 운영 진단용
+
+# ---------------------------------------------------------------- 보안 점검 묶음 B (M-3·M-4·L-5)
+
+
+def test_ws_query_key_default_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.config import Settings
+
+    monkeypatch.delenv("WS_ALLOW_QUERY_API_KEY", raising=False)
+    assert Settings().ws_allow_query_api_key is False
+
+
+def test_api_key_compare_is_constant_time_and_safe_for_non_ascii() -> None:
+    from app.core.security import api_key_matches
+
+    assert api_key_matches("secret", "secret") is True
+    assert api_key_matches("secre", "secret") is False
+    assert api_key_matches("비밀키", "secret") is False  # 비ASCII 헤더 값에서도 예외 없이 거절
+    assert api_key_matches("secret", "") is False  # 서버 키 미설정이면 전부 거절
+    assert api_key_matches("", "") is False
+    assert api_key_matches(None, "secret") is False
+
+
+def test_non_ascii_api_key_header_gets_401_not_500(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = _ws_app(monkeypatch)
+    with TestClient(app) as client:
+        res = client.get("/api/v1/live-streams", headers={"X-API-Key": "비밀".encode("utf-8")})
+    assert res.status_code == 401
+
+
+def _docs_status_in_fresh_process(docs_enabled: str | None) -> list[int]:
+    """app.main 의 app 은 임포트 시점에 굳으므로 새 프로세스에서 환경변수를 달리해 확인한다(lifespan 은 돌리지 않는다)."""
+    import json
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "import json;from fastapi.testclient import TestClient;from app.main import app;"
+        "c=TestClient(app);print(json.dumps([c.get(p).status_code for p in "
+        "('/api/docs','/api/openapi.json','/api/redoc')]))"
+    )
+    env = {**os.environ}
+    env.pop("DOCS_ENABLED", None)
+    if docs_enabled is not None:
+        env["DOCS_ENABLED"] = docs_enabled
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=120, check=True)
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def test_docs_enabled_by_default() -> None:
+    assert _docs_status_in_fresh_process(None) == [200, 200, 200]
+
+
+def test_docs_disabled_returns_404() -> None:
+    assert _docs_status_in_fresh_process("false") == [404, 404, 404]

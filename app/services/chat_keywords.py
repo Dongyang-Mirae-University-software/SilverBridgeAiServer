@@ -151,7 +151,9 @@ _FALLBACK_SELF_HARM_CORE = (
 )
 _FALLBACK_SELF_HARM_BARE = re.compile(
     r"(나|난|저|전|내가|제가)?" + _FALLBACK_SELF_HARM_CORE
-    + r"싶(어|다|어요|네|네요|습니다|음|구먼|구만|구나|당께|다께|당|데이|어예|어유|어라)?"
+    # "싶은데요"·"싶다고요"·"싶다는 생각이 들어요"(2026-11-10 전체 점검 H-4 - 말끝만 달라도 놓쳤다). 지난 일("싶었는데")은 넣지 않는다.
+    + r"싶(어|다|어요|네|네요|습니다|음|구먼|구만|구나|당께|다께|당|데이|어예|어유|어라|은데|은데요|다고|다고요|"
+    r"다는생각(이|만|도)?(들어|들어요|듭니다|드네|드네요|나|나요|납니다))?"
 )
 _FALLBACK_SELF_HARM_FAMILY = re.compile(
     r"(엄마|아빠|어머니|아버지|어머님|아버님|할머니|할아버지|할매|할배|부모님|남편|아내|와이프|아들|딸|며느리|사위|손자|손녀|"
@@ -258,12 +260,29 @@ _ARREST_AWAKE = re.compile(
 )
 
 
+_ARREST_PAST = re.compile(r"었|았|셨|더니")
+
+
+def _recovered(c: str) -> bool:
+    """회복했다는 말이 있고, 그 뒤에 다시 반응·호흡이 없다는 말이 없는가(2026-11-10 전체 점검 H-3).
+    "잃었다가 금방 깼어요"는 회복, "깼다가 다시 의식이 없어요"·"아까 깨셨는데 지금 숨을 안 쉬어요"는 회복이 아니다."""
+    for r in _ARREST_RECOVERED.finditer(c):
+        # 뒤에 나온 말이 지난 일("지금은 멀쩡해요 숨을 안 쉬었었대요")이면 다시 나빠진 것이 아니다.
+        again = any(
+            not _ARREST_NOT_NOW.search(c[m.end():m.end() + 8]) and not _ARREST_PAST.search(c[m.end():m.end() + 6])
+            for m in _ARREST_WORDS.finditer(c, r.end())
+        )
+        if not again:
+            return True
+    return False
+
+
 class _ArrestSignal:
     """ARREST_SIGNAL.search(공백 뺀 문장) - 지금 반응·호흡이 없다는 말이 하나라도 있으면 그 매치를 준다."""
 
     def search(self, text: str):
         c = _FIGURATIVE.sub(" ", text or "")
-        if _ARREST_RECOVERED.search(c) or _ARREST_AWAKE.search(c):
+        if _recovered(c) or _ARREST_AWAKE.search(c):
             return None
         for m in _ARREST_WORDS.finditer(c):
             if not _ARREST_NOT_NOW.search(c[m.end():m.end() + 8]):
@@ -278,7 +297,7 @@ def arrest_conscious(text: str) -> bool:
     """의식이 있다는 말(추측·회복·지금 의식 있음)이 있는가 - 라우터가 심정지로 봐도 가슴압박 줄을 붙이지 않는 근거(2026-11-04).
     공백 뺀 문장을 받는다."""
     c = _FIGURATIVE.sub(" ", text or "")
-    if _ARREST_RECOVERED.search(c) or _ARREST_AWAKE.search(c):
+    if _recovered(c) or _ARREST_AWAKE.search(c):
         return True
     return any(_ARREST_NOT_NOW.search(c[m.end():m.end() + 8]) for m in _ARREST_WORDS.finditer(c))
 
