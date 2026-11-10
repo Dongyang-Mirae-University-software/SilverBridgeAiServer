@@ -10,6 +10,8 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
+from app.services import reservation_key_cipher
 from app.services.chat_deadline import chat_deadline
 from app.services.reservation_api_client import ReservationApiClient
 from app.models.reservation_credential import ReservationCredential
@@ -82,6 +84,7 @@ class ReservationCredentialService:
         prefix = self._extract_prefix(api_key)
         if not prefix:
             raise ValueError("유효한 reservation API key 형식이 아닙니다.")
+        sealed = reservation_key_cipher.seal(api_key, self._secret())  # 비밀값이 없으면 ValueError - 평문으로 저장하지 않는다
 
         current = db.query(ReservationCredential).filter(ReservationCredential.user_id == user_id).first()
         if current is None:
@@ -89,13 +92,13 @@ class ReservationCredentialService:
                 user_id=user_id,
                 reservation_email=(reservation_email or "").strip() or None,
                 api_key_prefix=prefix,
-                api_key=api_key.strip(),
+                api_key=sealed,
             )
             db.add(current)
         else:
             current.reservation_email = (reservation_email or "").strip() or None
             current.api_key_prefix = prefix
-            current.api_key = api_key.strip()
+            current.api_key = sealed
 
         db.commit()
         db.refresh(current)
@@ -165,7 +168,11 @@ class ReservationCredentialService:
         current = db.query(ReservationCredential).filter(ReservationCredential.user_id == user_id).first()
         if not current:
             return None
-        return current.api_key.strip() or None
+        return reservation_key_cipher.unseal(current.api_key, self._secret())
+
+    @staticmethod
+    def _secret() -> str:
+        return get_settings().reservation_account_secret
 
     def has_credential(self, db: Session, user_id: str) -> bool:
         return self.get_api_key(db, user_id) is not None
@@ -202,8 +209,13 @@ class ReservationCredentialService:
         email, password = self.account_for(user_id, client._settings.reservation_account_secret)
         current = db.query(ReservationCredential).filter(ReservationCredential.user_id == user_id).first()
         # 저장된 키가 다른 계정(공용 계정) 것이면 버리고 다시 발급한다.
-        if current and current.reservation_email == email and client.has_valid_reservation_key(current.api_key):
-            return current.api_key.strip()
+        secret = client._settings.reservation_account_secret
+        stored_key = reservation_key_cipher.unseal(current.api_key, secret) if current else None
+        if current and current.reservation_email == email and client.has_valid_reservation_key(stored_key):
+            if not reservation_key_cipher.is_sealed(current.api_key):  # 옛 평문 행 - 쓰는 김에 암호화해 둔다
+                current.api_key = reservation_key_cipher.seal(stored_key, secret)
+                db.commit()
+            return stored_key
 
         login_result = client.login_account(email, password)
         login_status = int(login_result.get("httpStatus") or 0)
@@ -235,17 +247,17 @@ class ReservationCredentialService:
                 user_id=user_id,
                 reservation_email=email,
                 api_key_prefix=self._extract_prefix(raw_api_key),
-                api_key=raw_api_key,
+                api_key=reservation_key_cipher.seal(raw_api_key, secret),
             )
             db.add(current)
         else:
             current.reservation_email = email
             current.api_key_prefix = self._extract_prefix(raw_api_key)
-            current.api_key = raw_api_key
+            current.api_key = reservation_key_cipher.seal(raw_api_key, secret)
         db.commit()
         db.refresh(current)
         self._revoke_stale_keys(client, access_token, f"AI-{user_id}", current.api_key_prefix)
-        return current.api_key.strip()
+        return raw_api_key
 
     @staticmethod
     def _revoke_stale_keys(client: ReservationApiClient, access_token: str, name: str, keep_prefix: str) -> None:

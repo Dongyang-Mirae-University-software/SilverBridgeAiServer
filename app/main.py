@@ -16,7 +16,7 @@ from app.core.companion_errors import register_companion_error_handler
 from app.core.response import error_response
 from app.core.security import require_api_key
 from app.database.base import Base
-from app.database.schema_upgrades import ensure_indexes, upgrade_member_id_columns
+from app.database.schema_upgrades import encrypt_plain_reservation_keys, ensure_indexes, upgrade_member_id_columns
 from app.database.session import engine
 from app.routers.analysis_router import router as analysis_router
 from app.routers.camera_router import router as camera_router
@@ -84,6 +84,12 @@ async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     upgrade_member_id_columns(engine)
     ensure_indexes(engine)
+    try:
+        sealed_rows = encrypt_plain_reservation_keys(engine, settings.reservation_account_secret)
+        if sealed_rows:
+            logging.getLogger(__name__).info("[예약계정] 평문 예약 키 %d건을 암호화했습니다", sealed_rows)
+    except Exception as exc:  # noqa: BLE001 - 예약 키 정리 실패로 감지·상담 기동을 막지 않는다(다음 기동·다음 사용 때 다시 한다)
+        logging.getLogger(__name__).error("[예약계정] 평문 예약 키 암호화 실패 type=%s", type(exc).__name__)
     for path in (
         settings.model_base_path,
         settings.upload_base_path,
@@ -164,8 +170,11 @@ async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse
 
 app.include_router(health_router)
 app.include_router(model_router, dependencies=[Depends(require_api_key)])
-app.include_router(camera_router, dependencies=[Depends(require_api_key)])
-app.include_router(analysis_router, dependencies=[Depends(require_api_key)])
+# 옛 카메라 등록·주소 접속 분석 경로(2026-11-10 전체 점검 M-8): 지금 감지는 프레임 업로드(stream-sessions)로 하고 이 경로를 부르는
+# 곳이 없다. 요청이 준 주소로 서버가 접속하는 경로라 기본은 등록하지 않는다(LEGACY_CAMERA_API_ENABLED=true 일 때만).
+if settings.legacy_camera_api_enabled:
+    app.include_router(camera_router, dependencies=[Depends(require_api_key)])
+    app.include_router(analysis_router, dependencies=[Depends(require_api_key)])
 app.include_router(chat_router, dependencies=[Depends(require_api_key)])
 app.include_router(game_router)  # 키 요구는 game_router 가 경로별로 붙인다
 app.include_router(live_stream_router, dependencies=[Depends(require_api_key)])

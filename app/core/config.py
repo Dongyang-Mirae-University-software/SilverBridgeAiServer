@@ -256,6 +256,8 @@ class Settings(BaseModel):
 
     # 문서 경로(/api/docs·/api/openapi.json·/api/redoc) 노출. false 면 세 경로가 404.
     docs_enabled: bool = _as_bool("DOCS_ENABLED", True)
+    # 옛 카메라 등록·주소 접속 분석 API(/api/v1/cameras·/api/v1/analysis). 쓰는 곳이 없어 기본은 끈다(전체 점검 M-8)
+    legacy_camera_api_enabled: bool = _as_bool("LEGACY_CAMERA_API_ENABLED", False)
     docs_path: str = os.getenv("DOCS_PATH", "/api/docs")
     openapi_path: str = os.getenv("OPENAPI_PATH", "/api/openapi.json")
     redoc_path: str = os.getenv("REDOC_PATH", "/api/redoc")
