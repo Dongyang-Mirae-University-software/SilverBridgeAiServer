@@ -258,6 +258,8 @@ class Settings(BaseModel):
     openapi_path: str = os.getenv("OPENAPI_PATH", "/api/openapi.json")
     redoc_path: str = os.getenv("REDOC_PATH", "/api/redoc")
 
+    stream_frame_max_bytes: int = _as_int("STREAM_FRAME_MAX_BYTES", 4 * 1024 * 1024)  # 프레임 업로드 바이트 상한 (초과 413 STREAM_FRAME_TOO_LARGE)
+    stream_frame_max_side: int = _as_int("STREAM_FRAME_MAX_SIDE", 4096)  # 프레임 한 변 픽셀 상한 (JPEG 헤더로 검사)
     stream_sample_every_n_frames: int = _as_int("STREAM_SAMPLE_EVERY_N_FRAMES", 15)
     stream_fallback_interval_sec: int = _as_int("STREAM_FALLBACK_INTERVAL_SEC", 2)
     save_normal_results: bool = _as_bool("SAVE_NORMAL_RESULTS", True)

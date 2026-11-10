@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from PIL import Image, ImageOps
 
 ALLOWED_FORMATS = frozenset({"JPEG", "PNG", "WEBP"})
+# 여는 단계부터 이 형식만 디코더에 들어가게 한다(허용 밖 형식은 UnidentifiedImageError -> InvalidImageError("decode") -> 400).
+_OPEN_FORMATS = ("JPEG", "PNG", "WEBP")
 # 긴 변 상한. API가 내부에서 줄이는 상한 근처 - 1024px로 줄이면 정확도가 5~6/10으로 떨어졌다(2026-10-22 측정).
 MAX_LONG_EDGE = 1568
 # 압축 폭탄 방어. 휴대폰 사진(5000만 화소급)까지 받는다. JPEG는 줄여 읽어(draft) 디코드 메모리가 수십 MB에 그친다.
@@ -50,7 +52,7 @@ def _normalize(data: bytes) -> NormalizedImage:
         with warnings.catch_warnings():
             # Pillow는 MAX_IMAGE_PIXELS 초과를 경고로만 알리고 2배부터 오류를 낸다 - 직접 픽셀 수로 거른다.
             warnings.simplefilter("ignore", Image.DecompressionBombWarning)
-            with Image.open(io.BytesIO(data)) as probe:
+            with Image.open(io.BytesIO(data), formats=_OPEN_FORMATS) as probe:
                 fmt = probe.format
                 width, height = probe.size
             if fmt not in ALLOWED_FORMATS:
@@ -58,7 +60,7 @@ def _normalize(data: bytes) -> NormalizedImage:
             limit = MAX_PIXELS if fmt == "JPEG" else MAX_PIXELS_NON_JPEG
             if width <= 0 or height <= 0 or width * height > limit:
                 raise InvalidImageError("pixels")
-            with Image.open(io.BytesIO(data)) as img:
+            with Image.open(io.BytesIO(data), formats=_OPEN_FORMATS) as img:
                 scale = MAX_LONG_EDGE / max(width, height)
                 if fmt == "JPEG" and scale < 1:
                     # 디코드 단계에서 1/2·1/4·1/8로 줄여 읽는다. 결과는 목표 크기 이상이라 아래 축소 화질은 같다.

@@ -158,7 +158,7 @@ class FaceService:
 
         detector, features, head = self._h3
         try:
-            im = ImageOps.exif_transpose(Image.open(io.BytesIO(raw))).convert("RGB")
+            im = ImageOps.exif_transpose(Image.open(io.BytesIO(raw), formats=("JPEG", "PNG"))).convert("RGB")
         except Exception:  # noqa: BLE001 - 이미지로 읽을 수 없는 프레임은 얼굴 없음으로 센다
             return None
         im.thumbnail((HEAD3_MAX_SIDE, HEAD3_MAX_SIDE))

@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response, StreamingResponse
+from PIL import Image
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.response import error_response, success_response
 from app.database.session import SessionLocal, get_db
 from app.schemas.clip_schema import ClipRequest
 from app.schemas.stream_session_schema import StreamSessionCreate
 from app.services.bbox_overlay import bbox_overlay
 from app.services.clip_service import ClipError, clip_service
+from app.services.companion.multipart_memory import read_file_part
 from app.services.live_ws_manager import live_ws_manager
 from app.services.stream_session_service import StreamSessionService, frame_store
 
@@ -53,25 +56,93 @@ def create_stream_session(payload: StreamSessionCreate, db: Session = Depends(ge
     )
 
 
-@router.post("/api/v1/stream-sessions/{session_id}/frame", summary="iPad 프레임 수신")
+_FRAME_OPENAPI = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "multipart/form-data": {
+                "schema": {
+                    "type": "object",
+                    "properties": {"frame": {"type": "string", "format": "binary"}},
+                    "required": ["frame"],
+                }
+            }
+        },
+    }
+}
+
+
+def _frame_too_large() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+        detail=error_response("프레임이 너무 큽니다.", "STREAM_FRAME_TOO_LARGE", None),
+    )
+
+
+def _frame_invalid_type() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=error_response("JPEG 프레임만 허용됩니다.", "STREAM_FRAME_INVALID_TYPE", None),
+    )
+
+
+async def _read_frame_body(request: Request, max_bytes: int) -> bytes:
+    """본문을 청크로 읽다가 상한을 넘으면 끝까지 읽지 않고 413. UploadFile(디스크 임시 파일)은 쓰지 않는다."""
+    limit = max_bytes + 64 * 1024  # multipart 경계·헤더 여유분
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > limit:
+        raise _frame_too_large()
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > limit:
+            raise _frame_too_large()
+    return bytes(body)
+
+
+def _check_jpeg_header(frame_bytes: bytes, max_side: int) -> None:
+    """JPEG 매직 바이트(FF D8 FF)와 헤더의 해상도를 본다. 픽셀을 디코딩하지 않는다."""
+    if frame_bytes[:3] != b"\xff\xd8\xff":
+        raise _frame_invalid_type()
+    try:
+        with Image.open(io.BytesIO(frame_bytes), formats=("JPEG",)) as probe:
+            width, height = probe.size
+    except Exception:  # noqa: BLE001 - 헤더를 읽을 수 없으면 JPEG 가 아닌 것으로 본다
+        raise _frame_invalid_type() from None
+    if width > max_side or height > max_side:
+        raise _frame_too_large()
+
+
+@router.post("/api/v1/stream-sessions/{session_id}/frame", summary="iPad 프레임 수신", openapi_extra=_FRAME_OPENAPI)
 async def ingest_stream_frame(
     session_id: str,
-    frame: UploadFile = File(...),
+    request: Request,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> dict:
-    if frame.content_type not in {"image/jpeg", "image/jpg"}:
+    body = await _read_frame_body(request, settings.stream_frame_max_bytes)
+    try:
+        part = read_file_part(request.headers.get("content-type", ""), body, "frame")
+    except ValueError:
+        part = None
+    if part is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_response("JPEG 프레임만 허용됩니다.", "STREAM_FRAME_INVALID_TYPE", None),
+            detail=error_response("프레임 데이터가 비어 있습니다.", "STREAM_FRAME_EMPTY", None),
         )
+    if part.content_type not in {"image/jpeg", "image/jpg"}:
+        raise _frame_invalid_type()
+    frame_bytes = part.data
+    if len(frame_bytes) > settings.stream_frame_max_bytes:
+        raise _frame_too_large()
     service = StreamSessionService(db, frame_store)
     session = service.require_session(session_id)
-    frame_bytes = await frame.read()
     if not frame_bytes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_response("프레임 데이터가 비어 있습니다.", "STREAM_FRAME_EMPTY", None),
         )
+    _check_jpeg_header(frame_bytes, settings.stream_frame_max_side)
     updated = service.ingest_frame(session, frame_bytes)
     latest_analysis = await service.analyze_stream_frame_async(updated.session_id, frame_bytes)
     status_payload = service.get_status_payload(updated.session_id)

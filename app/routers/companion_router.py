@@ -382,6 +382,19 @@ def _transcribe_with_slot(transcribe_pcm, pcm, wait_sec: float, timeout_sec: flo
     return call_with_timeout(work, timeout_sec)
 
 
+async def _read_limited_body(request: Request, limit: int, too_large: CompanionError) -> bytes:
+    """Content-Length 로 먼저 거절하고, 읽는 중 상한을 넘으면 끝까지 읽지 않고 중단한다(약 봉투 OCR 과 같은 방식)."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > limit:
+        raise too_large
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > limit:
+            raise too_large
+    return bytes(body)
+
+
 @router.post(
     "/stt",
     summary="음성을 글자로만 바꾼다 (챗봇 공유용). 저장·감정 분석 없음",
@@ -394,9 +407,8 @@ async def speech_to_text(request: Request, settings: Settings = Depends(get_sett
     """음성 파일 1개(audio)를 받아 글자만 돌려준다. 음성과 글자는 저장하지 않고, 로그에도 남기지 않는다."""
     started = time.monotonic()
     max_bytes = settings.companion_stt_api_max_mb * 1024 * 1024
-    body = await request.body()
-    if len(body) > max_bytes + 4096:
-        raise CompanionError(413, "AUDIO_TOO_LARGE", f"음성 파일이 {settings.companion_stt_api_max_mb}MB를 넘습니다.")
+    body = await _read_limited_body(request, max_bytes + 4096, CompanionError(
+        413, "AUDIO_TOO_LARGE", f"음성 파일이 {settings.companion_stt_api_max_mb}MB를 넘습니다."))
     try:
         part = read_file_part(request.headers.get("content-type", ""), body, "audio")
     except ValueError as exc:
