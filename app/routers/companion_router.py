@@ -366,18 +366,30 @@ stt_logger = logging.getLogger("companion.stt_api")
 _STT_UNAVAILABLE_MESSAGE = "음성 인식을 지금 사용할 수 없습니다."
 
 
-def _transcribe_with_slot(transcribe_pcm, pcm, wait_sec: float, timeout_sec: float):
-    """자리를 얻어 글자로 바꾼다. 자리가 없으면 None. 시간을 넘기면 TimeoutError.
+class _AudioTooLong(Exception):
+    def __init__(self, seconds: float) -> None:
+        super().__init__("too long")
+        self.seconds = seconds
 
-    자리는 받아쓰기가 실제로 끝날 때까지 쥔다. 시간 초과로 응답은 먼저 나가도, 돌고 있는 작업이 끝나야 자리가 풀리므로
-    동시에 도는 받아쓰기 수가 설정값을 넘지 않는다.
+
+def _transcribe_with_slot(transcribe_pcm, audio: bytes, max_sec: float, wait_sec: float, timeout_sec: float):
+    """자리를 얻어 음성을 풀고 글자로 바꾼다. (결과, 길이 초)를 돌려준다. 자리가 없으면 None. 시간을 넘기면 TimeoutError.
+
+    디코딩도 자리 안에서 한다(2026-11-10 전체 점검 M-2) - 작게 압축된 긴 음성을 여러 개 보내 메모리를 한꺼번에 쓰게 할 수 없다.
+    그래서 자리가 없을 때는 읽을 수 없는 음성·너무 긴 음성도 먼저 STT_BUSY 를 받는다(다시 보내면 원래 오류가 나온다).
+    자리는 작업이 실제로 끝날 때까지 쥔다. 시간 초과로 응답은 먼저 나가도, 돌고 있는 작업이 끝나야 자리가 풀리므로
+    동시에 도는 작업 수가 설정값을 넘지 않는다.
     """
     if not _stt_slots.acquire(timeout=wait_sec):
         return None
 
     def work():
         try:
-            return transcribe_pcm(pcm)
+            pcm = decode_to_pcm16k(audio)  # 읽을 수 없으면 ValueError
+            seconds = pcm.size / TARGET_RATE
+            if seconds > max_sec:
+                raise _AudioTooLong(seconds)
+            return transcribe_pcm(pcm), seconds
         finally:
             _stt_slots.release()
 
@@ -421,28 +433,27 @@ async def speech_to_text(request: Request, settings: Settings = Depends(get_sett
         raise CompanionError(413, "AUDIO_TOO_LARGE", f"음성 파일이 {settings.companion_stt_api_max_mb}MB를 넘습니다.")
     if detect_audio_format(part.data) is None:
         raise CompanionError(422, "AUDIO_FORMAT_UNSUPPORTED", f"{'·'.join(ALLOWED_FORMATS)} 파일만 받습니다.")
+    size_kb = len(part.data) // 1024
     try:
-        pcm = decode_to_pcm16k(part.data)
-    except ValueError as exc:
-        raise CompanionError(422, "AUDIO_UNREADABLE", "음성을 읽을 수 없습니다.") from exc
-    seconds = pcm.size / TARGET_RATE
-    if seconds > settings.companion_stt_api_max_sec:
-        raise CompanionError(413, "AUDIO_TOO_LONG", f"음성은 {int(settings.companion_stt_api_max_sec)}초 이하여야 합니다.")
-    try:
-        result = await run_in_threadpool(_transcribe_with_slot, transcribe_pcm, pcm,
-                                         settings.companion_stt_api_wait_sec, settings.companion_stt_api_timeout_sec)
+        outcome = await run_in_threadpool(_transcribe_with_slot, transcribe_pcm, part.data, settings.companion_stt_api_max_sec,
+                                          settings.companion_stt_api_wait_sec, settings.companion_stt_api_timeout_sec)
+    except _AudioTooLong as exc:
+        raise CompanionError(413, "AUDIO_TOO_LONG", f"음성은 {int(settings.companion_stt_api_max_sec)}초 이하여야 합니다.") from exc
     except TimeoutError as exc:  # 받아쓰기가 제한 시간을 넘김 → 백엔드는 503 STT_UNAVAILABLE 로 받는다
-        stt_logger.info("stt status=503 seconds=%.1f timeout", seconds)
+        stt_logger.info("stt status=503 kb=%d timeout", size_kb)
         raise CompanionError(503, "STT_UNAVAILABLE", "음성 인식 시간이 초과되었습니다.") from exc
     except SttUnavailable as exc:
-        stt_logger.info("stt status=503 seconds=%.1f error=%s", seconds, type(exc).__name__)
+        stt_logger.info("stt status=503 kb=%d error=%s", size_kb, type(exc).__name__)
         raise CompanionError(503, "STT_UNAVAILABLE", _STT_UNAVAILABLE_MESSAGE) from exc
+    except ValueError as exc:  # 디코딩 실패(decode_to_pcm16k)
+        raise CompanionError(422, "AUDIO_UNREADABLE", "음성을 읽을 수 없습니다.") from exc
     except Exception as exc:  # noqa: BLE001 - 모델 실행 중 오류도 503 (11/09 점검 L-2). 로그는 클래스명만
-        stt_logger.warning("stt status=503 seconds=%.1f error=%s", seconds, type(exc).__name__)
+        stt_logger.warning("stt status=503 kb=%d error=%s", size_kb, type(exc).__name__)
         raise CompanionError(503, "STT_UNAVAILABLE", "음성 인식에 실패했습니다.") from exc
-    if result is None:
-        stt_logger.info("stt status=503 seconds=%.1f busy", seconds)
+    if outcome is None:
+        stt_logger.info("stt status=503 kb=%d busy", size_kb)
         raise CompanionError(503, "STT_BUSY", "음성 인식이 바빠요. 잠시 뒤 다시 시도해 주세요.")
+    result, seconds = outcome
     # 로그에는 길이·처리 시간·상태만. 글자 내용은 남기지 않는다.
     stt_logger.info("stt status=200 seconds=%.1f elapsed_ms=%d", seconds, int((time.monotonic() - started) * 1000))
     return success_response("음성을 글자로 바꿨습니다.", {"text": result.text})
