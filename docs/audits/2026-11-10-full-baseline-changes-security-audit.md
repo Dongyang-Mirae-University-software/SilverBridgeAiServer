@@ -276,4 +276,15 @@
 - `routerStatus`: BE `AdminAiChatStatsService`가 이미 읽고 형식이 어긋나면 null로 처리한다 - 확인 종결.
 - L-3: Notion "DMU / 인프라 전달 내용"에 요청 페이지 작성(nginx `reservation.dmu.gosky.kr`의 `/admin/` → 6017 옛 설정 정리).
 - 전체 pytest 2680 passed · 6 skipped · 실패 0. BE `docs/audit-index.md`·`progress.md` 기록.
-- gosky 반영(22:35): health 200(20초), 재시작 횟수 0, Traceback 0건, BE의 AI WS 22:35:42 재연결, 6017 방화벽 규칙 유지. `ADMIN_API_KEY`는 gosky `.env`에 아직 없다(운영 `.env` 수정은 사용자 몫).
+- gosky 반영(22:35): health 200(20초), 재시작 횟수 0, Traceback 0건, BE의 AI WS 22:35:42 재연결, 6017 방화벽 규칙 유지. `ADMIN_API_KEY`는 22:39에 gosky `.env`에 적용됐다(사용자 실행) - 관리 경로는 공용 키 401·전용 키 200, 일반 경로는 공용 키 200·전용 키 401.
+
+### 수용으로 남겼던 항목 처리 (2026-11-10 22:45, main·gosky `fea4061`)
+
+- M-9(#222): 의식이 있다는 말 앞의 사람과 반응·호흡이 없다는 말 앞의 사람이 둘 다 적혀 있고 서로 다르면 다른 사람 이야기로 보고 가슴압박 줄을 유지한다("아버지는 의식이 없어요. 어머니는 숨은 쉬세요"). 한쪽이라도 사람이 적혀 있지 않으면 지금처럼 같은 사람으로 본다(숨을 쉬면 가슴압박 대상이 아님).
+- M-1 남은 부분(#222): 프레임 업로드 본문을 받는 중에도 바이트 수를 세어 Content-Length 없는 chunked 요청도 상한에서 413.
+- L-1 남은 부분(#222): 삭제 보류 시간을 설정 `MEMBER_PURGE_HOLD_SEC`(기본 150)로. 목록은 프로세스 메모리 그대로다(워커 1개 기준, 재시작하면 비워짐).
+- L-4 torch 2.6.0: **올리지 않았다.** cu124 휠의 마지막 판이라 올리려면 CUDA 판(cu126 이상)을 바꿔야 하고, MedGemma int8(bitsandbytes)·EXAONE LoRA·Whisper·YOLO를 GPU에서 다시 확인해야 한다. 보고된 high 1건(신뢰할 수 없는 체크포인트 로드)은 요청 경로에 없다. DGX에서 조합을 확인한 뒤 별도 작업으로 한다.
+- L-3 nginx: 자동 모드가 공용 서버 설정 변경을 막아, `reservation.dmu.gosky.kr` 파일의 `/admin` 두 블록만 지우는 스크립트를 사용자에게 넘겼다(백업·`nginx -t` 실패 시 원복 포함).
+- M-7 게임 무인증 경로: 제외 유지.
+- 전체 pytest 2690 passed · 6 skipped · 실패 0.
+- 실동작 확인(gosky, 시험 계정, BE 경유): 피보호자 상담 1턴 200(4초)·상담 기록 목록 200·받아쓰기 무음 1초 200(빈 글자)·예약 시작 200(진료과 선택지 12개)·보호자 약 봉투 인식 200. AI 로그 Traceback·`CHAT-ROUTER-FAILED` 0건, 예약 키 7행 암호화 유지, 접속 로그 `userId=***` 확인. 사용자 지시로 실제 경로를 한 번씩만 호출했다(Claude 호출 4~5회).
