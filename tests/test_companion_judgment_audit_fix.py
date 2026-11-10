@@ -323,11 +323,47 @@ def _turn(llm):
 
 
 def test_risk_survives_slow_generation_when_risk_first(settings):
-    settings(companion_llm_timeout_sec=0.25, companion_text_timeout_sec=0.25, companion_turn_cap_sec=3)
-    llm = _TurnLlm(gen_sec=0.3)  # 생성 하나가 위험 시간 제한보다 길다
+    settings(companion_llm_timeout_sec=0.5, companion_text_timeout_sec=0.5, companion_turn_cap_sec=6)
+    llm = _TurnLlm(gen_sec=0.8)  # 생성 하나가 위험 시간 제한보다 길다 (부하가 있어도 흔들리지 않게 여유를 둔다)
     r = _turn(llm)
     assert r["riskFlag"] is True and r["replySource"] == "SAFETY"
     assert r["turnResult"]["label"] == "슬픔"  # 기분도 시간 초과되지 않았다
+
+
+def test_risk_and_mood_finish_before_any_generation_starts():
+    events, lock = [], threading.Lock()
+
+    class OrderLlm(_TurnLlm):
+        def _gen(self, adapter, *, deadline):
+            with lock:
+                events.append("gen")
+            return "{}"
+
+        def message_token_probs(self, system, user, prefix, candidates, **kw):
+            with lock:
+                events.append("risk" if candidates[0] == "있" else "mood")
+            return {c: (0.999 if c in ("있", "WORRY") else 0.001) for c in candidates}
+    r = _turn(OrderLlm(gen_sec=0))
+    assert events[:2] == ["risk", "mood"] and events.count("gen") == 3 and r["riskFlag"] is True
+
+
+def test_old_order_sends_risk_with_generation(settings):
+    settings(companion_risk_first=False)
+    events, lock = [], threading.Lock()
+
+    class OrderLlm(_TurnLlm):
+        def _gen(self, adapter, *, deadline):
+            time.sleep(0.05)
+            with lock:
+                events.append("gen")
+            return "{}"
+
+        def message_token_probs(self, system, user, prefix, candidates, **kw):
+            with lock:
+                events.append("risk" if candidates[0] == "있" else "mood")
+            return {c: (0.999 if c in ("있", "WORRY") else 0.001) for c in candidates}
+    _turn(OrderLlm(gen_sec=0))
+    assert events[-1] == "mood"  # #206 동작: 기분은 생성이 끝난 뒤 (스위치를 끄면 그대로)
 
 
 # 참고: 턴 순서를 #206처럼 넷을 함께 보내면(COMPANION_RISK_FIRST=false) 대답 생성이 먼저 문에 들어간 경우
@@ -335,8 +371,8 @@ def test_risk_survives_slow_generation_when_risk_first(settings):
 
 
 def test_six_concurrent_turns_never_lose_risk(settings):
-    settings(companion_llm_timeout_sec=0.3, companion_text_timeout_sec=0.3, companion_turn_cap_sec=5)
-    llm = _TurnLlm(gen_sec=0.1)
+    settings(companion_llm_timeout_sec=1.0, companion_text_timeout_sec=1.0, companion_turn_cap_sec=10)
+    llm = _TurnLlm(gen_sec=0.15)  # 6명 x 생성 3개 = 2.7초 > 위험 제한 1초 - 줄을 서면 놓친다
     results = []
 
     def one():
