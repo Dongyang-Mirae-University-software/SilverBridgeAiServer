@@ -283,8 +283,17 @@
 - M-9(#222): 의식이 있다는 말 앞의 사람과 반응·호흡이 없다는 말 앞의 사람이 둘 다 적혀 있고 서로 다르면 다른 사람 이야기로 보고 가슴압박 줄을 유지한다("아버지는 의식이 없어요. 어머니는 숨은 쉬세요"). 한쪽이라도 사람이 적혀 있지 않으면 지금처럼 같은 사람으로 본다(숨을 쉬면 가슴압박 대상이 아님).
 - M-1 남은 부분(#222): 프레임 업로드 본문을 받는 중에도 바이트 수를 세어 Content-Length 없는 chunked 요청도 상한에서 413.
 - L-1 남은 부분(#222): 삭제 보류 시간을 설정 `MEMBER_PURGE_HOLD_SEC`(기본 150)로. 목록은 프로세스 메모리 그대로다(워커 1개 기준, 재시작하면 비워짐).
-- L-4 torch 2.6.0: **올리지 않았다.** cu124 휠의 마지막 판이라 올리려면 CUDA 판(cu126 이상)을 바꿔야 하고, MedGemma int8(bitsandbytes)·EXAONE LoRA·Whisper·YOLO를 GPU에서 다시 확인해야 한다. 보고된 high 1건(신뢰할 수 없는 체크포인트 로드)은 요청 경로에 없다. DGX에서 조합을 확인한 뒤 별도 작업으로 한다.
-- L-3 nginx: 자동 모드가 공용 서버 설정 변경을 막아, `reservation.dmu.gosky.kr` 파일의 `/admin` 두 블록만 지우는 스크립트를 사용자에게 넘겼다(백업·`nginx -t` 실패 시 원복 포함).
+- L-4 torch 2.6.0: 이 시점에는 올리지 않았다 → 같은 날 밤 올렸다(아래 "torch 2.11.0").
+- L-3 nginx: **적용됨**(2026-11-10 23시경, 사용자 실행). `reservation.dmu.gosky.kr` 파일의 `/admin` location 두 블록(24줄)만 지우고 `nginx -t` 통과 후 reload. 백업 `/etc/nginx/reservation.dmu.gosky.kr.bak-20261110`. 확인: `/admin/`은 예약 서비스가 404로 응답(AI 서버로 가지 않음), `/api/v1/hospitals` 200, `testai`·`devdmu`·`api.devdmu` 정상.
 - M-7 게임 무인증 경로: 제외 유지.
 - 전체 pytest 2690 passed · 6 skipped · 실패 0.
 - 실동작 확인(gosky, 시험 계정, BE 경유): 피보호자 상담 1턴 200(4초)·상담 기록 목록 200·받아쓰기 무음 1초 200(빈 글자)·예약 시작 200(진료과 선택지 12개)·보호자 약 봉투 인식 200. AI 로그 Traceback·`CHAT-ROUTER-FAILED` 0건, 예약 키 7행 암호화 유지, 접속 로그 `userId=***` 확인. 사용자 지시로 실제 경로를 한 번씩만 호출했다(Claude 호출 4~5회).
+
+### torch 2.11.0·cu126 (2026-11-10 23:10, main·gosky `4a6b0d2`, #224)
+
+- 바꾼 것: `Dockerfile`의 torch 2.6.0·torchvision 0.21.0·torchaudio 2.6.0(cu124) → 2.11.0·0.26.0·2.11.0(cu126). cu124 인덱스는 2.6.0이 마지막이고, torchaudio가 cu126에서 2.11.0이 마지막이라 이 조합이 일관된 상한이다. 보고된 high 1건(체크포인트 로드 RCE)은 2.10.0에서 고쳐져 해소. 2.13.0에서 고쳐지는 낮은 등급 1건과 고친 판이 없는 건은 남는다.
+- 사전 확인(운영 무접촉): 설치 dry-run 충돌 없음. 후보 이미지를 별도 태그로 빌드해 메모리 6GB 상한·네트워크 차단 일회용 컨테이너에서 확인 - CUDA 12.6 초기화(RTX 4070 SUPER, 드라이버 535.274.02)·cuDNN 합성곱·bitsandbytes 8비트/4비트 연산·ctranslate2 GPU 인식·torchvision nms·주요 라이브러리 import 통과. 모델은 올리지 않았다(GPU 11MiB).
+- 배포 후 확인: health 200(25초), 재시작 0회, Traceback 0건, 탐지기 fire·knife·fall 로드, GPU 8.3GB(평소 수준), MedGemma `loaded: true`(int8), 말벗 LoRA 어댑터 `mood,reply` 적재 로그. 실동작 - 상담 1턴 200(engine=medgemma, 생성 11.2초), 받아쓰기 200(1.8초), 프레임 3장 200 + 최근 분석 200(`loadError` 없음), BE의 AI WS 23:11 재연결.
+- 확인하지 못한 것: 말벗 음성 단계의 Whisper turbo 실제 받아쓰기(첫 사용 때 적재) - ctranslate2 GPU 인식까지만 봤다. 말벗 한 턴을 실제로 돌려 확인이 필요하다.
+- 되돌리기: #224 revert 후 재배포. 직전 운영 이미지는 gosky에 `sb-ai-rollback:20261110-torch26` 태그로 남겼다(문제없으면 지워도 된다).
+- 예약 흐름 추가 확인: 시험 피보호자로 선택지만 눌러 진료과 → 시·도 → 지역까지 진행, 병원 조회 6곳 성공(`hospital_selection_needed`). 예약 키는 재발급 없이(최근 6시간 갱신 0행) 암호화된 값을 풀어 썼다. 예약 확정은 하지 않았다.
