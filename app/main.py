@@ -138,9 +138,9 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="SilverBridge AI 서버 (모델 관리, 카메라 분석, 의료 챗 통합)",
-    docs_url=settings.docs_path,
-    openapi_url=settings.openapi_path,
-    redoc_url=settings.redoc_path,
+    docs_url=settings.docs_path if settings.docs_enabled else None,
+    openapi_url=settings.openapi_path if settings.docs_enabled else None,
+    redoc_url=settings.redoc_path if settings.docs_enabled else None,
     lifespan=lifespan,
 )
 
