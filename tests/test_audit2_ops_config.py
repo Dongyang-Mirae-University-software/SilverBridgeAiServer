@@ -34,20 +34,25 @@ def test_as_int_non_numeric_warns(monkeypatch, caplog) -> None:
     assert "X_TEST_I" in caplog.text
 
 
-def test_settings_survive_non_numeric_threshold_and_purge_hold(monkeypatch) -> None:
+def test_non_numeric_threshold_and_purge_hold_use_default(monkeypatch) -> None:
+    # Settings 기본값은 import 때 평가되므로 같은 도우미를 직접 부른다
     monkeypatch.setenv("DEFAULT_DETECTION_THRESHOLD", "abc")
     monkeypatch.setenv("MEMBER_PURGE_HOLD_SEC", "xyz")
-    s = cfg.Settings()
-    assert s.default_detection_threshold == 0.75 and s.member_purge_hold_sec == 150.0
+    assert cfg._as_float("DEFAULT_DETECTION_THRESHOLD", 0.75) == 0.75
+    assert cfg._as_float("MEMBER_PURGE_HOLD_SEC", 150.0) == 150.0
+    src = open(cfg.__file__, encoding="utf-8").read()
+    assert "float(os.getenv" not in src
 
 
 def test_claude_timeout_zero_and_stt_concurrency_zero_use_default(monkeypatch, caplog) -> None:
     monkeypatch.setenv("CLAUDE_TIMEOUT_SEC", "0")
     monkeypatch.setenv("COMPANION_STT_API_CONCURRENCY", "0")
     with caplog.at_level(logging.WARNING, logger="app.config"):
-        s = cfg.Settings()
-    assert s.claude_timeout_sec == 60 and s.companion_stt_api_concurrency == 2
+        assert cfg._as_int_min("CLAUDE_TIMEOUT_SEC", 60, 1) == 60
+        assert cfg._as_int_min("COMPANION_STT_API_CONCURRENCY", 2, 1) == 2
     assert "CLAUDE_TIMEOUT_SEC" in caplog.text and "COMPANION_STT_API_CONCURRENCY" in caplog.text
+    src = open(cfg.__file__, encoding="utf-8").read()
+    assert '_as_int_min("CLAUDE_TIMEOUT_SEC"' in src and '_as_int_min("COMPANION_STT_API_CONCURRENCY"' in src
 
 
 def test_new_settings_defaults() -> None:
