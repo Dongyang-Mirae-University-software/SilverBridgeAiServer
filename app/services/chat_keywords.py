@@ -263,6 +263,35 @@ _ARREST_AWAKE = re.compile(
 _ARREST_PAST = re.compile(r"었|았|셨|더니")
 
 
+# 두 사람이 섞인 문장(2026-11-10 전체 점검 M-9): "아버지는 의식이 없어요. 어머니는 숨은 쉬세요"의 "숨은 쉬세요"는 다른 사람 이야기다.
+# 의식이 있다는 말 바로 앞의 사람과 반응·호흡이 없다는 말 바로 앞의 사람이 둘 다 적혀 있고 서로 다를 때만 그 말을 빼고 본다.
+# 한쪽이라도 사람이 적혀 있지 않으면 지금처럼 같은 사람으로 본다("의식이 없어요. 숨은 쉬세요" - 숨을 쉬면 가슴압박 대상이 아니다).
+_ARREST_PERSON = re.compile(
+    r"(엄마|아빠|어머니|아버지|어머님|아버님|할머니|할아버지|할매|할배|부모님|남편|아내|와이프|아들|딸|며느리|사위|손자|손녀|누나|언니|오빠|동생|"
+    r"어르신|환자)(께서는|께서|는|은|가|이|도)"
+)
+
+
+def _person_before(c: str, pos: int) -> str | None:
+    last = None
+    for m in _ARREST_PERSON.finditer(c, 0, pos):
+        last = m.group(1)
+    return last
+
+
+def _awake(c: str) -> bool:
+    """지금 의식이 있다는 말이 (반응·호흡이 없다는) 그 사람 이야기로 있는가."""
+    live = [m for m in _ARREST_WORDS.finditer(c)
+            if not _ARREST_NOT_NOW.search(c[m.end():m.end() + 8]) and not _ARREST_PAST.search(c[m.end():m.end() + 6])]
+    patients = {p for p in (_person_before(c, m.start()) for m in live) if p}
+    for a in _ARREST_AWAKE.finditer(c):
+        who = _person_before(c, a.start())
+        if who and patients and who not in patients:
+            continue  # 다른 사람이 숨을 쉰다·말을 한다는 말
+        return True
+    return False
+
+
 def _recovered(c: str) -> bool:
     """회복했다는 말이 있고, 그 뒤에 다시 반응·호흡이 없다는 말이 없는가(2026-11-10 전체 점검 H-3).
     "잃었다가 금방 깼어요"는 회복, "깼다가 다시 의식이 없어요"·"아까 깨셨는데 지금 숨을 안 쉬어요"는 회복이 아니다."""
@@ -282,7 +311,7 @@ class _ArrestSignal:
 
     def search(self, text: str):
         c = _FIGURATIVE.sub(" ", text or "")
-        if _recovered(c) or _ARREST_AWAKE.search(c):
+        if _recovered(c) or _awake(c):
             return None
         for m in _ARREST_WORDS.finditer(c):
             if not _ARREST_NOT_NOW.search(c[m.end():m.end() + 8]):
@@ -297,7 +326,7 @@ def arrest_conscious(text: str) -> bool:
     """의식이 있다는 말(추측·회복·지금 의식 있음)이 있는가 - 라우터가 심정지로 봐도 가슴압박 줄을 붙이지 않는 근거(2026-11-04).
     공백 뺀 문장을 받는다."""
     c = _FIGURATIVE.sub(" ", text or "")
-    if _recovered(c) or _ARREST_AWAKE.search(c):
+    if _recovered(c) or _awake(c):
         return True
     return any(_ARREST_NOT_NOW.search(c[m.end():m.end() + 8]) for m in _ARREST_WORDS.finditer(c))
 

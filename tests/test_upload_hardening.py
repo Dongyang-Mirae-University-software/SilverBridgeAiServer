@@ -210,3 +210,40 @@ def test_frame_unknown_session_is_404_before_size_check(frame_client):
         "/api/v1/stream-sessions/no_such/frame", files={"frame": ("f.jpg", make_jpeg(64, 64), "image/jpeg")}, headers=HEADERS,
     )
     assert r.status_code == 404
+
+
+def test_frame_chunked_body_over_limit_is_413(frame_client):
+    # Content-Length 없이 나눠 보내도(chunked) 받는 중에 상한에서 끊는다(전체 점검 M-1 남은 부분).
+    boundary = "xBOUNDARYx"
+    head = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"frame\"; filename=\"f.jpg\"\r\n"
+            "Content-Type: image/jpeg\r\n\r\n").encode()
+    tail = f"\r\n--{boundary}--\r\n".encode()
+
+    def chunks():
+        yield head + b"\xff\xd8\xff"
+        for _ in range(8):
+            yield b"0" * 100_000  # 상한(200KB + 여유 64KB)을 넘긴다
+        yield tail
+
+    r = frame_client.post(
+        "/api/v1/stream-sessions/uh_sess/frame", content=chunks(),
+        headers={**HEADERS, "Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    assert "content-length" not in {k.lower() for k in r.request.headers}
+    assert r.status_code == 413
+
+
+def test_frame_chunked_normal_body_ok(frame_client):
+    boundary = "xBOUNDARYx"
+    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"frame\"; filename=\"f.jpg\"\r\n"
+            "Content-Type: image/jpeg\r\n\r\n").encode() + make_jpeg(320, 240) + f"\r\n--{boundary}--\r\n".encode()
+
+    def chunks():
+        for i in range(0, len(body), 1000):
+            yield body[i:i + 1000]
+
+    r = frame_client.post(
+        "/api/v1/stream-sessions/uh_sess/frame", content=chunks(),
+        headers={**HEADERS, "Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    assert r.status_code == 200, r.text

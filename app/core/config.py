@@ -260,6 +260,9 @@ class Settings(BaseModel):
     docs_enabled: bool = _as_bool("DOCS_ENABLED", True)
     # 옛 카메라 등록·주소 접속 분석 API(/api/v1/cameras·/api/v1/analysis). 쓰는 곳이 없어 기본은 끈다(전체 점검 M-8)
     legacy_camera_api_enabled: bool = _as_bool("LEGACY_CAMERA_API_ENABLED", False)
+    # 회원 데이터 삭제(탈퇴·연결 종료) 뒤 같은 ID 로 상담 기록·예약 계정을 새로 만들지 않는 시간(초). 목록은 프로세스 메모리라
+    # 재시작하면 비워진다 - 워커 1개 기준(전체 점검 L-1)
+    member_purge_hold_sec: float = float(os.getenv("MEMBER_PURGE_HOLD_SEC", "150") or 150)
     docs_path: str = os.getenv("DOCS_PATH", "/api/docs")
     openapi_path: str = os.getenv("OPENAPI_PATH", "/api/openapi.json")
     redoc_path: str = os.getenv("REDOC_PATH", "/api/redoc")

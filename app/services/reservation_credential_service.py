@@ -22,7 +22,16 @@ _LOG = logging.getLogger(__name__)
 _REVOKE_BUDGET_SEC = 8.0
 # 회원 데이터를 지운 뒤 이 시간 동안은 그 ID의 예약 계정을 새로 만들지 않는다(2026-10-30 점검 L-2) - 탈퇴 직전에 시작된
 # 상담 요청(AI 전체 마감 110초)이 정리 뒤에 가입으로 계정을 되살리지 않게. 같은 시험 ID로 측정을 연달아 돌리면 이만큼 기다린다.
-_PURGE_HOLD_SEC = 150.0
+_PURGE_HOLD_SEC = 150.0  # 기본값. 실제 값은 설정 MEMBER_PURGE_HOLD_SEC(_hold_sec)
+
+
+def _hold_sec() -> float:
+    """삭제 뒤 같은 ID 로 기록·예약 계정을 새로 만들지 않는 시간(초). 설정이 없거나 잘못되면 기본 150초."""
+    try:
+        value = float(getattr(get_settings(), "member_purge_hold_sec", _PURGE_HOLD_SEC))
+    except (TypeError, ValueError):
+        return _PURGE_HOLD_SEC
+    return value if value >= 0 else _PURGE_HOLD_SEC
 _PURGED: dict[str, float] = {}
 _PURGED_LOCK = threading.Lock()
 
@@ -30,7 +39,7 @@ _PURGED_LOCK = threading.Lock()
 def mark_purged(user_id: str) -> None:
     with _PURGED_LOCK:
         now = time.monotonic()
-        for uid in [u for u, at in _PURGED.items() if now - at > _PURGE_HOLD_SEC]:
+        for uid in [u for u, at in _PURGED.items() if now - at > _hold_sec()]:
             _PURGED.pop(uid, None)
         _PURGED[user_id] = now
 
@@ -52,7 +61,7 @@ def recently_proxy_purged(guardian_id: str, ward_id: str) -> bool:
 def recently_purged(user_id: str) -> bool:
     with _PURGED_LOCK:
         at = _PURGED.get(user_id)
-        return at is not None and time.monotonic() - at <= _PURGE_HOLD_SEC
+        return at is not None and time.monotonic() - at <= _hold_sec()
 
 
 @dataclass
