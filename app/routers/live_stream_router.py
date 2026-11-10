@@ -6,6 +6,8 @@ import json
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
+from starlette.datastructures import UploadFile
 from fastapi.responses import Response, StreamingResponse
 from PIL import Image
 from pydantic import ValidationError
@@ -18,7 +20,6 @@ from app.schemas.clip_schema import ClipRequest
 from app.schemas.stream_session_schema import StreamSessionCreate
 from app.services.bbox_overlay import bbox_overlay
 from app.services.clip_service import ClipError, clip_service
-from app.services.companion.multipart_memory import read_file_part
 from app.services.live_ws_manager import live_ws_manager
 from app.services.stream_session_service import StreamSessionService, frame_store
 
@@ -86,18 +87,11 @@ def _frame_invalid_type() -> HTTPException:
     )
 
 
-async def _read_frame_body(request: Request, max_bytes: int) -> bytes:
-    """본문을 청크로 읽다가 상한을 넘으면 끝까지 읽지 않고 413. UploadFile(디스크 임시 파일)은 쓰지 않는다."""
-    limit = max_bytes + 64 * 1024  # multipart 경계·헤더 여유분
+def _reject_declared_oversize(request: Request, max_bytes: int) -> None:
+    """Content-Length 가 상한을 넘으면 본문을 읽기 전에 413. 폼 파싱은 기존과 같은 표준 파서(request.form)가 한다."""
     declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > limit:
+    if declared and declared.isdigit() and int(declared) > max_bytes + 64 * 1024:  # multipart 경계·헤더 여유분
         raise _frame_too_large()
-    body = bytearray()
-    async for chunk in request.stream():
-        body.extend(chunk)
-        if len(body) > limit:
-            raise _frame_too_large()
-    return bytes(body)
 
 
 def _check_jpeg_header(frame_bytes: bytes, max_side: int) -> None:
@@ -120,23 +114,21 @@ async def ingest_stream_frame(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
-    body = await _read_frame_body(request, settings.stream_frame_max_bytes)
-    try:
-        part = read_file_part(request.headers.get("content-type", ""), body, "frame")
-    except ValueError:
-        part = None
-    if part is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_response("프레임 데이터가 비어 있습니다.", "STREAM_FRAME_EMPTY", None),
-        )
-    if part.content_type not in {"image/jpeg", "image/jpg"}:
+    _reject_declared_oversize(request, settings.stream_frame_max_bytes)
+    form = await request.form()
+    frame = form.get("frame")
+    if not isinstance(frame, UploadFile):
+        # 예전(frame: UploadFile = File(...))과 같은 422 를 낸다.
+        raise RequestValidationError([{"type": "missing", "loc": ("body", "frame"), "msg": "Field required", "input": None}])
+    if frame.content_type not in {"image/jpeg", "image/jpg"}:
         raise _frame_invalid_type()
-    frame_bytes = part.data
-    if len(frame_bytes) > settings.stream_frame_max_bytes:
-        raise _frame_too_large()
     service = StreamSessionService(db, frame_store)
     session = service.require_session(session_id)
+    if frame.size is not None and frame.size > settings.stream_frame_max_bytes:
+        raise _frame_too_large()
+    frame_bytes = await frame.read(settings.stream_frame_max_bytes + 1)
+    if len(frame_bytes) > settings.stream_frame_max_bytes:
+        raise _frame_too_large()
     if not frame_bytes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

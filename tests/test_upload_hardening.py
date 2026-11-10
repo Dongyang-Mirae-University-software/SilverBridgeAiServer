@@ -195,3 +195,18 @@ def test_stt_content_length_precheck_does_not_stream():
     with pytest.raises(CompanionError) as ei:
         asyncio.run(companion_router._read_limited_body(_Req(), 1000, err))
     assert ei.value.code == "AUDIO_TOO_LARGE"
+
+
+def test_frame_missing_field_is_still_422(frame_client):
+    # 폼 파싱을 직접 하게 바꿨어도 frame 칸이 없을 때의 응답은 예전과 같다.
+    r = frame_client.post(
+        "/api/v1/stream-sessions/uh_sess/frame", files={"other": ("a.jpg", b"x", "image/jpeg")}, headers=HEADERS,
+    )
+    assert r.status_code == 422
+
+
+def test_frame_unknown_session_is_404_before_size_check(frame_client):
+    r = frame_client.post(
+        "/api/v1/stream-sessions/no_such/frame", files={"frame": ("f.jpg", make_jpeg(64, 64), "image/jpeg")}, headers=HEADERS,
+    )
+    assert r.status_code == 404
