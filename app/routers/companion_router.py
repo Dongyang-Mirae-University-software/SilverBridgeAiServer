@@ -339,8 +339,9 @@ async def reply_audio(
         stt = call_with_timeout(transcribe, settings.companion_stt_timeout_sec, part.data)
     except TimeoutError as exc:  # S9-1: 음성 인식 시간 초과
         raise CompanionError(503, "STT_UNAVAILABLE", "음성 인식 시간이 초과되었습니다.") from exc
-    except SttUnavailable as exc:
-        raise CompanionError(503, "STT_UNAVAILABLE", str(exc)) from exc
+    except SttUnavailable as exc:  # 응답에는 모델 폴더 경로·예외 원문을 싣지 않는다(보안 점검 M-6). 원인은 클래스명만 로그에
+        stt_logger.warning("turn stt status=503 error=%s", type(exc).__name__)
+        raise CompanionError(503, "STT_UNAVAILABLE", _STT_UNAVAILABLE_MESSAGE) from exc
     except Exception as exc:  # noqa: BLE001 - 모델 실행 중 오류(GPU 메모리 등)도 500 대신 503 (11/09 점검 L-2). 로그는 클래스명만
         stt_logger.warning("turn stt status=503 error=%s", type(exc).__name__)
         raise CompanionError(503, "STT_UNAVAILABLE", "음성 인식에 실패했습니다.") from exc
@@ -362,6 +363,7 @@ async def reply_audio(
 # 챗봇 등과 공유하는 음성 인식 API의 동시 처리 자리 (설정 COMPANION_STT_API_CONCURRENCY)
 _stt_slots = threading.BoundedSemaphore(get_settings().companion_stt_api_concurrency)
 stt_logger = logging.getLogger("companion.stt_api")
+_STT_UNAVAILABLE_MESSAGE = "음성 인식을 지금 사용할 수 없습니다."
 
 
 def _transcribe_with_slot(transcribe_pcm, pcm, wait_sec: float, timeout_sec: float):
@@ -433,8 +435,8 @@ async def speech_to_text(request: Request, settings: Settings = Depends(get_sett
         stt_logger.info("stt status=503 seconds=%.1f timeout", seconds)
         raise CompanionError(503, "STT_UNAVAILABLE", "음성 인식 시간이 초과되었습니다.") from exc
     except SttUnavailable as exc:
-        stt_logger.info("stt status=503 seconds=%.1f", seconds)
-        raise CompanionError(503, "STT_UNAVAILABLE", str(exc)) from exc
+        stt_logger.info("stt status=503 seconds=%.1f error=%s", seconds, type(exc).__name__)
+        raise CompanionError(503, "STT_UNAVAILABLE", _STT_UNAVAILABLE_MESSAGE) from exc
     except Exception as exc:  # noqa: BLE001 - 모델 실행 중 오류도 503 (11/09 점검 L-2). 로그는 클래스명만
         stt_logger.warning("stt status=503 seconds=%.1f error=%s", seconds, type(exc).__name__)
         raise CompanionError(503, "STT_UNAVAILABLE", "음성 인식에 실패했습니다.") from exc
