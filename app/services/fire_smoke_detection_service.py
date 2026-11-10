@@ -110,8 +110,8 @@ class FireSmokeDetectionService:
         except Exception as exc:  # noqa: BLE001
             self._model = None
             self._loaded = False
-            self._load_error = str(exc)
-            _LOG.exception("fire_smoke 모델 로드 실패: %s", exc)
+            self._load_error = type(exc).__name__
+            _LOG.error("fire_smoke 모델 로드 실패: %s", type(exc).__name__)
 
     def detect_from_jpeg(self, frame_bytes: bytes) -> dict[str, Any]:
         """JPEG 프레임 1장 분석.
@@ -161,9 +161,9 @@ class FireSmokeDetectionService:
                     verbose=False,
                 )
         except Exception as exc:  # noqa: BLE001
-            _LOG.exception("fire_smoke 추론 실패: %s", exc)
+            _LOG.error("fire_smoke 추론 실패: %s", type(exc).__name__)
             base["detectedType"] = "unknown"
-            base["loadError"] = str(exc)
+            base["loadError"] = type(exc).__name__
             return base
 
         detections: list[dict[str, Any]] = []

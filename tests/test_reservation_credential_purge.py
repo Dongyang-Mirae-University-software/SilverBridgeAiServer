@@ -62,3 +62,15 @@ def test_delete_unknown_user_is_idempotent() -> None:
 def test_credential_router_is_protected_by_api_key() -> None:
     source = open("app/main.py", encoding="utf-8").read()
     assert "app.include_router(reservation_credential_router, dependencies=[Depends(require_api_key)])" in source
+
+
+def test_delete_also_removes_that_users_token_claims() -> None:
+    from app.models.reservation_token_claim import ReservationTokenClaim
+
+    with _client() as (client, session):
+        session.add_all([ReservationTokenClaim(user_id="aaaaaa", token="t1"), ReservationTokenClaim(user_id="bbbbbb", token="t2")])
+        session.commit()
+        res = client.delete("/api/v1/reservation-credentials", params={"userId": "aaaaaa"})
+        assert res.status_code == 200, res.text
+        left = [c.user_id for c in session.query(ReservationTokenClaim).all()]
+        assert left == ["bbbbbb"]

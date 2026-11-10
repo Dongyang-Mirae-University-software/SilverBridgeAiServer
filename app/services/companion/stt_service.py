@@ -54,7 +54,7 @@ class SttService:
                 return self._model
             path = self.model_dir()
             if not path.is_dir():
-                self._load_error = f"음성 인식 모델 폴더가 없습니다: {path}"
+                self._load_error = "음성 인식 모델을 사용할 수 없습니다."
                 raise SttUnavailable(self._load_error)
             try:
                 from faster_whisper import WhisperModel

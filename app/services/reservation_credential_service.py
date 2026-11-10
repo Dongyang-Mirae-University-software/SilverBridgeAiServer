@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.services.chat_deadline import chat_deadline
 from app.services.reservation_api_client import ReservationApiClient
 from app.models.reservation_credential import ReservationCredential
+from app.models.reservation_token_claim import ReservationTokenClaim
 
 _LOG = logging.getLogger(__name__)
 # 회원 데이터 삭제 때 예약 서비스 키 폐기에 쓰는 전체 시간(초). BE 탈퇴 정리 호출 제한(15초) 안에 응답하도록.
@@ -106,6 +107,8 @@ class ReservationCredentialService:
         deleted = db.query(ReservationCredential).filter(ReservationCredential.user_id == user_id).delete(
             synchronize_session=False
         )
+        # 선점 기록도 함께 지운다(보안 점검 L-1) - 탈퇴한 회원의 ID 가 10분 뒤 자연 정리까지 남지 않게
+        db.query(ReservationTokenClaim).filter(ReservationTokenClaim.user_id == user_id).delete(synchronize_session=False)
         db.commit()
         return int(deleted)
 

@@ -4,7 +4,8 @@ import logging
 import re
 
 # ?apiKey=... 가 접속 로그(uvicorn)에 그대로 찍히지 않게 가린다(QA AI-2).
-_API_KEY_IN_URL = re.compile(r"(?i)(apikey=)[^&\s\"']+")
+# 쿼리의 userId·guardianId·wardId 값도 가린다(보안 점검 M-6). 경로의 세션 ID 는 운영 진단용이라 둔다.
+_API_KEY_IN_URL = re.compile(r"(?i)([?&\s](?:apikey|userid|guardianid|wardid)=)[^&\s\"']+")
 
 
 def redact_api_key(text: str) -> str:
