@@ -240,7 +240,7 @@
 | 이슈 | 조치 | PR |
 |---|---|---|
 | H-1 | pillow 13.0.0, `Image.open`에 `formats=` 제한(약 봉투 JPEG·PNG·WEBP, 말벗 얼굴 JPEG·PNG) | #215 |
-| H-2 | **일부** - 바인딩 주소를 `APP_HOST`로 줄 수 있게만 했다(기본 0.0.0.0 유지). BE dev 컨테이너가 받아쓰기·말벗 호출을 도커 브리지 주소(`:6017`)로 직접 붙어 127.0.0.1로 묶으면 끊긴다. 실제 차단은 인프라 결정 대기 | #213 |
+| H-2 | 바인딩 주소를 `APP_HOST`로 줄 수 있게 했다(기본 0.0.0.0 유지 - BE dev 컨테이너가 도커 브리지 주소로 직접 붙는다). **gosky에서 방화벽 규칙으로 차단**(아래 "gosky 반영") | #213 |
 | H-3 | 회복 낱말 뒤에 다시 반응·호흡 없음이 오면 회복으로 보지 않는다. 뒤의 말이 지난 일이면 회복 유지 | #212 |
 | H-4 | 라우터 실패 전용 자해 패턴에 말끝 변형(싶은데요·싶다고요·싶다는 생각이 들어요). "싶어서요"는 일상 표현과 겹쳐 넣지 않았다 | #212 |
 | H-5 | "안 답답해요"·"숨이 안 가빠요" → 아니요, "예전에도"·"응급실"·"그래도" → 네 아님 | #212 |
@@ -253,7 +253,18 @@
 | L-1 | 예약 키 삭제 때 `reservation_token_claims`도 삭제. 보류 150초 상수·메모리는 그대로 | #214 |
 | L-2 · L-6 | `layout` 주석 정정, 라우터 `self_harm` 칸 턴의 가족용 박스 테스트 추가(결함 없음) | #214 |
 | L-5 | `DOCS_ENABLED` 스위치 추가(기본 true = 지금과 같음) | #213 |
-| M-5 · M-7 · M-8 | **미조치 - 결정 필요**: 예약 키 암호화(기존 행 이전 필요), 게임 무인증 경로(FE iframe 계약 변경), 카메라 `streamUrl`(사설 주소를 막으면 실제 카메라가 막힌다) |  |
+| M-5 | 예약 키를 `enc:v1:` + Fernet 암호문으로 저장(키는 `RESERVATION_ACCOUNT_SECRET`에서 용도 문자열로 갈라 만듦). 비밀값이 없으면 저장하지 않는다(평문 대체 없음). 풀 수 없는 행은 키 없음으로 보고 다시 발급. 기동 때 남은 평문 행을 일괄 암호화 | #217 |
+| M-8 | 호출처가 없는(BE·FE 소스, gosky 7일 접속 로그 0건) `/api/v1/cameras`·`/api/v1/analysis`를 기본 미등록(`LEGACY_CAMERA_API_ENABLED=true`면 등록). 코드는 남겼다 | #217 |
+| M-7 | **제외** - 게임은 담당 범위 밖(2026-11-10 사용자 결정) |  |
 | L-3 | **미조치** - 공용 서버 nginx 설정이라 손대지 않았다 |  |
 | L-4 | 조치 없음(요청 경로 해당 없음) |  |
 | `routerStatus` | BE 처리 미확인 그대로 |  |
+
+### gosky 반영 (2026-11-10 17:44 KST, `504c105`)
+
+- 허용 배포 명령으로 재빌드·재기동. health 200(25초), 재시작 횟수 0, `OomScoreAdj=-500`(#208 적용), pillow 13.0.0·cryptography 50.0.2, 기동 로그 Traceback 0건, BE의 AI WS 재연결 17:44:47.
+- 예약 키 7행이 기동 때 모두 암호화됐다(평문 0행). `/api/v1/cameras`·`/api/v1/analysis/*`는 404, 프레임·챗 경로는 그대로 401(키 필요).
+- **H-2 차단**: `iptables -I INPUT -i eno1 -p tcp --dport 6017 -j DROP`(주석 `silverbridge-ai: 6017 nginx/docker only`). 외부 인터페이스로 들어오는 6017만 막고 루프백(nginx)·도커 브리지(BE 컨테이너)는 그대로다. 재부팅 뒤에도 남도록 `silverbridge-ai-6017-guard.service`(systemd oneshot, enabled)가 기동 때 같은 규칙을 넣는다. 되돌리기: `sudo systemctl disable --now silverbridge-ai-6017-guard.service`.
+- 확인: 외부 `http://<gosky>:6017/health` 응답 없음(차단) · `https://testai.gosky.kr/api/docs` 200 · `https://testai.gosky.kr/api/v1/chat/logs/1` 401 · BE 컨테이너 → `http://10.0.22.1:6017/health` 정상.
+- 실제 라우터를 부르는 상담 한 바퀴는 돌리지 않았다(API 키를 쓰는 검증 금지). 최종 전체 pytest 2674 passed · 6 skipped · 실패 0.
+- 남은 것: L-3(nginx `reservation.dmu.gosky.kr`의 `/admin/` → 6017 전달 정리), M-2·M-4의 미조치 부분, `routerStatus`의 BE 처리 확인.
