@@ -209,7 +209,7 @@ def test_chat_fe_call_shapes(flag: bool) -> None:
         assert detail.status_code == 422
         assert detail.json()["errorCode"] == "CHAT_USER_ID_REQUIRED"
     else:
-        assert detail.status_code == 200  # 기본 OFF: 지금 FE 형태 그대로 동작
+        assert detail.status_code == 200  # 스위치를 명시적으로 끈 경우: userId 없는 상세도 동작
         assert detail.json()["data"]["userId"] == "ward-a"
 
 
@@ -228,8 +228,9 @@ def test_chat_detail_owner_match_and_mismatch(flag: bool) -> None:
     assert mismatch.json()["errorCode"] == "CHAT_LOG_NOT_FOUND"
 
 
-def test_chat_require_user_id_defaults_off() -> None:
-    assert Settings().chat_require_user_id is False
+def test_chat_require_user_id_defaults_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CHAT_REQUIRE_USER_ID", raising=False)
+    assert Settings().chat_require_user_id is True
 
 
 # ---------------------------------------------------------------- ③ 게임 API 키 플래그
@@ -265,7 +266,7 @@ _GAME_CALLS = _GAME_BROWSER_CALLS + _GAME_SERVER_CALLS
 
 
 @pytest.mark.parametrize(("method", "path", "body"), _GAME_CALLS)
-def test_game_flag_off_keeps_keyless_calls_working(method: str, path: str, body: dict | None) -> None:
+def test_game_flag_explicitly_off_keeps_keyless_calls_working(method: str, path: str, body: dict | None) -> None:
     with _game_client(game_require_api_key=False) as client:
         res = client.request(method, path, json=body)
     assert res.status_code == 200, res.text
@@ -291,5 +292,6 @@ def test_game_flag_on_requires_api_key(method: str, path: str, body: dict | None
     assert with_key.status_code == 200, with_key.text
 
 
-def test_game_require_api_key_defaults_off() -> None:
-    assert Settings().game_require_api_key is False
+def test_game_require_api_key_defaults_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GAME_REQUIRE_API_KEY", raising=False)
+    assert Settings().game_require_api_key is True

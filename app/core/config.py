@@ -254,6 +254,8 @@ class Settings(BaseModel):
     def has_reservation_service_credentials(self) -> bool:
         return bool(self.reservation_service_email.strip() and self.reservation_service_password.strip())
 
+    # 문서 경로(/api/docs·/api/openapi.json·/api/redoc) 노출. false 면 세 경로가 404.
+    docs_enabled: bool = _as_bool("DOCS_ENABLED", True)
     docs_path: str = os.getenv("DOCS_PATH", "/api/docs")
     openapi_path: str = os.getenv("OPENAPI_PATH", "/api/openapi.json")
     redoc_path: str = os.getenv("REDOC_PATH", "/api/redoc")
@@ -270,14 +272,14 @@ class Settings(BaseModel):
     mediamtx_webrtc_view_base: str = os.getenv("MEDIAMTX_WEBRTC_VIEW_BASE", "")
     mediamtx_hls_view_base: str = os.getenv("MEDIAMTX_HLS_VIEW_BASE", "")
     # WS 의 ?apiKey= 쿼리 인증 허용 여부. 쿼리 키는 브라우저 번들·접속 로그에 남는다(QA AI-2).
-    # FE 이상감지 모니터가 아직 쿼리로 접속하므로 기본은 허용 — FE 가 헤더/백엔드 경유로 바꾸면 false 로 끈다.
-    ws_allow_query_api_key: bool = _as_bool("WS_ALLOW_QUERY_API_KEY", True)
-    # 챗 로그 상세(GET /api/v1/chat/logs/{id})에 userId 필수 + 소유자 일치. 기본 OFF —
-    # FE 의 상세 호출 함수가 userId 없이 부르는 형태라, FE 가 userId 를 붙인 뒤 켠다.
-    chat_require_user_id: bool = _as_bool("CHAT_REQUIRE_USER_ID", False)
-    # 게임 API(/api/v1/games/**)에 X-API-Key 필수. 기본 OFF — 피보호자 게임 iframe 과 그 안의 JS 가
-    # 브라우저에서 키 없이 직접 부른다. FE 가 iframe·embed 호출을 프록시 경유로 바꾼 뒤 켠다.
-    game_require_api_key: bool = _as_bool("GAME_REQUIRE_API_KEY", False)
+    # 기본은 거부(닫힘). 쿼리 접속이 필요한 환경만 WS_ALLOW_QUERY_API_KEY=true 로 명시적으로 연다.
+    ws_allow_query_api_key: bool = _as_bool("WS_ALLOW_QUERY_API_KEY", False)
+    # 챗 로그 상세(GET /api/v1/chat/logs/{id})에 userId 필수 + 소유자 일치. 기본 ON(닫힘) —
+    # BE 는 항상 userId 를 붙인다. userId 없는 호출이 필요한 환경만 CHAT_REQUIRE_USER_ID=false 로 명시적으로 끈다.
+    chat_require_user_id: bool = _as_bool("CHAT_REQUIRE_USER_ID", True)
+    # 게임 API(/api/v1/games/**)에 X-API-Key 필수. 기본 ON(닫힘). 키 없이 부르는 환경만
+    # GAME_REQUIRE_API_KEY=false 로 명시적으로 끈다(/embed·/state·/answer·/reset 은 원래 키 대상이 아님).
+    game_require_api_key: bool = _as_bool("GAME_REQUIRE_API_KEY", True)
 
     # 이상감지 클립(POST /api/v1/live-streams/{sessionId}/clips). 영구 저장은 백엔드가 한다 — 여기선 임시 파일만.
     # 동시 상한·대기열은 방어선이다: FE 프록시를 거치면 이 API도 외부에서 호출될 수 있다.

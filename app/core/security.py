@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+import hmac
+
 from fastapi import Depends, Header, HTTPException, status
 
 from app.core.config import Settings, get_settings
+
+
+def api_key_matches(provided: str | None, expected: str | None) -> bool:
+    """X-API-Key 상수 시간 비교. 서버 키가 비어 있으면 모두 거절한다. 비ASCII 값도 예외 없이 bytes 로 비교한다."""
+    if not expected or not provided:
+        return False
+    return hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))
 
 
 def require_api_key(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     settings: Settings = Depends(get_settings),
 ) -> None:
-    if not x_api_key or x_api_key != settings.api_key:
+    if not api_key_matches(x_api_key, settings.api_key):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
@@ -25,7 +34,7 @@ def require_game_api_key(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     settings: Settings = Depends(get_settings),
 ) -> None:
-    """게임 라우터 중 서버 간(보호자 FE 프록시) 호출에만 붙인다. GAME_REQUIRE_API_KEY 가 꺼져 있으면(기본) 통과.
+    """게임 라우터 중 서버 간(보호자 FE 프록시) 호출에만 붙인다. GAME_REQUIRE_API_KEY 가 꺼져 있을 때만(명시적으로 끈 경우) 통과.
 
     피보호자 게임 iframe 과 그 안의 JS 가 브라우저에서 키 없이 직접 부르는 /embed·/state·/answer·/reset 에는
     붙이지 않는다 - 거기에 키를 요구하면 게임 화면이 401 로 멈춘다.
