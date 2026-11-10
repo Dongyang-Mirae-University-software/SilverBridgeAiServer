@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
 _LOG = logging.getLogger(__name__)
@@ -54,3 +54,25 @@ def ensure_indexes(engine: Engine) -> None:
         for name, table, column in _INDEXES:
             # 식별자는 위 상수에서만 온다(사용자 입력 아님).
             conn.execute(text(f'CREATE INDEX IF NOT EXISTS "{name}" ON "{table}" ("{column}")'))
+
+
+def encrypt_plain_reservation_keys(engine: Engine, secret: str) -> int:
+    """평문으로 남은 예약 키 행을 암호화한다(2026-11-10 전체 점검 M-5). 기동 때마다 불러도 된다 - 이미 암호화된 행은 건드리지 않는다.
+    비밀값이 없으면 아무것도 하지 않는다(예약 기능이 꺼진 환경). 바꾼 행 수를 돌려준다. 키 값은 로그에 남기지 않는다."""
+    from app.services import reservation_key_cipher as cipher
+
+    if not (secret or "").strip() or not inspect(engine).has_table("reservation_credentials"):
+        return 0
+    changed = 0
+    with engine.begin() as conn:
+        rows = conn.execute(text("SELECT id, api_key FROM reservation_credentials")).fetchall()
+        for row_id, stored in rows:
+            value = (stored or "").strip()
+            if not value or cipher.is_sealed(value):
+                continue
+            conn.execute(
+                text("UPDATE reservation_credentials SET api_key = :v WHERE id = :i"),
+                {"v": cipher.seal(value, secret), "i": row_id},
+            )
+            changed += 1
+    return changed

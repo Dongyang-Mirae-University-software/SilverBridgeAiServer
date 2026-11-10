@@ -241,7 +241,13 @@ def test_chat_logs_endpoint_accepts_string_member_id(monkeypatch: pytest.MonkeyP
     assert [item["userId"] for item in items] == ["e2eg01"]
 
 
-def test_reservation_credential_upsert_with_member_id() -> None:
+def test_reservation_credential_upsert_with_member_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 키는 암호화해 저장한다(전체 점검 M-5) - 비밀값이 있어야 저장된다.
+    from types import SimpleNamespace
+
+    from app.services import reservation_credential_service as rcs
+
+    monkeypatch.setattr(rcs, "get_settings", lambda: SimpleNamespace(reservation_account_secret="unit-test-secret"))
     with _memory_db() as (_, session):
         service = ReservationCredentialService()
         summary = service.upsert_credential(session, user_id="e2eg01", reservation_email=None, api_key="sbk_abc.def123456")
