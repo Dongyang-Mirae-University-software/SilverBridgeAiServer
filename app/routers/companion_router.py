@@ -236,6 +236,8 @@ def _turn_response(d: Dialogue, result: dict, transcript: str | None = None, fac
         "reply": result["reply"],
         "face": face if face is not None else _no_face(),
         "signals": result.get("signals"),  # 추출 실패면 null (명세: 대화 응답은 정상으로 보낸다)
+        # 글 기분 분류 결과 (백엔드 테스트 계정 화면용, 2026-11-10). 무응답·다시 확인 턴은 null. 저장하지 않는다
+        "textMood": result.get("textMood"),
         "riskFlag": bool(result.get("riskFlag")),  # 신호가 null 이어도 위험 여부는 항상 채운다 (백엔드 요청)
         "ended": updated.ended,
         "endReason": updated.endReason,

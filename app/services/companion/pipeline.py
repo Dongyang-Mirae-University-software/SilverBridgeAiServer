@@ -40,29 +40,46 @@ def analyze_turn_result(
     transcript: str,
     face: dict,
     classify_text: Callable[[str], TextEmotionResult],
+    text_out: dict | None = None,
 ) -> dict:
     """말과 표정을 합쳐 턴 결과를 만든다.
 
     prob_add(11/10 기본): 글 기분 4코드 확률 + 표정 코드 쪽으로 가중치 (fuse_prob_add).
     plan41(재희): 아키텍처 08 결합 표 (fuse_turn). 글 결과에 4코드 확률이 없으면(GGARA02 등) prob_add 설정이어도 이 표를 쓴다.
     텍스트 모델을 못 쓰면 텍스트는 빠지고 표정만으로 판단한다.
+
+    text_out: 주면 글 기분 분류 결과를 채운다(백엔드 테스트 계정 화면용 `textMood`, 2026-11-10). 반환값 모양은 그대로다.
+      {"label": 모델 원래 라벨|None, "turnLabel": 턴 라벨로 바꾼 값|None, "confidence": 0~1|None, "usable": bool,
+       "reason": None | "SHORT"(최소 글자 수 미만) | "UNAVAILABLE"(모델 없음·시간 초과)}
     """
     s = get_settings()
     text = transcript.strip()
     text_label = None
     text_usable = False
     text_probs = None
-    if text and len(text) >= min_text_chars():  # 최소 글자 수 미만은 어차피 쓰지 않으므로 모델을 부르지 않는다 (L-2)
+    text_reason = "SHORT"
+    r = None
+    if text and len(text) >= min_text_chars():
+        text_reason = "UNAVAILABLE"  # 최소 글자 수 미만은 어차피 쓰지 않으므로 모델을 부르지 않는다 (L-2)
         try:
             r = call_with_timeout(classify_text, s.companion_text_timeout_sec, text)
         except (TextEmotionUnavailable, TimeoutError):  # 시간 초과면 말은 빼고 표정만으로 판단 (S9-1)
             r = None
         if r is not None:
+            text_reason = None
             text_label = TEXT_TO_TURN.get(r.label)
             # 발화가 최소 글자 수 이상이고 쓸 수 있는 결과일 때만 말을 채택한다 (아키텍처 08. e900 은 2자, 재희 10자)
             text_usable = bool(r.usable and text_label and len(text) >= min_text_chars())
             if text_usable and all(c in r.scores for c in MOOD_CODES):
                 text_probs = {c: r.scores[c] for c in MOOD_CODES}
+    if text_out is not None:
+        text_out.update({
+            "label": r.label if r is not None else None,
+            "turnLabel": text_label,
+            "confidence": round(float(r.confidence), 4) if r is not None else None,
+            "usable": text_usable,
+            "reason": text_reason,
+        })
     face_label = HSEMOTION_TO_TURN.get(face["label"]) if face.get("label") else None
     face_usable = bool(face.get("usable") and face_label)
     if s.companion_fusion_rule == "prob_add" and (text_probs is not None or not text_usable):
@@ -173,11 +190,12 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
 
     risk_first = get_settings().companion_risk_first
     turn_result = None
+    text_mood: dict = {}  # 글 기분 분류 결과 - 턴 응답의 textMood (저장·로그 없음, 2026-11-10)
     if risk_first:
         # 11/10 점검 H-1: 위험(0.1초)·기분(0.07초) 확률을 생성보다 먼저 끝낸다.
         # 함께 보내면 어댑터 문에서 대답 생성 뒤에 줄을 서 시간 제한에 걸리고, 위험이 낱말 규칙으로만 판정됐다.
         risk_prob = _risk_prob_capped(llm, transcript)
-        turn_result = analyze_turn_result(transcript, face, classify_text)
+        turn_result = analyze_turn_result(transcript, face, classify_text, text_out=text_mood)
     pool = ThreadPoolExecutor(max_workers=4)
     try:
         signal_future = pool.submit(extract_signals, transcript, llm, get_settings().companion_llm_retry)
@@ -212,7 +230,9 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
     if signals is not None:
         signals = {**signals, "riskFlag": risk_flag}
     return {
-        "turnResult": turn_result if turn_result is not None else analyze_turn_result(transcript, face, classify_text),
+        "turnResult": turn_result if turn_result is not None
+        else analyze_turn_result(transcript, face, classify_text, text_out=text_mood),
+        "textMood": text_mood or None,
         "reply": {"text": reply.text, "isFollowUp": reply.isFollowUp},
         "signals": signals,
         "replySource": reply.source,
