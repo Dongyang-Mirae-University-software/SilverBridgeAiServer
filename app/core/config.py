@@ -58,6 +58,7 @@ def _as_int(name: str, default: int) -> int:
     try:
         return int(raw)
     except ValueError:
+        logging.getLogger("app.config").warning("[CONFIG] %s 값이 정수가 아니어서 기본값을 씁니다", name)
         return default
 
 
@@ -68,6 +69,7 @@ def _as_float(name: str, default: float) -> float:
     try:
         return float(raw)
     except ValueError:
+        logging.getLogger("app.config").warning("[CONFIG] %s 값이 숫자가 아니어서 기본값을 씁니다", name)
         return default
 
 
@@ -90,6 +92,15 @@ def _as_int_in_range(name: str, default: int, low: int, high: int) -> int:
     """범위 밖(또는 정수가 아닌) 값은 기본값으로 대체한다."""
     value = _as_int(name, default)
     return value if low <= value <= high else default
+
+
+def _as_int_min(name: str, default: int, low: int) -> int:
+    """low 미만(또는 정수가 아닌) 값은 경고를 남기고 기본값으로 대체한다 (값은 로그에 남기지 않는다)."""
+    value = _as_int(name, default)
+    if value < low:
+        logging.getLogger("app.config").warning("[CONFIG] %s 값이 %d 미만이어서 기본값을 씁니다", name, low)
+        return default
+    return value
 
 
 def _as_int_capped(name: str, default: int, cap: int) -> int:
@@ -127,7 +138,7 @@ class Settings(BaseModel):
         "SNAPSHOT_BASE_PATH",
         str(_PROJECT_ROOT / "uploads" / "snapshots"),
     )
-    default_detection_threshold: float = float(os.getenv("DEFAULT_DETECTION_THRESHOLD", "0.75"))
+    default_detection_threshold: float = _as_float("DEFAULT_DETECTION_THRESHOLD", 0.75)
     fire_smoke_enabled: bool = _as_bool("FIRE_SMOKE_ENABLED", True)
     fire_smoke_model_path: str = os.getenv("FIRE_SMOKE_MODEL_PATH", "fire_smoke.pt")
     fire_smoke_conf_threshold: float = _as_float("FIRE_SMOKE_CONF_THRESHOLD", 0.35)
@@ -167,7 +178,7 @@ class Settings(BaseModel):
     # 용도별 모델(2026-10-24 O-2). 비면 CLAUDE_MODEL_NAME, 그것도 비면 claude-opus-5-5 - 두 줄을 지우면 원래대로.
     chat_router_model: str = _first_env(("CHAT_ROUTER_MODEL", "CLAUDE_MODEL_NAME"), "claude-opus-5-5")
     reservation_extract_model: str = _first_env(("RESERVATION_EXTRACT_MODEL", "CLAUDE_MODEL_NAME"), "claude-opus-5-5")
-    claude_timeout_sec: int = _as_int("CLAUDE_TIMEOUT_SEC", 60)
+    claude_timeout_sec: int = _as_int_min("CLAUDE_TIMEOUT_SEC", 60, 1)
     # 라우터·예약 추출 Claude 호출의 출력 상한(생각 토큰 포함, 2026-10-25). MedGemma MAX_NEW_TOKENS(512)와 따로 둔다 -
     # opus 5.5는 생각을 끌 수 없어 위기 문장에서 생각 블록이 512를 다 써 답이 잘렸다. 범위 밖 값은 기본값으로 대체한다.
     claude_max_tokens: int = _as_int_in_range("CLAUDE_MAX_TOKENS", 2048, 256, 8192)
@@ -221,6 +232,15 @@ class Settings(BaseModel):
     # MedGemma 동시 생성 수(2026-10-27). 생성이 겹치면 같은 GPU의 감지(화재·흉기·낙상) 처리 시간이 2배가 된다. 0 이하면 제한 없음.
     medgemma_max_concurrent_generate: int = _as_int("MEDGEMMA_MAX_CONCURRENT_GENERATE", 1)
     # 생성 슬롯 대기 상한(초). 넘기면 생성하지 않고 고정 문구로 답한다 - BE 상담 제한 130초 안에 끝나게.
+    # 생성 자체의 시간 상한(초, HF generate max_time). 슬롯 대기와 별개 (2차 점검 R-3)
+    medgemma_generate_max_time_sec: float = _as_float("MEDGEMMA_GENERATE_MAX_TIME_SEC", 90.0)
+    # 실시간 분석 최신성·WS 송신 제한·끊긴 세션 정리 (2차 점검 R-2 등)
+    live_latest_analysis_max_age_sec: float = _as_float("LIVE_LATEST_ANALYSIS_MAX_AGE_SEC", 30.0)
+    live_ws_send_timeout_sec: float = _as_float("LIVE_WS_SEND_TIMEOUT_SEC", 5.0)
+    live_stale_session_purge_sec: float = _as_float("LIVE_STALE_SESSION_PURGE_SEC", 1800.0)
+    # DB 연결·풀 대기 제한(초, PostgreSQL 만 적용)
+    db_connect_timeout_sec: int = _as_int("DB_CONNECT_TIMEOUT_SEC", 5)
+    db_pool_timeout_sec: int = _as_int("DB_POOL_TIMEOUT_SEC", 10)
     medgemma_gen_wait_timeout_sec: int = _as_int_in_range("MEDGEMMA_GEN_WAIT_TIMEOUT_SEC", 60, 1, 120)
     # 응급 턴은 줄을 오래 서지 않는다 - 넘기면 바로 119 안내 고정 문구로 답한다.
     medgemma_gen_wait_timeout_emergency_sec: int = _as_int_in_range("MEDGEMMA_GEN_WAIT_TIMEOUT_EMERGENCY_SEC", 3, 1, 30)
@@ -262,7 +282,7 @@ class Settings(BaseModel):
     legacy_camera_api_enabled: bool = _as_bool("LEGACY_CAMERA_API_ENABLED", False)
     # 회원 데이터 삭제(탈퇴·연결 종료) 뒤 같은 ID 로 상담 기록·예약 계정을 새로 만들지 않는 시간(초). 목록은 프로세스 메모리라
     # 재시작하면 비워진다 - 워커 1개 기준(전체 점검 L-1)
-    member_purge_hold_sec: float = float(os.getenv("MEMBER_PURGE_HOLD_SEC", "150") or 150)
+    member_purge_hold_sec: float = _as_float("MEMBER_PURGE_HOLD_SEC", 150.0)
     docs_path: str = os.getenv("DOCS_PATH", "/api/docs")
     openapi_path: str = os.getenv("OPENAPI_PATH", "/api/openapi.json")
     redoc_path: str = os.getenv("REDOC_PATH", "/api/redoc")
@@ -407,7 +427,7 @@ class Settings(BaseModel):
     companion_keep_fixed_replies: bool = _as_bool("COMPANION_KEEP_FIXED_REPLIES", True)
     companion_stt_api_max_sec: float = _as_float("COMPANION_STT_API_MAX_SEC", 30.0)  # 챗봇 공유 음성 인식 API 길이 상한
     companion_stt_api_max_mb: int = _as_int("COMPANION_STT_API_MAX_MB", 10)  # 받아쓰기 API(챗봇 공유) 음성 크기 상한 (2026-11-09 결정: 10MB)
-    companion_stt_api_concurrency: int = _as_int("COMPANION_STT_API_CONCURRENCY", 2)  # 동시에 돌릴 음성 인식 수
+    companion_stt_api_concurrency: int = _as_int_min("COMPANION_STT_API_CONCURRENCY", 2, 1)  # 동시에 돌릴 음성 인식 수
     companion_stt_api_wait_sec: float = _as_float("COMPANION_STT_API_WAIT_SEC", 5.0)  # 자리가 날 때까지 기다리는 시간
     companion_stt_api_timeout_sec: float = _as_float("COMPANION_STT_API_TIMEOUT_SEC", 20.0)  # 받아쓰기 한 번의 제한 시간 (넘으면 503 STT_UNAVAILABLE)
     companion_stt_device: str = os.getenv("COMPANION_STT_DEVICE", "cpu")
