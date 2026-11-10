@@ -268,3 +268,11 @@
 - 확인: 외부 `http://<gosky>:6017/health` 응답 없음(차단) · `https://testai.gosky.kr/api/docs` 200 · `https://testai.gosky.kr/api/v1/chat/logs/1` 401 · BE 컨테이너 → `http://10.0.22.1:6017/health` 정상.
 - 실제 라우터를 부르는 상담 한 바퀴는 돌리지 않았다(API 키를 쓰는 검증 금지). 최종 전체 pytest 2674 passed · 6 skipped · 실패 0.
 - 남은 것: L-3(nginx `reservation.dmu.gosky.kr`의 `/admin/` → 6017 전달 정리), M-2·M-4의 미조치 부분, `routerStatus`의 BE 처리 확인.
+
+### 남은 항목 처리 (2026-11-10 저녁, main `cca5f2f` - gosky 미배포)
+
+- M-2 남은 부분(#219): `/companion/stt` 디코딩을 받아쓰기 자리(동시 2건) 안에서 한다. 자리가 없을 때는 읽을 수 없는 음성·30초 초과 음성도 먼저 503 `STT_BUSY`를 받는다(다시 보내면 원래 422·413). 디코딩이 이벤트 루프 스레드를 막던 것도 없어졌다.
+- M-4 남은 부분(#219): `ADMIN_API_KEY`(선택). 넣으면 `/api/admin/medgemma/*`는 그 키만 받고 공용 키는 거절한다. gosky `.env`에는 아직 넣지 않았다(비어 있으면 지금처럼 공용 키).
+- `routerStatus`: BE `AdminAiChatStatsService`가 이미 읽고 형식이 어긋나면 null로 처리한다 - 확인 종결.
+- L-3: Notion "DMU / 인프라 전달 내용"에 요청 페이지 작성(nginx `reservation.dmu.gosky.kr`의 `/admin/` → 6017 옛 설정 정리).
+- 전체 pytest 2680 passed · 6 skipped · 실패 0. BE `docs/audit-index.md`·`progress.md` 기록.
