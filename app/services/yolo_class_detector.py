@@ -133,8 +133,8 @@ class YoloClassDetector:
         except Exception as exc:  # noqa: BLE001
             self._model = None
             self._loaded = False
-            self._load_error = str(exc)
-            _LOG.exception("%s 모델 로드 실패: %s", self.NAME, exc)
+            self._load_error = type(exc).__name__
+            _LOG.error("%s 모델 로드 실패: %s", self.NAME, type(exc).__name__)
 
     def detect_from_jpeg(self, frame_bytes: bytes) -> dict[str, Any]:
         """JPEG 프레임 1장 분석. 반환 형태는 FireSmokeDetectionService.detect_from_jpeg 와 같다.
@@ -184,9 +184,9 @@ class YoloClassDetector:
                     verbose=False,
                 )
         except Exception as exc:  # noqa: BLE001
-            _LOG.exception("%s 추론 실패: %s", self.NAME, exc)
+            _LOG.error("%s 추론 실패: %s", self.NAME, type(exc).__name__)
             base["detectedType"] = "unknown"
-            base["loadError"] = str(exc)
+            base["loadError"] = type(exc).__name__
             return base
 
         frame_h, frame_w = frame.shape[:2]

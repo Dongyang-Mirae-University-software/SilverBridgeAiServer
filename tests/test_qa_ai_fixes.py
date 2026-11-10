@@ -281,3 +281,11 @@ def test_member_id_column_upgrade_alters_only_integer_columns_on_postgres() -> N
     again = _FakeEngine("postgresql", {"chat_logs": "character varying", "reservation_credentials": "character varying"})
     assert upgrade_member_id_columns(again) == []  # type: ignore[arg-type]  (멱등)
     assert upgrade_member_id_columns(_FakeEngine("sqlite", {})) == []  # type: ignore[arg-type]
+
+
+def test_access_log_redacts_user_ids_in_query_but_keeps_path_session() -> None:
+    text = 'GET /api/v1/ws/live/ward_abc123?userId=user-77&guardianId=g-1&wardId=w-2&x=1 HTTP/1.1'
+    out = redact_api_key(text)
+    assert "user-77" not in out and "g-1" not in out and "w-2" not in out
+    assert "userId=***&guardianId=***&wardId=***&x=1" in out
+    assert "/ward_abc123" in out  # 경로의 세션 ID 는 운영 진단용

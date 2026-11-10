@@ -123,3 +123,19 @@ def test_crisis_continuation_judges_this_sentence(env) -> None:
     assert plain_turn["emergencyWarning"] == OWN_SPLIT and meta["selfHarm"] is True and meta["selfHarmFamily"] is False
     _assert_shape(family_turn)
     _assert_shape(plain_turn)
+
+
+@pytest.mark.parametrize("message, warning", [
+    ("엄마가 요즘 많이 힘들어하세요", FAMILY_WARNING),
+    ("요즘 너무 힘들어요", OWN_SPLIT),
+])
+def test_router_self_harm_flag_turn_uses_family_box_by_subject(env, message: str, warning: list[str]) -> None:
+    """라우터가 정상 응답했고 self_harm 칸으로 위기가 된 턴(키워드 없음)도 박스 문구는 주어로 고른다(L-6)."""
+    env.router = _FlagRouter(self_harm=True, summary="위기")
+    out = _send(env, message)
+    meta = _last_meta(env)
+    assert meta["selfHarmTrigger"] == "router"
+    assert out["emergencyWarning"] == warning
+    assert meta["selfHarmFamily"] is (warning == FAMILY_WARNING)
+    _assert_shape(out)
+    assert env.llm.calls == 0
