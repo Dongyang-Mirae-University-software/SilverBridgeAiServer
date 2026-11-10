@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core.config import get_settings
+from app.core.security import api_key_matches
 from app.database.session import SessionLocal
 from app.services.live_ws_manager import live_ws_manager
 from app.services.stream_session_service import StreamSessionService, frame_store
@@ -26,7 +27,7 @@ async def live_websocket(websocket: WebSocket) -> None:
         token = websocket.query_params.get("apiKey")
         client = websocket.client.host if websocket.client else "-"
         _LOG.warning("[WS-QUERY-KEY] 쿼리 파라미터 API 키 접속(헤더 x-api-key 로 전환 필요) client=%s", client)
-    if not settings.api_key or token != settings.api_key:
+    if not api_key_matches(token, settings.api_key):
         await websocket.close(code=1008, reason="AUTH_INVALID_KEY")
         return
 
