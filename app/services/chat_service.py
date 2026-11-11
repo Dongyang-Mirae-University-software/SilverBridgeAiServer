@@ -761,7 +761,8 @@ class ChatService:
             "engine": result.get("engine", "fallback"),
             "modelName": result.get("modelName"),
             "type": result.get("type", "message"),
-            "ui": result.get("ui"),
+            # 대상 질문 선택지의 이름·관계는 기록에 남기지 않는다(BE 2026-11-11 점검 M-1) - 응답의 ui 는 그대로
+            "ui": reservation_target.persistable_ui(result.get("ui")),
             "tool": result.get("tool"),
             "data": result.get("data"),
             "summary": result.get("summary"),
@@ -1729,8 +1730,9 @@ class ChatService:
     @staticmethod
     def _proxy_ward_ids(context_json: str | None) -> set[str]:
         """기록이 대리 상담한 피보호자 ID(router.wardId·userContext.wardId) + 그 행에 든 예약 초안의 피보호자
-        (flowState.wardId·pendingAction.wardId - 다른 피보호자 표시 행에 복사된 초안도 지우게, 2차 전체 점검 I-3).
-        형식이 이상하면 빈 집합."""
+        (flowState.wardId·pendingAction.wardId - 다른 피보호자 표시 행에 복사된 초안도 지우게, 2차 전체 점검 I-3)
+        + "누구의 병원 예약인가요?" 질문 행의 선택지 피보호자(reservationTargetAsk.wardIds - 보호자 본인 상담 행이라
+        이것을 보지 않으면 떠난 피보호자의 ID가 남는다, BE 2026-11-11 점검 M-1). 형식이 이상하면 빈 집합."""
         try:
             ctx = json.loads(context_json or "{}")
         except ValueError:
@@ -1741,7 +1743,8 @@ class ChatService:
         router = meta.get("router") if isinstance(meta.get("router"), dict) else {}
         user_context = ctx.get("userContext") if isinstance(ctx.get("userContext"), dict) else {}
         drafts = [meta[k].get("wardId") for k in ("flowState", "pendingAction") if isinstance(meta.get(k), dict)]
-        return {str(v) for v in (router.get("wardId"), user_context.get("wardId"), *drafts) if v}
+        asked = reservation_target.ask_ward_ids(meta)
+        return {str(v) for v in (router.get("wardId"), user_context.get("wardId"), *drafts, *asked) if v}
 
     @staticmethod
     def list_logs(db: Session, user_id: str | None = None) -> list[dict]:

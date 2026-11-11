@@ -57,6 +57,31 @@ def option_label(ward: GuardianWard) -> str:
     return f"{name}({relation})" if relation else name
 
 
+# 기록에 남기는 선택지 표시 글자. 이름·관계를 남기지 않는다(BE 2026-11-11 영향 범위 점검 M-1).
+STORED_OPTION_LABEL = "피보호자"
+
+
+def persistable_ui(ui: Any) -> Any:
+    """챗 기록(context_json)에 저장할 ui. 대상 질문이면 선택지 표시 글자(이름·관계)를 "피보호자"로 바꾼다.
+    대상 질문 행은 보호자 본인 상담 기록이라, 표시 글자를 그대로 두면 그 피보호자가 탈퇴하거나 연결을 끊은 뒤에도
+    이름이 남고 BE 기록 응답(ui 허용)으로 보인다. 선택 턴은 upstreamMeta.reservationTargetAsk.wardIds 만 읽으므로 동작은 같다.
+    응답으로 나가는 ui 는 바꾸지 않는다(지금 고르는 사람에게는 이름이 필요하다)."""
+    data = ui.model_dump() if hasattr(ui, "model_dump") else ui
+    if not isinstance(data, dict) or data.get("field") != TARGET_FIELD:
+        return ui
+    options = data.get("options") if isinstance(data.get("options"), list) else []
+    return {**data, "options": [
+        {**opt, "label": STORED_OPTION_LABEL} if isinstance(opt, dict) else opt for opt in options
+    ]}
+
+
+def ask_ward_ids(meta: Any) -> list[str]:
+    """기록 upstreamMeta 의 대상 질문에 든 피보호자 ID(탈퇴·연결 해제 정리 대상 판정용). 없으면 빈 목록."""
+    ask = meta.get("reservationTargetAsk") if isinstance(meta, dict) else None
+    ids = ask.get("wardIds") if isinstance(ask, dict) else None
+    return [w for w in ids if isinstance(w, str) and w] if isinstance(ids, list) else []
+
+
 def _base(reply: str, model_name: str | None, meta: dict[str, Any], intent: str = "hospital_reservation") -> dict[str, Any]:
     return {
         "reply": reply,
