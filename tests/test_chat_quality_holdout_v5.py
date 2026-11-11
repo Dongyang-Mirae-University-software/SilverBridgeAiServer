@@ -45,7 +45,12 @@ def test_rule10_units() -> None:
 
 def test_examples_two_sentences_no_119_no_verdict() -> None:
     ex1 = _example('{"empathy": "허리가')
-    assert "2주 넘게" in ex1 and "다리가 저려 오면" in ex1 and "119" not in ex1
+    assert "119" not in ex1
+    # 2026-11-11: 예시 둘째 문장의 다른 몸 부위(다리 저림)가 다른 증상 답으로 복사됐다 - 몸 부위가 없는 신호로 바꿨다
+    ex1_advice = ex1.split('"advice": "')[1].split('"')[0]
+    assert "2주 넘게" in ex1_advice and "통증이 점점 심해지면" in ex1_advice  # 기간 기준은 남긴다(구체 기준)
+    for copied in ("다리", "저려", "저림"):
+        assert copied not in ex1_advice
     ex2 = _example('{"empathy": "관절약')
     assert "부작용" in ex2 and "약사" in ex2
     for banned in ("119", "드셔도 돼요", "드셔도 괜찮", "끊으", "줄이", "늘리"):

@@ -1,0 +1,1241 @@
+{
+ "version": "holdout-v6",
+ "created": "2026-11-11",
+ "purpose": "생성 프롬프트 예시 베끼기(질문에 없는 신체 부위·증상 낱말) 측정 - 신체 부위가 다양한 비응급 일반 증상, 같은 상황을 피보호자 본인(WARD)·보호자 대리(GUARDIAN) 두 말투로",
+ "sources": "코드·기존 시험지(eval v1~v7·holdout v1~v5)·qa 32를 보지 않은 에이전트(Opus)가 작성. 허리 통증·다리 저림·약 용량 질문·응급 신호는 넣지 않았다(예시 1·2와 겹치지 않게)",
+ "excluded": "기존 897문항과 글자 2개 단위 유사도 0.4 이상 제외: 없음",
+ "items": [
+  {
+   "id": "h6.S01w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "머리",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "사흘째 오후만 되면 머리가 지끈지끈해요 왜그런가요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S01g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "머리",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "어머니가 사흘째 오후만 되면 머리가 지끈거린대요. 왜 그럴까요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S02w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "머리",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "아침에 일어나면 뒷머리가 묵직하고 띵해요 한달 됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S02g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "머리",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아버지가 한 달 전부터 아침에 일어나면 뒷머리가 묵직하고 띵하다세요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S03w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "눈",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "요즘 신문 글씨가 침침해서 잘 안보여요 저녁엔 더해요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S03g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "눈",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "엄마가 요즘 신문 글씨가 침침하대요. 저녁이 되면 더 안 보이신대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S04w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "눈",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "이틀째 눈이 벌겋고 아침에 눈곱이 많이 껴요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S04g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "눈",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아버지 눈이 이틀째 벌겋고 아침마다 눈곱이 많이 낀다고 하세요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S05w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "귀",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "오른쪽 귀가 며칠째 먹먹해요 물들어간것처럼요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S05g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "귀",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "어머니가 며칠째 오른쪽 귀가 물 들어간 것처럼 먹먹하시대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S06w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "귀",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "밤에 조용하면 귀에서 매미소리가 나요 두어달 됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S06g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "귀",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아빠가 두어 달 전부터 밤에 조용하면 귀에서 매미 소리가 난대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S07w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "코",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "찬바람 쐬면 콧물이 줄줄 나요 감기는 아닌거같고",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S07g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "코",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "엄마가 찬바람만 쐬면 콧물이 줄줄 난대요. 감기는 아닌 것 같아요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S08w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "코",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "밤에 누우면 코가 막혀서 입벌리고 자요 열흘쯤 됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S08g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "코",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아버지가 열흘쯤 전부터 밤에 누우면 코가 막혀 입을 벌리고 주무세요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S09w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "입",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "자고 일어나면 입이 바짝 말라서 혀가 붙어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S09g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "입",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "시어머니가 자고 일어나면 입이 바짝 말라 혀가 붙는다고 하세요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S10w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "혀",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "혓바늘이 돋아서 밥먹을때 따가워요 나흘째예요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S10g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "혀",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "어머니가 나흘째 혓바늘이 돋아서 식사하실 때 따가우시대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S11w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "잇몸",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "양치할때마다 잇몸에서 피가 살짝 나요 붓기도 하고",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S11g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "잇몸",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아버지가 양치하실 때마다 잇몸에서 피가 살짝 나고 좀 부으셨대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S12w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "치아",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "찬물 마시면 아랫니가 시려요 한달 전부터요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S12g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "치아",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "엄마가 한 달 전부터 찬물을 드시면 아랫니가 시리대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S13w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "목구멍",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "아침마다 목이 따끔따끔해요 낮엔 괜찮아지고요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S13g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "목구멍",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아빠가 아침마다 목이 따끔거리신대요. 낮에는 괜찮아지신대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S14w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "목구멍",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "목에 뭐가 걸린것같고 칼칼해요 사흘 됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S14g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "목구멍",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "어머니가 사흘째 목에 뭐가 걸린 것 같고 칼칼하다고 하세요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S15w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "목 뒤",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "텔레비전 오래보면 목뒤가 뻐근하고 당겨요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S15g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "목 뒤",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아버지가 텔레비전을 오래 보시면 목 뒤가 뻐근하고 당긴대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S16w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "어깨",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "왼쪽 어깨가 쑤셔서 팔을 위로 못올리겠어요 보름째요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S16g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "어깨",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "엄마가 보름째 왼쪽 어깨가 쑤셔서 팔을 위로 못 올리세요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S17w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "어깨",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "밤에 옆으로 누우면 어깨가 아파서 자꾸깨요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S17g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "어깨",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "시아버지가 밤에 옆으로 누우시면 어깨가 아파서 자꾸 깨신대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S18w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "팔꿈치",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "걸레 짜면 팔꿈치 바깥쪽이 찌릿해요 두주 됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S18g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "팔꿈치",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "어머니가 2주 전부터 걸레를 짜실 때 팔꿈치 바깥쪽이 찌릿하대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S19w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "손목",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "밭일하고 나서 손목이 시큰거려요 병뚜껑 따기 힘들어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S19g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "손목",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아버지가 밭일 후 손목이 시큰거려서 병뚜껑을 따기 힘드시대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S20w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "손가락",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "아침에 손가락이 뻣뻣해서 주먹이 잘 안쥐어져요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S20g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "손가락",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "엄마가 아침마다 손가락이 뻣뻣해서 주먹이 잘 안 쥐어진대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S21w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "손가락",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "손가락 마디가 굵어지고 구부리면 뚝 소리가나요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S21g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "손가락",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아버지 손가락 마디가 굵어지고 구부리면 뚝 소리가 난대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S22w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "가슴 피부",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "가슴팍 살갗이 밤마다 가려워서 긁어요 빨갛진 않아요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S22g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "가슴 피부",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "어머니가 밤마다 가슴 쪽 살갗이 가려워 긁으세요. 빨갛진 않대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S23w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "등",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "날개뼈 사이 등이 결리고 뻐근해요 며칠째요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S23g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "등",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아빠가 며칠째 날개뼈 사이 등이 결리고 뻐근하다고 하세요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S24w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "옆구리 피부",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "옆구리에 좁쌀같은게 오돌토돌 났어요 안아프고 좀가려워요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S24g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "옆구리 피부",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "엄마 옆구리에 좁쌀 같은 게 오돌토돌 났대요. 안 아프고 좀 가렵대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S25w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "배",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "밥먹고나면 배가 더부룩하고 가스가 차요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S25g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "배",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아버지가 식사 후에 배가 더부룩하고 가스가 찬다고 하세요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S26w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "배",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "빈속이면 명치쪽 속이 쓰려요 커피마시면 더하고요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S26g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "배",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "어머니가 빈속일 때 속이 쓰리시대요. 커피를 드시면 더하시대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S27w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "소변",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "밤에 오줌 누러 서너번씩 깨요 두달쯤 됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S27g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "소변",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아버지가 두 달쯤 전부터 밤에 소변 보러 서너 번씩 깨세요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S28w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "아랫배",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "낮에도 소변이 자주마려운데 막상 가면 조금나와요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S28g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "아랫배",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "엄마가 낮에도 소변이 자주 마려운데 막상 가면 조금 나온대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S29w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "변",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "변을 나흘째 못봤어요 배가 살살 불편해요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S29g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "변",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "어머니가 나흘째 변을 못 보셨어요. 배가 살살 불편하시대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S30w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "변",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "어제부터 묽은변을 세번 봤어요 열은 없어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S30g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "변",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아빠가 어제부터 묽은 변을 세 번 보셨대요. 열은 없으세요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S31w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "꼬리뼈",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "딱딱한 의자에 앉으면 꼬리뼈가 콕콕 쑤셔요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S31g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "꼬리뼈",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "시어머니가 딱딱한 의자에 앉으시면 꼬리뼈가 콕콕 쑤신대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S32w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "무릎",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "계단 내려갈때 무릎이 시큰해요 올라갈땐 괜찮고",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S32g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "무릎",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "엄마가 계단을 내려가실 때 무릎이 시큰하대요. 올라갈 땐 괜찮으시대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S33w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "무릎",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "비오는날이면 무릎이 붓고 뻑뻑해요 한달전부터요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S33g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "무릎",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아버지가 한 달 전부터 비 오는 날이면 무릎이 붓고 뻑뻑하시대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S34w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "종아리",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "새벽에 종아리에 쥐가나서 깨요 이번주만 세번이에요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S34g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "종아리",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "어머니가 새벽에 종아리에 쥐가 나서 깨세요. 이번 주만 세 번이래요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S35w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "발목",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "그저께 문턱에서 발목을 접질렸는데 살짝 부었어요 걸을만해요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S35g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "발목",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아빠가 그저께 문턱에서 발목을 접질려 살짝 부었대요. 걸을 만하시대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S36w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "발뒤꿈치",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "아침에 첫발 디딜때 뒤꿈치가 찌릿해요 걷다보면 나아요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S36g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "발뒤꿈치",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "엄마가 아침 첫발 디딜 때 뒤꿈치가 찌릿하대요. 걷다 보면 나아진대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S37w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "발가락",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "발가락 사이가 허옇게 갈라지고 가려워요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S37g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "발가락",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아버지 발가락 사이가 허옇게 갈라지고 가렵다고 하세요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S38w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "발톱",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "엄지발톱이 누렇고 두꺼워져서 깎기가 힘들어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S38g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "발톱",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "어머니 엄지발톱이 누렇고 두꺼워져서 깎기가 힘드시대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S39w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "피부",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "겨울되니 정강이 살이 하얗게 일어나고 가려워요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S39g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "피부",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아빠가 겨울이 되니 정강이 살이 하얗게 일어나고 가렵대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S40w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "피부",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "목욕하고 나면 온몸이 근질근질해요 보름째예요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S40g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "피부",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "엄마가 보름째 목욕하고 나시면 온몸이 근질근질하대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S41w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "잠",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "새벽 세시만 되면 깨서 다시 잠이 안와요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S41g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "잠",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아버지가 새벽 세 시만 되면 깨서 다시 잠이 안 오신대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S42w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "기운",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "요새 통 기운이 없고 낮에 자꾸 눕고싶어요 입맛은 있어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S42g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "기운",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "어머니가 요새 기운이 없고 낮에 자꾸 누우세요. 입맛은 있으시대요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S43w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "기침",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "감기 나았는데 마른기침이 삼주째 안떨어져요 열은없어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S43g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "기침",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "아빠가 감기는 나았는데 마른기침이 3주째예요. 열은 없으세요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S44w",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "손발",
+   "role": "WARD",
+   "wardId": "h6ward",
+   "q": "여름인데도 손발이 얼음장처럼 차요 양말신고자요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  },
+  {
+   "id": "h6.S44g",
+   "set": "holdout-v6",
+   "cat": "일반 증상(신체 부위)",
+   "part": "손발",
+   "role": "GUARDIAN",
+   "wardId": "h6ward",
+   "q": "엄마가 여름인데도 손발이 얼음장처럼 차서 양말 신고 주무세요.",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "risk_not_high": true
+   }
+  }
+ ]
+}
