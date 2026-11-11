@@ -17,7 +17,14 @@ from app.services.companion.fusion import (
     fuse_turn,
 )
 from app.services.companion.llm_client import LlmClient
-from app.services.companion.reply_service import SAFETY_REPLY, ReplyResult, generate_reply, no_response_reply
+from app.services.companion.reply_service import (
+    SAFETY_REPLY,
+    ReplyResult,
+    fallback_text,
+    generate_reply,
+    is_negative_mood,
+    no_response_reply,
+)
 from app.services.companion.risk import is_risk, keyword_risk, risk_probability
 from app.services.companion.signals import extract_signals
 from app.services.companion.transcript_check import check_transcript, confirm_reply
@@ -228,14 +235,19 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
     # 위험 판정 = 낱말 규칙 또는 모델 확률 (모델이 꺼져 있어도 낱말 규칙으로 알린다)
     model_flag = is_risk(risk_prob) if risk_prob is not None else bool((signals or {}).get("riskFlag"))
     risk_flag = keyword_risk(transcript) or model_flag
+    if turn_result is None:  # risk_first 가 꺼져 있으면 여기서 글 기분을 만든다 (대체 문장 고르기에 쓴다)
+        turn_result = analyze_turn_result(transcript, face, classify_text, text_out=text_mood)
+    if reply.source == "FALLBACK" and not is_last_turn and is_negative_mood(text_mood):
+        # 11/11: 힘든 이야기에 대체 문장이 나가면 공감 문장으로 받는다 (화제를 바꾸지 않는다)
+        reply = ReplyResult(text=fallback_text(turn_no, is_last_turn, negative=True), isFollowUp=reply.isFollowUp,
+                            source=reply.source, failures=reply.failures)
     if risk_flag:
         # 위험 신호가 켜지면 평소 대답 대신 안내 문장으로 답한다 (식사 질문 등으로 넘기지 않는다)
         reply = ReplyResult(text=SAFETY_REPLY, isFollowUp=reply.isFollowUp, source="SAFETY", failures=reply.failures)
     if signals is not None:
         signals = {**signals, "riskFlag": risk_flag}
     return {
-        "turnResult": turn_result if turn_result is not None
-        else analyze_turn_result(transcript, face, classify_text, text_out=text_mood),
+        "turnResult": turn_result,
         "textMood": text_mood or None,
         "reply": {"text": reply.text, "isFollowUp": reply.isFollowUp},
         "signals": signals,

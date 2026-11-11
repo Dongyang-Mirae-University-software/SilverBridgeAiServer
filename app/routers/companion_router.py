@@ -140,7 +140,8 @@ def _avoid_repeat(d: Dialogue, result: dict, is_last_turn: bool) -> dict:
     # 되묻는 문장·안전 안내 문장은 반복돼도 그대로 둔다. 바꾸면 못 알아들은 말·위험한 말에 평범한 대답을 하게 된다 (11/09 점검 H-1·H-2)
     keep = get_settings().companion_keep_fixed_replies and result.get("replySource") in ("CONFIRM", "SAFETY")
     if text in d.replies and not keep:
-        candidates = reply_service.FALLBACK_LAST if is_last_turn else reply_service.FALLBACK_FOLLOWUP
+        # 부정 기분 턴이면 공감 문장 가운데서 바꾼다 (11/11, 화제를 바꾸는 문장으로 되돌아가지 않게)
+        candidates = reply_service.fallback_options(is_last_turn, reply_service.is_negative_mood(result.get("textMood")))
         unused = [c for c in candidates if c not in d.replies]
         if unused:
             result["reply"] = {"text": unused[0], "isFollowUp": not is_last_turn}
