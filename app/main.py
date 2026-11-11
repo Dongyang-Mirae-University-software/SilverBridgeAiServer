@@ -116,7 +116,12 @@ async def lifespan(_: FastAPI):
             else:
                 _LOG.error("[MEDGEMMA-STARTUP-FAILED] stage=load - 상담은 대체 응답으로 나간다(이상감지는 정상 기동)")
         except Exception as exc:  # noqa: BLE001 - 상담 모델 문제로 감지·예약·받아쓰기까지 내리지 않는다
-            _LOG.error("[MEDGEMMA-STARTUP-FAILED] stage=warmup type=%s - 상담은 대체 응답으로 나간다", type(exc).__name__)
+            # 원인 위치(파일:줄, 가장 안쪽 프레임부터 3개)만 남긴다 - 2026-11-11 torch 2.13 시도 때 클래스명만으로는 어느 라이브러리
+            # 문제인지 가릴 수 없었다. 예외 문구는 남기지 않는다.
+            _LOG.error(
+                "[MEDGEMMA-STARTUP-FAILED] stage=warmup type=%s at=%s - 상담은 대체 응답으로 나간다",
+                type(exc).__name__, _exception_frames(exc),
+            )
     else:
         _LOG.info("MEDGEMMA_ENABLED=false - MedGemma 를 올리지 않는다")
     get_medication_ocr_service()  # 모델 설정 확인(haiku 면 기동 시 경고 후 sonnet 대체)
@@ -127,6 +132,18 @@ async def lifespan(_: FastAPI):
     if torch is not None and torch.cuda.is_available():
         torch.cuda.empty_cache()
     gc.collect()
+
+
+def _exception_frames(exc: BaseException, limit: int = 3) -> str:
+    """예외가 난 곳의 파일:줄을 안쪽 프레임부터 limit 개. 문구·값은 넣지 않는다."""
+    frames: list[str] = []
+    tb = exc.__traceback__
+    while tb is not None:
+        code = tb.tb_frame.f_code
+        parts = code.co_filename.replace("\\", "/").split("/")
+        frames.append(f"{'/'.join(parts[-2:])}:{tb.tb_lineno}")
+        tb = tb.tb_next
+    return " < ".join(reversed(frames[-limit:])) or "?"
 
 
 def _startup_housekeeping() -> None:
