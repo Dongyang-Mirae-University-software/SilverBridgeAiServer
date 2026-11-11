@@ -239,7 +239,8 @@ class ChatService:
         # 직전 턴이 같은 상담(세션·피보호자)의 되묻기였는가(C-1) - 이번 턴은 되묻지 않고 앞 질문과 이어 답한다.
         after_followup = self._previous_turn_was_followup(latest_log, session_id, ward_id)
         # 단계 되묻기(2026-11-09)의 진행 상태 - 서버가 쓴 직전 기록에서만 읽는다(요청 값은 보지 않는다). 옛 되묻기 기록이면 None.
-        step_state = self._previous_followup_step(latest_log, session_id, ward_id) if after_followup else None
+        # 단계 문답은 피보호자 본인(WARD)만(2026-11-11 사용자 결정) - 보호자 상담은 옛 한 번 되묻기 이어 붙이기(_followup_answer_text)로.
+        step_state = self._previous_followup_step(latest_log, session_id, ward_id) if after_followup and ward_reader else None
         # 그 되묻기를 시작한 증상 문장 - 시작 기준(anchorLogId) 뒤 첫 사용자 문장, 옛 상태면 이력에서 턴 수만큼 앞(I-4).
         step_symptom = self._step_symptom(step_state, history, rows=recent_logs, session_id=session_id, ward_id=ward_id)
         # 단계 되묻기 답이 질문 낱말을 부정으로 되받아("숨쉬기 힘들지 않아요") 키워드 응급 강제를 건너뛴 턴인가(I-5).
@@ -519,7 +520,7 @@ class ChatService:
                 # 정보가 부족한 일반 증상 한마디 - 언제부터·얼마나·동반 증상을 한 번 묻는다(C-1, MedGemma 를 부르지 않는다).
                 proxy = self._is_proxy(payload, message)
                 _LOG.info("[CHAT-QUALITY] followup_asked=true proxy=%s", proxy)
-                result = MedicalLlmService.followup_question_response(message, proxy=proxy)
+                result = MedicalLlmService.followup_question_response(message, proxy=proxy, steps=ward_reader)
                 new_step = result.get("meta", {}).get("followupStep") if isinstance(result.get("meta"), dict) else None
                 if isinstance(new_step, dict):
                     # 증상 문장을 찾는 고정 기준(I-4): 이 턴 직전까지의 마지막 기록 ID. 이 뒤 첫 사용자 문장이 증상 문장이다.
@@ -534,6 +535,13 @@ class ChatService:
                     else:
                         llm_intent = "general_chat"
                     processed_symptom = route_info.get("symptom_summary") if route_info["route"] == "symptom" else None
+                    if (llm_intent == "medical_advice" and not route_info.get("self_harm")
+                            and not MedicalLlmService.self_harm_signals(message) and chat_keywords.is_department_info_question(message)):
+                        # 진료과 정보 질문("신경과는 어떤 검사를 받나요?", 2026-11-11 ③) - 증상 요약 틀(공감·증상·권고)이면
+                        # 앞 상담 증상을 다시 요약하고 진료를 권하는 엉뚱한 답이 된다. 질문에 바로 답하는 일반 대화 틀로.
+                        # 응급(emergency_guidance)·위험 신호·예약 낱말은 위 판정 그대로다. 되묻기 답 턴은 아래에서 다시 medical_advice.
+                        _LOG.info("[CHAT-QUALITY] department_info_question=true")
+                        llm_intent, processed_symptom = "general_chat", None
                     if step is not None and step[0] == "generate":
                         step_generate = step[1]
                     followup_answer = (
@@ -554,8 +562,8 @@ class ChatService:
                         processed_symptom=processed_symptom,
                         proxy=(step_generate[2] if step_generate else False) or self._is_proxy(payload, proxy_text),
                         # WARD 일 때만 넘긴다 - 보호자·role 없음 호출은 이전과 글자 그대로(인자 모양도 같다).
-                        # 단계 되묻기 결과 턴은 보호자 경로도 짧게(2026-11-09 사용자 결정 - 모델 3문장·120자).
-                        **({"concise": True} if ward_reader or step_generate else {}),
+                        # 단계 되묻기는 WARD 만 타므로 결과 턴도 WARD 만 짧다(2026-11-11 - 보호자는 #196 이전 긴 답 그대로).
+                        **({"concise": True} if ward_reader else {}),
                         **self._router_hints(route_info),
                     )
                     timing["llmMs"] = _elapsed_ms(llm_started)
@@ -623,7 +631,7 @@ class ChatService:
         # 답 모양(2026-11-01 가독성): 모든 판정·고정 문장·이어서 물어볼 질문이 끝난 뒤 모양만 바꾼다(문장 뜻·판정 값 그대로).
         # 피보호자 본인(WARD)이면 같은 자리에서 모델 문장만 줄인다 - 119·109·고정 문장·과 안내 핵심 줄·되묻기는 그대로.
         chat_layout.apply(
-            result, DRUG_ALCOHOL_SENTENCES, concise=ward_reader or bool(step_generate), emoji=bool(getattr(self._settings, "chat_layout_emoji", False))
+            result, DRUG_ALCOHOL_SENTENCES, concise=ward_reader, emoji=bool(getattr(self._settings, "chat_layout_emoji", False))
         )
         post_started = time.perf_counter()
         if route_info:
@@ -1339,7 +1347,12 @@ class ChatService:
     def _department_question_reply(message: str, history: list[dict[str, str]], fallback_symptom: str = "") -> dict | None:
         """"무슨 과로 가야 해?"에는 직전 상담에서 권한 진료과를 한 줄로 답한다(같은 상담 답변을 반복하지 않게).
         단계 되묻기 도중(직전 답이 질문 하나라 진료과가 없다)이면 처음 증상 문장의 진료과로 답한다(2026-11-09 점검 M-2)."""
-        if not re.search(r"(무슨|어느|어떤)\s*과", message or ""):
+        compact = chat_keywords.compact(message or "")
+        asked = re.search(r"(무슨|어느|어떤)과", compact)
+        if not asked:
+            return None
+        # "어떤 과에 가서 무엇을 준비하나요?"처럼 과 뒤에 검사·문진·준비·비용을 묻는 말이 오면 어디로 가나 질문이 아니다(2026-11-11 ③).
+        if chat_keywords.department_info_ask_after(message, asked.end()):
             return None
         last_assistant = next((h.get("content", "") for h in reversed(history) if h.get("role") == "assistant"), "")
         department = _find_department(last_assistant) or (chat_keywords.symptom_department(fallback_symptom) if fallback_symptom else None)

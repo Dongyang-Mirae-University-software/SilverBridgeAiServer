@@ -151,6 +151,7 @@ def _low_confidence_turn(transcript: str, llm: LlmClient) -> dict:
         "summary": None,
         "needsCheck": True,
         "riskFlag": risk_flag,
+        "riskProbability": risk_prob,  # 모델 위험 확률 (계산 못 했으면 None) - 턴 응답용, 저장·로그 없음
         # 확신도가 낮아 되물은 턴 (연속 종료 횟수용, 응답에는 싣지 않는다). 위험 턴은 안전 안내가 우선이라 세지 않는다
         "lowConfidence": not risk_flag,
     }
@@ -163,10 +164,12 @@ def _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_s
         # 실제 단어가 아닐 수 있는 말이 있으면 뜻을 추측하지 않는다: 감정·신호·대답을 만들지 않고 다시 확인한다
         if get_settings().companion_confirm_risk_model:
             # 11/10 점검 H-3: 확인 턴에서도 위험 모델을 돌리고, 위험이면 되묻는 대신 안전 안내로 답한다 (확신도 낮은 턴과 같은 규칙)
-            risk_flag = keyword_risk(transcript) or is_risk(_risk_prob_capped(llm, transcript))
+            risk_prob = _risk_prob_capped(llm, transcript)
+            risk_flag = keyword_risk(transcript) or is_risk(risk_prob)
             reply_text, source = (SAFETY_REPLY, "SAFETY") if risk_flag else (confirm_reply(check), "CONFIRM")
         else:
             risk_flag, reply_text, source = keyword_risk(transcript), confirm_reply(check), "CONFIRM"  # 낱말 규칙만 (#206)
+            risk_prob = None  # 모델을 돌리지 않았다
         return {
             "turnResult": {"label": UNDECIDED, "source": "TEXT"},
             "reply": {"text": reply_text, "isFollowUp": True},
@@ -175,6 +178,7 @@ def _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_s
             "summary": None,
             "needsCheck": True,
             "riskFlag": risk_flag,
+            "riskProbability": risk_prob,
         }
     return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no)
 
@@ -238,6 +242,8 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
         "replySource": reply.source,
         "summary": summary,  # 대답 원문 대신 저장하는 한 줄 요약 (보호자 화면용)
         "riskFlag": risk_flag,  # 대화 한 번의 위험 여부 (낱말 규칙 또는 모델. 신호 추출이 실패해도 판정한다)
+        # 모델 위험 확률만 (낱말 규칙·signals 대체 판정은 섞지 않는다). 계산 못 했거나 시간 초과면 None. 저장·로그 없음
+        "riskProbability": risk_prob,
     }
 
 
@@ -249,6 +255,7 @@ def run_no_response_turn(turn_no: int, is_last_turn: bool) -> dict:
         "reply": {"text": reply.text, "isFollowUp": reply.isFollowUp},
         "signals": None,
         "replySource": reply.source,
+        "riskProbability": None,  # 무응답 턴은 위험 모델을 돌리지 않는다
     }
 
 

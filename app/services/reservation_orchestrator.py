@@ -15,7 +15,7 @@ from app.schemas.chat_schema import ChatRequest, UiOption, UiPayload
 from app.services.claude_structured_client import ClaudeStructuredClient, failure_cause
 from app.services.chat_deadline import ChatDeadlineExceeded
 from app.services.reservation_api_client import ReservationApiClient
-from app.services.reservation_common import _date_choice_label, _date_label, _digits, _phone_last4, _trace, with_demo_notice
+from app.services.reservation_common import _date_choice_label, _date_label, _digits, _phone_last4, _trace
 from app.services.reservation_confirm_flow import (
     CONFIRM_FIELDS,
     DEPARTMENT_NOT_OFFERED_FLAG,
@@ -886,7 +886,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
                             options=options,
                         )
                     return {
-                        "reply": with_demo_notice("예약 목록을 불러왔습니다. 확인할 예약을 선택해 주세요."),
+                        "reply": "예약 목록을 불러왔습니다. 확인할 예약을 선택해 주세요.",
                         "riskLevel": "medium",
                         "recommendedAction": "guardian_contact",
                         "reservationRequired": True,
@@ -963,7 +963,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
             if 200 <= st < 300 and isinstance(data, dict):
                 data = self._shape_reservation_row(data)
                 return {
-                    "reply": with_demo_notice("예약 상세를 불러왔습니다."),
+                    "reply": "예약 상세를 불러왔습니다.",
                     "riskLevel": "medium",
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,
@@ -1012,7 +1012,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
                 data = [self._shape_reservation_row(item) for item in data if isinstance(item, dict)]
                 _trace(meta, "reservation_lookup_success", count=len(data))
                 return {
-                    "reply": with_demo_notice("예약 내역을 불러왔습니다."),
+                    "reply": "예약 내역을 불러왔습니다.",
                     "riskLevel": "medium",
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,
@@ -1237,7 +1237,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
             if len(unique_rows) > 1:
                 _trace(meta, "hospital_selection_needed", candidate_count=len(unique_rows))
                 return {
-                    "reply": with_demo_notice(f"{region} 기준으로 찾은 {_with_copula(draft.department or '병원')}. 예약하려면 병원을 선택해 주세요."),
+                    "reply": f"{region} 기준으로 찾은 {_with_copula(draft.department or '병원')}. 예약하려면 병원을 선택해 주세요.",
                     "riskLevel": "medium",
                     "recommendedAction": "guardian_contact",
                     "reservationRequired": True,

@@ -443,6 +443,34 @@ def is_health_lifestyle_question(text: str) -> bool:
     return bool(_LIFESTYLE_TOPIC.search(c) and _LIFESTYLE_ASK.search(c) and not _LIFESTYLE_NOT_HEALTH.search(c))
 
 
+# 진료과 정보 질문(2026-11-11): 진료과 이름(또는 "무슨/어느/어떤 과") 뒤에 그 과에서 무엇을 하는지·준비·비용을 묻는 말.
+# "신경과는 어떤 검사를 받게 되나요?" - 어디로 가나(진료과 고정 답)도, 증상 상담(증상 요약 틀)도 아니다.
+# 묻는 말이 진료과 앞에 있으면("검사 받으려면 어느 과 가요?") 어디로 가나 질문이다.
+DEPARTMENT_MENTION = re.compile(
+    r"(정신건강의학과|소아청소년과|이비인후과|가정의학과|응급의학과|재활의학과|비뇨의학과|비뇨기과|정형외과|신경외과|흉부외과|"
+    r"산부인과|소아과|피부과|신경과|치과|안과|외과|내과|(무슨|어느|어떤)과)"
+)
+_DEPARTMENT_INFO_ASK = re.compile(
+    r"검사|문진|진찰|준비|챙기|챙겨|가져가|가지고가|들고가|비용|진료비|검사비|얼마|절차|순서|오래걸|시간이걸|금식|굶|"
+    r"무엇을하|무엇을해|뭘하|뭘해|뭐하|뭐해|무슨일을|어떤걸하|어떤것을하|어떻게진료|어떻게봐|어떻게보"
+)
+
+
+def department_info_ask_after(text: str, start: int = 0) -> bool:
+    """공백 뺀 문장 c 의 start 뒤에 진료과 정보를 묻는 말이 있는가(진료과 고정 답 제외 판정)."""
+    return bool(_DEPARTMENT_INFO_ASK.search(compact(text)[start:]))
+
+
+def is_department_info_question(text: str) -> bool:
+    """진료과에서 무엇을 하는지·준비·비용을 묻는 말인가. 위험 신호·응급·예약 낱말이 있으면 False(그 판정이 먼저다).
+    자해 신호는 부르는 쪽(chat_service)이 먼저 거른다."""
+    c = compact(text)
+    m = DEPARTMENT_MENTION.search(c)
+    if not m or not _DEPARTMENT_INFO_ASK.search(c[m.end():]):
+        return False
+    return not (has_red_flag(text) or emergency_signals(text) or has_reservation_word(text))
+
+
 def has_red_flag(text: str) -> bool:
     c = _RED_FLAG_FALSE.sub(" ", compact(text))
     return any(keyword in c for keyword in RED_FLAG_KEYWORDS)

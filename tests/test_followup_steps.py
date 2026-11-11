@@ -14,7 +14,12 @@ from app.services import followup_answer_chips as fac
 from app.services import followup_steps as fs
 from app.services.chat_service import _is_closing_message
 from app.services.medical_llm_service import MedicalLlmService as M
-from tests.test_chat_followup_question import _send, env  # noqa: F401 - 같은 대화 흐름 하네스
+from tests.test_chat_followup_question import _send as _send_any, env  # noqa: F401 - 같은 대화 흐름 하네스
+
+
+def _send(env, message: str, session: str = "s1", ward: str | None = None, role: str | None = "WARD") -> dict[str, Any]:
+    """단계 문답은 피보호자 본인(role=WARD)만(2026-11-11) - 이 파일은 기본으로 WARD 로 보낸다."""
+    return _send_any(env, message, session=session, ward=ward, role=role)
 
 WARD_PROMPTS = ["머리가 아파요", "배가 아파요", "무릎이 아파요", "어지러워요"]  # FE 피보호자 기본 칩
 YN = ["네", "아니요"]
@@ -227,12 +232,13 @@ def test_closing_mid_flow_ends_steps(flow) -> None:
 
 
 def test_proxy_flow_uses_carer_wording(flow) -> None:
-    out = _send(flow, "기침이 나요", ward="ab12")
-    assert _question(out) == "숨쉬기 힘들어하세요?"
-    out = _send(flow, "아니요", ward="ab12")
+    # 피보호자 본인 화면이라도 가족이 주어인 말("엄마가 …")이면 대리 말투(proxy_subject) - 단계 표의 대리 문구.
+    out = _send(flow, "엄마가 어지러워해요")
+    assert _question(out) == "말씀이 어눌하거나 팔다리 힘이 빠지세요?"
+    out = _send(flow, "아니요")
     assert _question(out) == "언제부터 그러셨대요?" and out["suggestedQuestions"] == ["오늘부터래요", "며칠 되셨대요", "오래되셨대요"]
-    _send(flow, "며칠 되셨대요", ward="ab12")
-    _send(flow, "아니요", ward="ab12")
+    _send(flow, "며칠 되셨대요")
+    _send(flow, "아니요")
     assert flow.llm.calls[-1]["proxy"] is True and flow.llm.calls[-1]["concise"] is True
 
 
