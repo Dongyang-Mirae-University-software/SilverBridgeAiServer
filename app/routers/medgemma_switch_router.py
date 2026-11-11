@@ -51,6 +51,6 @@ async def medgemma_enable(loader=Depends(get_loader)) -> dict:
 
 @router.post("/disable", summary="MedGemma 끄기 (메모리에서 내림)")
 async def medgemma_disable(loader=Depends(get_loader)) -> dict:
-    loader.set_enabled(False)
-    await run_in_threadpool(loader.unload)
+    await run_in_threadpool(loader.set_enabled, False)
+    await run_in_threadpool(loader.unload)  # 적재 중이면 끝날 때까지 스레드에서 기다렸다가 내린다(이벤트 루프는 막지 않는다)
     return success_response("MedGemma 를 껐습니다.", _status_body(loader))
