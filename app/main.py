@@ -122,11 +122,32 @@ async def lifespan(_: FastAPI):
         _LOG.info("MEDGEMMA_ENABLED=false - MedGemma 를 올리지 않는다")
     get_medication_ocr_service()  # 모델 설정 확인(haiku 면 기동 시 경고 후 sonnet 대체)
     get_drug_name_list()  # 약 이름 허가 목록을 한 번 메모리에 올린다(없으면 WARN 후 대조 생략)
+    _startup_housekeeping()
     _start_companion_warmup()
     yield
     if torch is not None and torch.cuda.is_available():
         torch.cuda.empty_cache()
     gc.collect()
+
+
+def _startup_housekeeping() -> None:
+    """기동 때 한 번 하는 정리·경고(2026-11-10 2차 점검 A-1·P-8). 실패해도 기동은 계속한다."""
+    try:
+        from app.services.training_sample_collector import purge_expired
+
+        # 학습 샘플 보관 기한(COLLECT_RETENTION_DAYS)이 지난 날짜 폴더를 지우고 6시간 주기로 다시 본다.
+        # 예전에는 저장이 일어날 때만 정리해, 수집이 멈추면 기한이 지나도 집 안 프레임이 남았다.
+        purge_expired(start_loop=True)
+    except Exception as exc:  # noqa: BLE001
+        _LOG.warning("[COLLECT] 보관 정리 시작 실패 type=%s", type(exc).__name__)
+    try:
+        from app.core.security import admin_api_key_warning
+
+        warning = admin_api_key_warning(settings)
+        if warning:
+            _LOG.warning(warning)
+    except Exception as exc:  # noqa: BLE001
+        _LOG.warning("[SECURITY] 관리 키 확인 실패 type=%s", type(exc).__name__)
 
 
 def _start_companion_warmup() -> None:
