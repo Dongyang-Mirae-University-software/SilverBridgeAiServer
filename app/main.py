@@ -101,15 +101,25 @@ async def lifespan(_: FastAPI):
         if path:
             ensure_directory(path)
     log_gpu_status()
-    if settings.medgemma_enabled:
-        medgemma_loader = get_medgemma_loader()
-        medgemma_loader.load()
-        medgemma_loader.warmup()
-    else:
-        _LOG.info("MEDGEMMA_ENABLED=false - MedGemma 를 올리지 않는다")
+    # 탐지기를 먼저 올린다 - 이상감지는 MedGemma 와 무관하다(2026-11-10 2차 점검 R-1).
     get_fire_smoke_detector().try_load()
     get_knife_detector().try_load()
     get_fall_detector().try_load()
+    if settings.medgemma_enabled:
+        # MedGemma 가 올라가지 않아도 기동은 계속한다. 예전에는 warmup() 이 미적재 예외를 내 기동 전체가 멈추고 컨테이너가
+        # 재시작을 반복해 화재 감지까지 내려갔다. 상담은 대체 응답(응급이면 119 안내)으로 나가고, 요청이 120초 간격으로
+        # 다시 적재를 시도한다. 오류 내용은 클래스명만 남긴다(경로·토큰이 섞일 수 있다).
+        medgemma_loader = get_medgemma_loader()
+        try:
+            medgemma_loader.load()
+            if medgemma_loader.state.loaded:
+                medgemma_loader.warmup()
+            else:
+                _LOG.error("[MEDGEMMA-STARTUP-FAILED] stage=load - 상담은 대체 응답으로 나간다(이상감지는 정상 기동)")
+        except Exception as exc:  # noqa: BLE001 - 상담 모델 문제로 감지·예약·받아쓰기까지 내리지 않는다
+            _LOG.error("[MEDGEMMA-STARTUP-FAILED] stage=warmup type=%s - 상담은 대체 응답으로 나간다", type(exc).__name__)
+    else:
+        _LOG.info("MEDGEMMA_ENABLED=false - MedGemma 를 올리지 않는다")
     get_medication_ocr_service()  # 모델 설정 확인(haiku 면 기동 시 경고 후 sonnet 대체)
     get_drug_name_list()  # 약 이름 허가 목록을 한 번 메모리에 올린다(없으면 WARN 후 대조 생략)
     _start_companion_warmup()
