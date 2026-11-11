@@ -466,6 +466,11 @@ _FOLLOWUP_QUESTIONS_PROXY = (
     "· 같이 나타나는 증상(열·통증 등)이 있나요?",
 )
 _FOLLOWUP_CLOSING = "갑자기 심해지면 바로 진료를 받으세요."
+# Claude(라우터) 호출이 실패해 키워드 경로로 답한 턴의 안내(2026-11-11 사용자 승인 문구). 응급·위기 답에는 붙이지 않는다.
+# 붙이는 조건·자리는 chat_service._degraded_notice_kind / chat_layout.append_notice.
+_DEGRADED_NOTICE = "지금 일부 기능이 원활하지 않아 간단히 안내드려요. 잠시 뒤 다시 물어봐 주세요."
+# 같은 실패 턴에 예약 흐름이 글 입력을 읽지 못해 같은 칸을 다시 물을 때(버튼·달력이 있는 칸만).
+_DEGRADED_INPUT_NOTICE = "지금은 글로 쓴 내용을 읽기 어려워요. 아래 버튼으로 골라 주세요."
 
 # 진료과 정보 질문 고정 안내(2026-11-11 ③ - "신경과는 어떤 검사를 받나요?"). MedGemma 4B 는 이런 질문에 앞 상담 권고를 베끼거나
 # 지어낸 진료비 금액을 되풀이해서(DGX int8 재생) 모델을 부르지 않는다. 금액·확정 진단은 말하지 않는다. {department} 는 진료과 이름 또는 "병원".
@@ -548,6 +553,8 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_DEPT_INFO_COST": ("neutral", None),
     "_DEPT_INFO_COST_ASK": ("neutral", None),
     "_FOLLOWUP_CLOSING": ("own_variant", None),
+    "_DEGRADED_NOTICE": ("neutral", None),
+    "_DEGRADED_INPUT_NOTICE": ("neutral", None),
     "_DRUG_ALCOHOL_RULES.diabetes": ("self", "어르신이 당뇨약을 드시는 중에 술을 드시면 저혈당(식은땀·떨림·어지럼)이 늦게 올 수 있어요. 드시기 전에 의사·약사와 꼭 상의해 주세요."),
     "_DRUG_ALCOHOL_RULES.sedative": ("self", "어르신이 수면제나 안정제를 술과 함께 드시면 숨이 약해지거나 깨어나기 어려울 만큼 위험할 수 있어요. 술과 함께 드시지 않게 해 주세요."),
     "_DRUG_ALCOHOL_RULES.acetaminophen": ("self", "어르신이 타이레놀(아세트아미노펜)을 드시는 중에 술을 드시면 간이 상할 수 있어요. 함께 드시지 않게 해 주시고, 술을 자주 드시면 의사·약사와 상의해 주세요."),
@@ -613,6 +620,8 @@ FIXED_SENTENCES: tuple[FixedSentence, ...] = tuple(
     + [u.sentence for u in _URGENT_CONDITIONS]
 )
 assert len(FIXED_SENTENCES) == len(_SENTENCE_TABLE)
+# 라우터 실패 안내(기록 meta.degradedNotice 값 -> 문장). 본문은 기록 meta 에 남기지 않고 값만 남긴다.
+DEGRADED_NOTICES: dict[str, str] = {"router": str(_DEGRADED_NOTICE), "reservation-input": str(_DEGRADED_INPUT_NOTICE)}
 # 약 + 술 고정 문장(본인·대리 둘 다) - 답 모양에서 이 문장의 "상의" 문장을 핵심 한 줄로 고른다(chat_layout).
 DRUG_ALCOHOL_SENTENCES: tuple[str, ...] = tuple(
     t for r in _DRUG_ALCOHOL_RULES for t in (str(r.sentence), r.sentence.proxy) if t
