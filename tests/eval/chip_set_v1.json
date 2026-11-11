@@ -1,7 +1,7 @@
 {
  "version": "chip-v1",
  "created": "2026-11-11",
- "purpose": "칩(눌러서 물어보세요·되묻기 답 버튼·FE 빠른 질문)을 그 칩이 나오는 앞 턴 다음에 누른 것으로 재생 - 경로·생성 문장·응급·자해 오판을 본다. path: question(되묻기 질문)·119·visit(오늘 진료 규칙 답)·generate(MedGemma)·dept_info(진료과 정보 고정 안내)·reservation. gen_has: 생성에 넘긴 문장에 있어야 할 말. must: 실제 MedGemma 답에 있어야 할 내용 낱말(DGX 재생 판정, 본문은 남기지 않는다).",
+ "purpose": "칩(눌러서 물어보세요·되묻기 답 버튼·FE 빠른 질문)을 그 칩이 나오는 앞 턴 다음에 누른 것으로 재생 - 경로·생성 문장·응급·자해 오판을 본다. path: question(되묻기 질문)·119·visit(오늘 진료 규칙 답)·generate(MedGemma)·dept_info(진료과 정보 고정 안내)·reservation. gen_has: 생성에 넘긴 문장에 있어야 할 말. must: 실제 MedGemma 답에 있어야 할 내용 낱말(DGX 재생 판정, 본문은 남기지 않는다). must_scope=all_lines: 진료 권유가 곧 답인 문항(병원에 가야 하나) - 진료 줄도 내용으로 센다.",
  "sources": [
   "app/services/followup_steps.py 질문 칩",
   "app/services/followup_answer_chips.py _LEGACY_GROUPS",
@@ -3248,7 +3248,8 @@
    "gen_has": [
     "병원에 가야 할까요?"
    ],
-   "must": "병원|진료|정형외과"
+   "must": "병원|진료|정형외과",
+   "must_scope": "all_lines"
   },
   {
    "id": "cp.161",
@@ -3270,7 +3271,8 @@
    "gen_has": [
     "병원에 가야 할까요?"
    ],
-   "must": "병원|진료|정형외과"
+   "must": "병원|진료|정형외과",
+   "must_scope": "all_lines"
   },
   {
    "id": "cp.162",
