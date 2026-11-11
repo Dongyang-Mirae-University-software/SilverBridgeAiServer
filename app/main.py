@@ -34,6 +34,7 @@ import app.models.reservation_credential  # noqa: F401
 import app.models.reservation_token_claim  # noqa: F401
 from app.services.fall_detection_service import get_fall_detector
 from app.services.fire_smoke_detection_service import get_fire_smoke_detector
+from app.services import frame_quality
 from app.services.knife_detection_service import get_knife_detector
 from app.services.live_ws_manager import live_ws_manager
 from app.services.medical_llm_service import get_medgemma_loader
@@ -83,6 +84,8 @@ async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     upgrade_member_id_columns(engine)
     ensure_indexes(engine)
+    if settings.fire_smoke_enabled:
+        frame_quality.log_config(settings)
     try:
         sealed_rows = encrypt_plain_reservation_keys(engine, settings.reservation_account_secret)
         if sealed_rows:

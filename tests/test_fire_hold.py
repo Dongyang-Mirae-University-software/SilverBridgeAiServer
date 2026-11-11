@@ -250,7 +250,7 @@ def test_quality_gate_blocked_frames_count_as_negative(live) -> None:
     fakes, make, clock = live
     ok, buf = cv2.imencode(".jpg", np.full((240, 320, 3), 255, np.uint8))
     white = buf.tobytes()
-    fakes["fire"].set("smoke", 0.8, True)
+    fakes["fire"].set("smoke", 0.55, True)  # 우회 기준(0.6) 미만 - 품질 불량이면 지워진다
     out = _run(make(frame_quality_gate_enabled=True), _sid("fh_gate"), clock, 40, frame=white)
     assert not any(p["danger"] for p in out)
     # 게이트가 막은 장면은 양성으로 쌓이지 않는다: 이어서 정상 화면 양성 1회로는 알리지 않는다.

@@ -416,11 +416,20 @@ class StreamSessionService:
     def _apply_frame_quality(
         self, session_id: str, result: dict[str, Any], verdict: frame_quality.QualityVerdict
     ) -> dict[str, Any]:
-        """품질 불량이면 화재 결과를 비운다(danger=False, 박스·점수도 지워 영상 박스·학습 수집에 안 남게 한다)."""
+        """품질 불량이면 화재 결과를 비운다(danger=False, 박스·점수도 지워 영상 박스·학습 수집에 안 남게 한다).
+
+        단 화재 최고 점수가 FRAME_QUALITY_BYPASS_CONF 이상이면 지우지 않는다 - 품질이 나쁜 화면에서도 확신이 높은 화재는
+        진짜인 경우가 많았다(2026-11-11 DGX 가상 장면: white 로 지운 화재의 70% 가 0.6 이상). frameQuality 는 불량으로 남긴다.
+        """
         checked = dict(result)
         checked["frameQuality"] = verdict.as_payload()
         if verdict.ok or result.get("detectedType") == "unknown":
             return checked  # 판정 불가(unknown)는 그대로 둔다 - normal 로 바꾸면 "정상"으로 읽힌다
+        conf = float(result.get("confidence") or 0.0)
+        if conf >= self.settings.frame_quality_bypass_conf:
+            if result.get("danger"):
+                frame_quality.bypass_log_limiter.log_bypassed(session_id, verdict.reason or "unknown", conf)
+            return checked
         checked.update({"detectedType": "normal", "confidence": 0.0, "danger": False, "detections": []})
         if result.get("danger"):
             frame_quality.block_log_limiter.log_blocked(session_id, verdict.reason or "unknown")
@@ -519,6 +528,7 @@ class StreamSessionService:
         fire_hold_tracker.clear(session_id)
         knife_hold_tracker.clear(session_id)
         frame_quality.block_log_limiter.clear(session_id)
+        frame_quality.bypass_log_limiter.clear(session_id)
         _unavailable_log.clear(session_id)
         self.frame_store.clear_session(session_id)  # 마지막 프레임(최대 4MB)·시각·시청자 수(A-7)
 

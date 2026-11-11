@@ -328,12 +328,17 @@ class Settings(BaseModel):
     # (흉기·낙상은 대상 아님). 기준값은 10/12 실측(analysis/frame_gate_calib.json): 불량 규칙 =
     # white > WHITE_RATIO 또는 black > BLACK_RATIO 또는 std < STD_MIN 또는 (lap < LAP_MAX 그리고 std < BLUR_STD_MAX).
     # 킬 스위치 FRAME_QUALITY_GATE_ENABLED=false 면 기존 동작과 같다. 범위 밖 값은 기본값으로 대체한다.
+    # 2026-11-11 완화(A-4 후속, DGX analysis/frame_quality_a4): 가상 장면에서 품질 검사가 막은 오탐 58장보다 지운 화재가
+    # 492장으로 많았다. black 0.95→0.98, std 12→5, blur_flat 끔(BLUR_STD_MAX=0 - std<0 은 없어 규칙이 꺼진다),
+    # 화재 최고 점수가 BYPASS_CONF 이상이면 품질 불량이어도 지우지 않는다(1.01 = 우회 끔, 점수는 1.0 을 넘지 않는다).
+    # 옛 동작: BLACK_RATIO=0.95 STD_MIN=12 BLUR_STD_MAX=30 BYPASS_CONF=1.01.
     frame_quality_gate_enabled: bool = _as_bool("FRAME_QUALITY_GATE_ENABLED", True)
     frame_quality_white_ratio: float = _as_float_in_range("FRAME_QUALITY_WHITE_RATIO", 0.5, 0.05, 1.0)
-    frame_quality_black_ratio: float = _as_float_in_range("FRAME_QUALITY_BLACK_RATIO", 0.95, 0.05, 1.0)
-    frame_quality_std_min: float = _as_float_in_range("FRAME_QUALITY_STD_MIN", 12.0, 0.0, 60.0)
+    frame_quality_black_ratio: float = _as_float_in_range("FRAME_QUALITY_BLACK_RATIO", 0.98, 0.05, 1.0)
+    frame_quality_std_min: float = _as_float_in_range("FRAME_QUALITY_STD_MIN", 5.0, 0.0, 60.0)
     frame_quality_lap_max: float = _as_float_in_range("FRAME_QUALITY_LAP_MAX", 10.0, 0.0, 500.0)
-    frame_quality_blur_std_max: float = _as_float_in_range("FRAME_QUALITY_BLUR_STD_MAX", 30.0, 0.0, 100.0)
+    frame_quality_blur_std_max: float = _as_float_in_range("FRAME_QUALITY_BLUR_STD_MAX", 0.0, 0.0, 100.0)
+    frame_quality_bypass_conf: float = _as_float_in_range("FRAME_QUALITY_BYPASS_CONF", 0.6, 0.0, 1.01)
 
     # 화재·연기 유지 조건: 한 장짜리 양성(흔들림·철판 같은 순간적 오탐)으로는 알리지 않는다. 최근 FIRE_HOLD_SEC 초 동안의
     # 분석 중 FIRE_HOLD_RATIO 이상이 양성(한 장 기준 danger)이고, 그 구간에 분석이 FIRE_HOLD_MIN_SCENES 회 이상 있으며,
