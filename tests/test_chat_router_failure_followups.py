@@ -43,6 +43,8 @@ BODY = "할머니를 아무리 깨워도 안 일어나세요"
 def _unique_items():
     seen: set[str] = set()
     for f in sorted(glob.glob(str(_EVAL / "*.json"))):
+        if pathlib.Path(f).name.startswith("chip_set"):
+            continue  # 칩 시험지(2026-11-11)는 앞 턴 다음에 누르는 짧은 칩 문장이라 일반·응급 문항 수에 넣지 않는다
         for it in json.loads(pathlib.Path(f).read_text(encoding="utf-8")).get("items", []):
             q = it.get("q") or ""
             if q and q not in seen:
