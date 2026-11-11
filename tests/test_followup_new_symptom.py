@@ -192,3 +192,48 @@ def test_guardian_relief_switch_is_new_symptom(flow) -> None:
     assert not flow.llm.calls  # 이어 붙여 생성하지 않고 새 증상으로 한 번 되묻는다
     assert "내과" in out["reply"]
     assert "정형외과" not in out["reply"]
+
+
+# ---- 기능 점검(B) 반영 (2026-11-11) ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text", ["숨이 차고 안 나아요", "가슴이 답답한데 괜찮겠죠?", "가슴이 답답하고 안 나아져요", "숨이 차는 게 멈추지 않아요"])
+def test_persisting_red_flag_is_119_right_away(flow, text: str) -> None:
+    # F-1: 증상이 계속된다는 말("안 나아요", "괜찮겠죠?")은 위험 신호를 부정하지 않는다.
+    session = f"p{abs(hash(text))}"
+    _walk(flow, "joint", 1, session)
+    calls = len(flow.llm.calls)
+    out = _send(flow, text, session=session)
+    assert out["riskLevel"] == "high"
+    assert len(flow.llm.calls) == calls
+
+
+@pytest.mark.parametrize("text", ["가슴은 괜찮아요", "숨이 안 차요", "가슴이 답답하지는 않아요"])
+def test_real_negation_still_not_119(text: str) -> None:
+    assert fs.red_flag_answer(_at("joint", 1), text) is False
+
+
+def test_guardian_answer_after_relief_switch_uses_new_symptom(flow) -> None:
+    # F-2: 보호자 전환 뒤 다음 턴도 전환 문장 원문(무릎)을 붙이지 않는다.
+    _guardian(flow, "무릎이 아프다고 하세요", session="g3")
+    _guardian(flow, "무릎은 괜찮아졌고 기침이 나요", session="g3")
+    _guardian(flow, "며칠 되셨대요", session="g3")
+    assert flow.llm.calls[-1]["message"] == "기침이 나요 / 며칠 되셨대요"
+
+
+@pytest.mark.parametrize("text", ["손가락에서 피가 조금 나요", "무릎에 출혈이 있어요"])
+def test_bleeding_answer_is_not_immediate_119(flow, text: str) -> None:
+    # F-3(사용자 결정 A): 출혈 낱말만 든 진행 중 답은 즉시 119가 아니라 설명으로 결과(생성 후처리가 119 기준 한 줄을 붙인다).
+    assert fs.red_flag_answer(_at("joint", 1), text) is False
+    session = f"b{abs(hash(text))}"
+    _walk(flow, "joint", 1, session)
+    out = _send(flow, text, session=session)
+    assert out["riskLevel"] != "high"
+    assert text in flow.llm.calls[-1]["message"]
+
+
+def test_chest_injury_answer_stays_119(flow) -> None:
+    # 가슴 부딪힘은 어르신 흉부 외상이라 보수적으로 즉시 119 유지.
+    _send(flow, "무릎이 아파요", session="ci")
+    out = _send(flow, "넘어져서 가슴을 부딪혔어요", session="ci")
+    assert out["riskLevel"] == "high"

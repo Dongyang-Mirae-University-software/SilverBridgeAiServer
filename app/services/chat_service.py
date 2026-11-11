@@ -1116,6 +1116,8 @@ class ChatService:
         previous_user = next((h.get("content", "") for h in reversed(history or []) if h.get("role") == "user"), "")
         if not previous_user.strip():
             return None
+        # 직전 말이 전환 문장("무릎은 괜찮아졌고 기침이 나요")이면 뒤 증상 부분만(2026-11-11 기능 점검 F-2 - 원문이 붙어 정형외과로 답했다).
+        previous_user = followup_steps.relief_rest(previous_user) or previous_user
         return f"{previous_user.strip()} / {message.strip()}"
 
     @staticmethod

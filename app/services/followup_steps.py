@@ -311,11 +311,32 @@ def is_okay_answer(state: dict[str, Any], message: str) -> bool:
 _RELIEF_SPLIT = re.compile(r"^(?P<before>.*?)(괜찮|나았|나아졌|좋아졌|안 ?아프|덜 ?아프|가라앉)\S*[\s,.~]*(?P<rest>.*)$")
 
 
+# 증상이 계속된다는 말 - 부정 낱말("안"·"않"·"괜찮")이 들어 있지만 위험 신호를 부정하지 않는다(2026-11-11 기능 점검 F-1:
+# "숨이 차고 안 나아요"·"가슴이 답답한데 괜찮겠죠?"가 부정으로 읽혀 즉시 119가 빠지고 앞 증상에 이어 붙었다). 부정 검사 전에 지운다.
+_PERSIST = re.compile(r"안나아|안나아져|안낫|낫지않|나아지지않|괜찮(겠|을까|을지|은가|은지|나)|안없어|없어지지않|가라앉지않|안멈|멈추지않|안멎|멎지않")
+# 진행 중 즉시 119에서 빼는 위험 신호 낱말 - 출혈(기능 점검 F-3 사용자 결정 A: "손가락에서 피가 조금 나요"가 응급 답으로 갔다).
+# 출혈 말은 지금처럼 설명 → 결과 턴에 생성 후처리의 119 기준 한 줄. 가슴·숨·의식·마비·경련은 그대로 즉시 119.
+_BLEED = re.compile(r"피가|출혈")
+
+
 def red_flag_answer(state: dict[str, Any], message: str) -> bool:  # noqa: ARG001 - 묶음과 상관없이 같은 기준
     """단계 진행 중 답에 위험 신호 낱말(가슴·숨이 등)이 부정 없이 들었는가 - 그러면 묶음·몇 번째 질문과 상관없이 그 자리에서 119.
-    부정이 섞인 말("가슴은 괜찮아요", "숨이 안 차요")은 여기서 119로 보내지 않는다(지금처럼 설명 → 결과 턴의 119 기준 한 줄)."""
+    부정이 섞인 말("가슴은 괜찮아요", "숨이 안 차요")은 여기서 119로 보내지 않는다(지금처럼 설명 → 결과 턴의 119 기준 한 줄).
+    "안 나아요"·"괜찮겠죠?" 같은 지속 표현은 부정이 아니다. 출혈 낱말만 든 말은 즉시 119로 보내지 않는다."""
     c = _compact(message)
-    return bool(c) and chat_keywords.has_red_flag(c) and not (_NO.match(c) or _NEG.search(c))
+    if not c or not chat_keywords.has_red_flag(_BLEED.sub(" ", c)):
+        return False
+    rest = _PERSIST.sub(" ", c)
+    return not (_NO.match(rest) or _NEG.search(rest))
+
+
+def relief_rest(text: str) -> str | None:
+    """어느 묶음이든 앞 증상이 나아졌다며 다른 증상을 말한 전환 문장이면 뒤 증상 부분, 아니면 None."""
+    for g in _GROUPS[1:]:
+        rest = relief_switch_text(g, text)
+        if rest:
+            return rest
+    return None
 
 
 def _group_word(group: Group, text: str) -> bool:
