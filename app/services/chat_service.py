@@ -283,13 +283,6 @@ class ChatService:
             department_answer = self._department_question_reply(
                 message, history, fallback_symptom=step_symptom
             ) if message and not self_harm_keyword else None
-            if department_answer is None and message and not self_harm_keyword and not after_emergency \
-                    and not MedicalLlmService.self_harm_in_history(history):
-                # 진료과 정보 질문("신경과는 어떤 검사를 받나요?") - 고정 안내(2026-11-11 ③, MedGemma 는 앞 권고를 베끼거나 금액을 지어냈다).
-                # 응급 직후·위기 대화 중에는 끼어들지 않는다(그 턴의 119·109 판정이 먼저).
-                department_answer = self._department_info_reply(
-                    message, history, fallback_symptom=step_symptom, proxy=self._is_proxy(payload, message)
-                )
             if department_answer:
                 result = department_answer
             elif self_harm_keyword:
@@ -513,6 +506,14 @@ class ChatService:
                         "decisionTrace": [{"event": "reservation_credential_unavailable" if credential_unavailable
                                            else "reservation_disabled" if reservation_disabled else "reservation_flow_fallback"}],
                     }
+            elif (dept_info := self._department_info_turn(
+                route_info, message, ui_selection, history, crisis_followup=crisis_followup, after_emergency=after_emergency,
+                after_followup=after_followup, step_state=step_state if step_live else None, step_symptom=step_symptom,
+                proxy=self._is_proxy(payload, message),
+            )) is not None:
+                # 진료과 정보 질문 고정 안내(2026-11-11 ③) - 라우터 판정(응급·자해·예약·오늘 진료 질환) 뒤에 둔다(점검 🔴: 라우터 앞이면
+                # 키워드에 없는 위기 표현 + "정신건강의학과 가면 뭐 해요?"가 109 없이 고정 안내로 나갔다).
+                result = dept_info
             elif (step := self._followup_step_outcome(
                 step_state, route_info, message, ui_selection, crisis_followup, after_emergency, history,
                 symptom=step_symptom, negated_red_flag=step_negated,
@@ -1363,7 +1364,8 @@ class ChatService:
         """"무슨 과로 가야 해?"에는 직전 상담에서 권한 진료과를 한 줄로 답한다(같은 상담 답변을 반복하지 않게).
         단계 되묻기 도중(직전 답이 질문 하나라 진료과가 없다)이면 처음 증상 문장의 진료과로 답한다(2026-11-09 점검 M-2)."""
         compact = chat_keywords.compact(message or "")
-        asked = re.search(r"(무슨|어느|어떤)과", compact)
+        # "어떤 과일이 좋아요?"는 진료과 질문이 아니다(2026-11-11 점검 🟡).
+        asked = re.search(r"(무슨|어느|어떤)과(?!일)", compact)
         if not asked:
             return None
         # "어떤 과에 가서 무엇을 준비하나요?"처럼 과 뒤에 검사·문진·준비·비용을 묻는 말이 오면 어디로 가나 질문이 아니다(2026-11-11 ③).
@@ -1395,6 +1397,40 @@ class ChatService:
             "visitHospitalIf": [],
             "emergencyWarning": [],
         }
+
+    @staticmethod
+    def _department_info_turn(
+        route_info: dict, message: str, ui_selection: dict | None, history: list[dict[str, str]], *, crisis_followup: bool,
+        after_emergency: bool, after_followup: bool, step_state: dict | None, step_symptom: str | None, proxy: bool,
+    ) -> dict | None:
+        """이 턴을 진료과 정보 고정 안내로 답할지. 라우터(또는 키워드 분류) 판정이 끝난 뒤에 부른다.
+        - 라우터가 응급·자해·예약·오늘 진료 질환(urgent_condition)이라고 한 턴, 응급 직후, 위기 뒤 109 한 줄을 붙일 턴, 위기 대화 중이면 아니다.
+        - 보호자 옛 한 번 되묻기 다음 턴은 아니다(그 답은 앞 증상과 이어 붙여 상담한다).
+        - 피보호자 단계 되묻기 도중(step_state)이면 안내 뒤에 지금 질문을 다시 묻고 단계 상태를 그대로 넘긴다(점검 🟡 - 상태가 끊겼다)."""
+        if not message or ui_selection or crisis_followup or after_emergency:
+            return None
+        if route_info.get("emergency") or route_info.get("self_harm") or route_info.get("route") == "reservation" \
+                or route_info.get("urgent_condition"):
+            return None
+        if after_followup and step_state is None:
+            return None
+        if MedicalLlmService.self_harm_signals(message) or MedicalLlmService.self_harm_in_history(history):
+            return None
+        result = ChatService._department_info_reply(message, history, fallback_symptom=step_symptom or "", proxy=proxy)
+        if result is None or step_state is None:
+            return result
+        # 이 턴도 단계 턴 수에 센다 - 상한을 넘으면(정보 질문을 거듭함) 단계는 끝내고 안내만 낸다.
+        carried = {**step_state, "turns": int(step_state.get("turns") or 0) + 1}
+        if followup_steps.valid_state(carried) is None:
+            return result
+        if "anchorLogId" in step_state:
+            carried["anchorLogId"] = step_state["anchorLogId"]
+        again = MedicalLlmService.followup_step_response(carried)
+        _LOG.info("[CHAT-QUALITY] department_info_during_step=true")
+        result.pop("ui", None)  # 단계 문답의 답 버튼이 먼저다 - 진료과 찾기 버튼은 단계가 끝난 뒤 결과 턴에 나온다
+        result["reply"] = f"{result['reply']}\n{again['reply']}"
+        result["meta"] = {**again["meta"], "departmentInfo": result["meta"]["departmentInfo"]}
+        return result
 
     @staticmethod
     def _department_info_reply(message: str, history: list[dict[str, str]], fallback_symptom: str = "", proxy: bool = False) -> dict | None:

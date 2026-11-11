@@ -446,9 +446,10 @@ def is_health_lifestyle_question(text: str) -> bool:
 # 진료과 정보 질문(2026-11-11): 진료과 이름(또는 "무슨/어느/어떤 과") 뒤에 그 과에서 무엇을 하는지·준비·비용을 묻는 말.
 # "신경과는 어떤 검사를 받게 되나요?" - 어디로 가나(진료과 고정 답)도, 증상 상담(증상 요약 틀)도 아니다.
 # 묻는 말이 진료과 앞에 있으면("검사 받으려면 어느 과 가요?") 어디로 가나 질문이다.
+# 공백을 살린 문장에 맞춘다 - 앞이 한글이면 진료과가 아니다("불안과"·"편안과"의 안과), "신경과민"·"과일"도 아니다(2026-11-11 점검 B-2).
 DEPARTMENT_MENTION = re.compile(
-    r"(정신건강의학과|소아청소년과|이비인후과|가정의학과|응급의학과|재활의학과|비뇨의학과|비뇨기과|정형외과|신경외과|흉부외과|"
-    r"산부인과|소아과|피부과|신경과|치과|안과|외과|내과|(무슨|어느|어떤)과)"
+    r"(?<![가-힣])(정신건강의학과|소아청소년과|이비인후과|가정의학과|응급의학과|재활의학과|비뇨의학과|비뇨기과|정형외과|신경외과|흉부외과|"
+    r"산부인과|소아과|피부과|신경과(?!민)|치과|안과|외과|내과)|(무슨|어느|어떤)\s*과(?!일)"
 )
 _DEPARTMENT_INFO_ASK = re.compile(
     r"검사|문진|진찰|준비|챙기|챙겨|가져가|가지고가|들고가|비용|진료비|검사비|얼마|절차|순서|오래걸|시간이걸|금식|굶|"
@@ -475,14 +476,44 @@ def department_info_kind(text: str) -> str:
     return "exam"
 
 
+# 진료과 낱말이 있어도 증상·약·검사 결과·다녀온 뒤·다친 일을 묻는 말은 상담이다 - 고정 안내로 답하면 약 + 술 규칙·증상 상담·
+# 오늘 진료 줄이 빠진다(2026-11-11 점검 B-2: "내과에서 검사했더니 당 수치가…", "내과 약 먹고 나서 어지러운데…").
+_DEPARTMENT_INFO_NOT = re.compile(
+    r"결과|수치|나왔|다녀왔|다녀온|갔다왔|갔다온|받았는데|했더니|하고나서|수술후|수술하고|수술받|수술뒤|"
+    r"약먹|약을먹|약드|약을드|먹는데|먹고|드시는데|드시고|복용|넘어|부딪|다쳤|다친|다쳐|삐었|접질"
+)
+
+
+_DEPARTMENT_INFO_MAX_PREFIX = 8  # 진료과 앞 글자 수(공백 뺀) 상한
+_DEPARTMENT_INFO_MAX_LEN = 40  # 문장 전체 글자 수(공백 뺀) 상한
+# 진료과 앞이 서술(끝맺음·이음 말·부정)이면 사정을 말한 문장이다 - "안 깨어나요 내과 가면 뭐 해요?"(라우터 실패 때 키워드가 못 보는 응급).
+# "동네"·"우리"·"엄마 모시고"·"그럼"·"혹시" 같은 앞말은 그대로 둔다.
+_DEPARTMENT_INFO_PREFIX_NOT = re.compile(r"요|다|니까|는데|은데|해서|어서|아서|워서|했|없|안|못|않|말고")
+
+
+def department_mention(text: str) -> re.Match[str] | None:
+    """진료과 이름 또는 "무슨/어느/어떤 과"(공백을 하나로 줄인 문장 기준)."""
+    return DEPARTMENT_MENTION.search(" ".join((text or "").split()))
+
+
 def is_department_info_question(text: str) -> bool:
-    """진료과에서 무엇을 하는지·준비·비용을 묻는 말인가. 위험 신호·응급(라우터 실패 때 판정·반응 없음 포함)·예약 낱말이 있으면 False.
-    자해 신호는 부르는 쪽(chat_service)이 먼저 거른다."""
-    c = compact(text)
-    m = DEPARTMENT_MENTION.search(c)
-    if not m or not _DEPARTMENT_INFO_ASK.search(c[m.end():]):
+    """진료과에서 무엇을 하는지·준비·비용만 묻는 말인가(고정 안내 대상). 아래가 하나라도 있으면 False:
+    위험 신호·응급(라우터 실패 때 판정·반응 없음 포함)·예약 낱말 / 라우터 실패 때 보는 자해 패턴 / 증상 낱말 / 약·검사 결과·다친 일.
+    부르는 쪽(chat_service)은 라우터 판정(응급·자해·예약·오늘 진료 질환) 뒤에 부른다 - 키워드에 없는 위기·응급은 라우터가 맡는다."""
+    spaced = " ".join((text or "").split())
+    m = DEPARTMENT_MENTION.search(spaced)
+    if not m or not _DEPARTMENT_INFO_ASK.search(compact(spaced[m.end():])):
         return False
-    if ARREST_SIGNAL.search(c) or fallback_emergency_signals(text):
+    c = compact(text)
+    # 진료과가 문장 앞쪽에 있는 짧은 질문만("동네 내과는…", "엄마 모시고 신경과 가면…"). 앞에 증상·사정을 길게 말한 문장
+    # ("이마에 물집이 … 내과 가면 뭐 해요?")은 낱말 목록에 없는 증상·위기 표현일 수 있어 상담으로 보낸다(점검 h3.C04·sh.09).
+    prefix = compact(spaced[: m.start()])
+    if len(prefix) > _DEPARTMENT_INFO_MAX_PREFIX or len(c) > _DEPARTMENT_INFO_MAX_LEN or _DEPARTMENT_INFO_PREFIX_NOT.search(prefix):
+        return False
+    if ARREST_SIGNAL.search(c) or fallback_emergency_signals(text) or fallback_self_harm_signals(text):
+        return False
+    # 증상 낱말은 진료과 이름을 뺀 문장으로 본다("피부과"의 피부는 증상이 아니다).
+    if has_symptom_word(DEPARTMENT_MENTION.sub(" ", spaced)) or _DEPARTMENT_INFO_NOT.search(c):
         return False
     return not (has_red_flag(text) or emergency_signals(text) or has_reservation_word(text))
 
