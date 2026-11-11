@@ -24,6 +24,7 @@ from app.services.companion.reply_service import (
     generate_reply,
     is_negative_mood,
     no_response_reply,
+    timeout_reply,
 )
 from app.services.companion.risk import is_risk, keyword_risk, risk_probability
 from app.services.companion.signals import extract_signals
@@ -220,7 +221,7 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
         try:
             reply = reply_future.result(timeout=left())
         except FutureTimeout:
-            reply = no_response_reply(turn_no, is_last_turn)  # 시간 상한: 미리 정한 문장으로 답한다
+            reply = timeout_reply(turn_no, is_last_turn)  # 시간 상한: 미리 정한 문장으로 답한다 (말은 있으므로 받아 주는 문장)
         try:
             summary = summary_future.result(timeout=left())
         except FutureTimeout:

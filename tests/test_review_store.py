@@ -42,7 +42,7 @@ def test_ai_reply_is_queued_without_the_answer_text(client):
     items = client.get("/companion/review/replies", headers=HDR).json()["data"]["items"]
     assert len(items) == 1
     assert items[0]["status"] == "pending"
-    assert items[0]["promptVersion"] == "fallback-v1"  # 모델이 없어 미리 정한 문장이 나갔다
+    assert items[0]["promptVersion"] == "fallback-v2"  # 모델이 없어 미리 정한 문장이 나갔다
     assert "비밀스러운" not in str(items[0])  # 대답 원문은 검수 목록에 없다
 
 

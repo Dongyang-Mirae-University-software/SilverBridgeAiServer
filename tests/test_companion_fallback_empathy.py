@@ -15,6 +15,7 @@ from app.services.companion.reply_service import (
     FALLBACK_EMPATHY,
     FALLBACK_FOLLOWUP,
     FALLBACK_LAST,
+    FALLBACK_NO_RESPONSE,
     SAFETY_REPLY,
     ReplyResult,
     check_reply,
@@ -83,7 +84,7 @@ def _fallback_reply(turn_no: int = 2) -> ReplyResult:
 
 
 @pytest.mark.parametrize("risk_first", [True, False])
-@pytest.mark.parametrize("label", ["WORRY", "DEPRESSED", "슬픔", "불안"])
+@pytest.mark.parametrize("label", ["WORRY", "DEPRESSED", "슬픔", "불안", "분노", "상처"])
 def test_negative_mood_fallback_turn_gets_empathy_sentence(monkeypatch, label, risk_first):
     settings = pipeline.get_settings().model_copy(update={"companion_risk_first": risk_first})
     monkeypatch.setattr(pipeline, "get_settings", lambda: settings)
@@ -122,3 +123,93 @@ def test_avoid_repeat_on_negative_turn_picks_an_unused_empathy_sentence():
               "textMood": {"turnLabel": "우울", "usable": True}}
     out = _avoid_repeat(d, result, is_last_turn=False)
     assert out["reply"]["text"] in FALLBACK_EMPATHY[1:]
+
+
+# --- 11/12 점검 반영 (H-1 무응답 턴, M-1 시점 없는 문장, L-3 시험 보강) ---
+
+# 어르신 말을 들은 것처럼 받는 시작말. 무응답 턴 문장에는 없어야 한다
+HEARD_OPENERS = ("그러셨군요", "그랬군요", "말씀해 주셔서", "잘 들었어요", "많이 속상", "힘든 이야기")
+
+
+def test_no_response_fallbacks_pass_their_own_rules():
+    for s in FALLBACK_NO_RESPONSE:
+        assert check_reply(s, is_last_turn=False) == [], s
+
+
+@pytest.mark.parametrize("sentence", FALLBACK_NO_RESPONSE)
+def test_no_response_sentences_do_not_pretend_to_have_heard(sentence):
+    assert not any(w in sentence for w in HEARD_OPENERS), sentence
+
+
+def test_no_response_list_does_not_overlap_other_lists():
+    assert not set(FALLBACK_NO_RESPONSE) & (set(FALLBACK_FOLLOWUP) | set(FALLBACK_EMPATHY))
+
+
+def test_followup_sentences_do_not_point_to_a_moment():
+    # M-1: "그때"는 "별일 없어" 같은 짧은 대답 뒤에 가리킬 것이 없다
+    assert not any("그때" in s for s in FALLBACK_FOLLOWUP + FALLBACK_EMPATHY)
+
+
+@pytest.mark.parametrize("turn_no", range(1, 8))
+def test_no_response_turn_uses_no_response_sentence(turn_no):
+    out = pipeline.run_no_response_turn(turn_no, is_last_turn=False)
+    assert out["reply"]["text"] in FALLBACK_NO_RESPONSE
+    assert out["replySource"] == "FALLBACK"
+
+
+def test_no_response_last_turn_keeps_closing_sentence():
+    out = pipeline.run_no_response_turn(8, is_last_turn=True)
+    assert out["reply"]["text"] in FALLBACK_LAST
+
+
+def _slow_reply(monkeypatch, label: str):
+    """대답 생성이 턴 상한을 넘긴다 (상한 0.2초, 생성 1초)."""
+    import time as _t
+
+    def slow(*a, **k):
+        _t.sleep(1.0)
+        return ReplyResult(text="늦은 대답?", isFollowUp=True, source="LLM", failures=[])
+
+    settings = pipeline.get_settings().model_copy(update={"companion_turn_cap_sec": 0.2})
+    monkeypatch.setattr(pipeline, "get_settings", lambda: settings)
+    _stub_turn(monkeypatch, None)
+    monkeypatch.setattr(pipeline, "generate_reply", slow)
+    return _run(label)
+
+
+def test_timeout_turn_with_calm_mood_gets_plain_sentence_not_no_response(monkeypatch):
+    out = _slow_reply(monkeypatch, "CALM")
+    assert out["replySource"] == "FALLBACK"
+    assert out["reply"]["text"] in FALLBACK_FOLLOWUP  # 말은 있었으므로 무응답 문장이 아니다
+
+
+def test_timeout_turn_with_negative_mood_gets_empathy_sentence(monkeypatch):
+    out = _slow_reply(monkeypatch, "DEPRESSED")
+    assert out["reply"]["text"] in FALLBACK_EMPATHY
+
+
+def _dialogue():
+    return DialogueStore().create("w", "s", "09:00", "요즘 어떻게 지내세요?", 8, "q-1")
+
+
+def test_avoid_repeat_on_no_response_turn_stays_in_no_response_list():
+    d = _dialogue()
+    d.replies.append(FALLBACK_NO_RESPONSE[0])
+    result = {"reply": {"text": FALLBACK_NO_RESPONSE[0], "isFollowUp": True}, "replySource": "FALLBACK",
+              "turnResult": {"label": None, "source": "NO_RESPONSE"}}
+    out = _avoid_repeat(d, result, is_last_turn=False)
+    assert out["reply"]["text"] in FALLBACK_NO_RESPONSE[1:]
+
+
+def test_avoid_repeat_keeps_empathy_sentence_when_all_empathy_used():
+    # L-2(유지): 공감 문장을 다 썼으면 받아 주는 문장으로 넘기지 않고 그대로 둔다
+    d = _dialogue()
+    d.replies.extend(FALLBACK_EMPATHY)
+    result = {"reply": {"text": FALLBACK_EMPATHY[1], "isFollowUp": True}, "replySource": "FALLBACK",
+              "textMood": {"turnLabel": "슬픔", "usable": True}}
+    out = _avoid_repeat(d, result, is_last_turn=False)
+    assert out["reply"]["text"] == FALLBACK_EMPATHY[1]
+
+
+def test_review_version_for_fallback_is_v2():
+    assert reply_service.FALLBACK_VERSION == "fallback-v2"

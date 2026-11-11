@@ -141,7 +141,10 @@ def _avoid_repeat(d: Dialogue, result: dict, is_last_turn: bool) -> dict:
     keep = get_settings().companion_keep_fixed_replies and result.get("replySource") in ("CONFIRM", "SAFETY")
     if text in d.replies and not keep:
         # 부정 기분 턴이면 공감 문장 가운데서 바꾼다 (11/11, 화제를 바꾸는 문장으로 되돌아가지 않게)
-        candidates = reply_service.fallback_options(is_last_turn, reply_service.is_negative_mood(result.get("textMood")))
+        # 무응답 턴은 무응답 문장 가운데서 바꾼다 (11/12 H-1, 침묵에 "말씀해 주셔서…"로 답하지 않게)
+        no_response = (result.get("turnResult") or {}).get("source") == "NO_RESPONSE"
+        candidates = reply_service.fallback_options(
+            is_last_turn, reply_service.is_negative_mood(result.get("textMood")), no_response=no_response)
         unused = [c for c in candidates if c not in d.replies]
         if unused:
             result["reply"] = {"text": unused[0], "isFollowUp": not is_last_turn}
@@ -157,7 +160,7 @@ def _queue_for_review(d: Dialogue, result: dict) -> None:
     위험 = 최상위 riskFlag 또는 signals.riskFlag. 다시 확인 턴과 신호 추출이 시간을 넘긴 턴은 signals 가 null 이고
     위험을 최상위에만 싣는다 - signals 만 보면 그 턴의 위험 표시가 빠진다 (백엔드 턴 처리와 같은 규칙).
     """
-    version = REPLY_PROMPT_VERSION if result["replySource"] == "LLM" else "fallback-v1"
+    version = REPLY_PROMPT_VERSION if result["replySource"] == "LLM" else reply_service.FALLBACK_VERSION
     signals = result.get("signals") or {}
     risk = bool(result.get("riskFlag")) or bool(signals.get("riskFlag"))
     review_store.add(d.dialogueId, d.turnNo + 1, result["reply"]["text"], version, risk=risk, ward_id=d.wardId)
