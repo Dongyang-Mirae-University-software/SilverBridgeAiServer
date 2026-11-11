@@ -8,6 +8,15 @@ from pydantic import BaseModel, Field
 from app.schemas.common import MemberId
 
 
+class GuardianWard(BaseModel):
+    """보호자의 ACTIVE 연결 피보호자 한 명(BE 가 DB 값으로 채운다 - 2026-11-11). 예약 대상 선택지에만 쓴다.
+    이름·관계는 선택지 표시 글자로만 쓰고(길이는 chat_service 가 자른다) 로그·MedGemma·userContext 에 넣지 않는다."""
+
+    wardId: MemberId
+    name: str | None = None
+    relation: str | None = None
+
+
 class ChatContext(BaseModel):
     age: int | None = None
     email: str | None = None
@@ -25,6 +34,9 @@ class ChatContext(BaseModel):
     wardId: str | None = None
     wardName: str | None = None
     wardPhone: str | None = None
+    # 보호자 경로에서 BE 가 넣는 ACTIVE 연결 피보호자 목록(2026-11-11). None = 칸 없음(옛 BE - 예약 대상을 묻지 않고 이전 동작),
+    # [] = 연결된 피보호자 없음(챗봇 예약 불가 안내). 보호자 챗봇 예약은 피보호자만 대상이다(보호자 웹 예약 화면과 같다).
+    guardianWards: list[GuardianWard] | None = None
 
 
 class ChatHistoryItem(BaseModel):
