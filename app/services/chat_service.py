@@ -249,6 +249,7 @@ class ChatService:
         step: tuple[str, Any] | None = None
         # 단계 되묻기를 마치고 MedGemma 를 부르는 턴이면 (이어 붙인 문장, 위험 신호 질문에 답했는가, 대리 여부).
         step_generate: tuple[str, bool, bool] | None = None
+        care_skipped_step = False
         payload = payload.model_copy(update={"history": [ChatHistoryItem(**item) for item in history]})
         log_message = message
         # 위기 응답 직후 첫 일반 턴이면 답 앞에 109 안내 한 줄을 붙인다(한 번만 - 이 턴 기록엔 selfHarm이 없다).
@@ -546,6 +547,10 @@ class ChatService:
                     processed_symptom = route_info.get("symptom_summary") if route_info["route"] == "symptom" else None
                     if step is not None and step[0] == "generate":
                         step_generate = step[1]
+                    # 피보호자 관리 질문이라 단계 되묻기를 건너뛴 턴(F-1) - 답 끝에 그 증상 묶음의 119 기준 한 줄을 남긴다(아래).
+                    care_skipped_step = ward_reader and step_generate is None and self._should_ask_followup(
+                        route_info, message, ui_selection, crisis_followup, after_emergency, after_followup, skip_care=False,
+                    )
                     followup_answer = (
                         step_generate[0] if step_generate else self._followup_answer_text(route_info, message, history, after_followup)
                     )
@@ -588,6 +593,16 @@ class ChatService:
             route_info = {}
         # 응급이 아닌 답 끝에 서버가 붙인 고정 안전 줄 - 이 줄만으로는 이어서 물어볼 질문을 막지 않는다(2026-11-11 ⑤).
         safety_lines: list[str] = []
+        if (
+            care_skipped_step and isinstance(result.get("reply"), str) and result.get("riskLevel") != "high"
+            and "119" not in result["reply"] and not (isinstance(result.get("meta"), dict) and result["meta"].get("generationFailed"))
+        ):
+            # 관리 질문이라 위험 신호 질문(단계 첫 질문)을 건너뛰었다 - 단계 결과 턴과 같은 그 묶음의 119 기준 한 줄(F-1).
+            line = followup_steps.skipped_red_flag_line(followup_steps.new_state(message, False))
+            if line:
+                result["reply"] = f"{result['reply']}\n{line}"
+                safety_lines.append(line)
+                _LOG.info("[CHAT-QUALITY] care_question_skipped_step=true")
         if step_generate and isinstance(result.get("reply"), str) and isinstance(result.get("meta", {}), dict):
             result.setdefault("meta", {})["followupResult"] = True
             # 위험 신호 질문에 답하지 않고 설명으로 결과에 온 답 - 그 묶음의 119 기준 한 줄(이미 119 안내가 있으면 두지 않는다).
@@ -988,14 +1003,15 @@ class ChatService:
 
     @staticmethod
     def _should_ask_followup(
-        route_info: dict, message: str, ui_selection: dict | None, crisis_followup: bool, after_emergency: bool, after_followup: bool
+        route_info: dict, message: str, ui_selection: dict | None, crisis_followup: bool, after_emergency: bool, after_followup: bool,
+        skip_care: bool = True,
     ) -> bool:
         """되묻기 턴 조건(C-1): 응급이 아닌 증상 경로의 일반 문장, 위기 뒤·응급 다음 턴·되묻기 다음 턴이 아님 + 문장 조건."""
         if not message or ui_selection or crisis_followup or after_emergency or after_followup:
             return False
         if route_info.get("route") != "symptom" or route_info.get("emergency") or route_info.get("self_harm"):
             return False
-        if not MedicalLlmService.needs_followup_question(message):
+        if not MedicalLlmService.needs_followup_question(message, skip_care=skip_care):
             return False
         # MedGemma 가 꺼져 있으면 새로 시작하지 않는다 - 3문항을 다 묻고 고정 대체 응답으로 끝나지 않게(2차 전체 점검 I-8).
         return _medgemma_enabled()

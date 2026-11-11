@@ -979,7 +979,7 @@ class MedicalLlmService:
         return (out if removed else reply), removed
 
     @classmethod
-    def needs_followup_question(cls, message: str) -> bool:
+    def needs_followup_question(cls, message: str, *, skip_care: bool = True) -> bool:
         """정보가 부족한 일반 증상 한마디("어지러워", "기침이 나요")인가 - 되묻기 대상(C-1). 문장만 본다:
         응급·자해 신호, 약·약 + 술·약 직접 안내·생활관리 질문, 기간·상황·정도 표현, 서로 다른 증상 둘 이상이면 False.
         턴 조건(응급 경로·위기 뒤·직전 턴 되묻기·버튼)은 chat_service 가 본다."""
@@ -987,6 +987,10 @@ class MedicalLlmService:
         if not compact or len(compact) > 25:
             return False
         if cls.emergency_signals(message) or cls.self_harm_signals(message):
+            return False
+        # 먹을 것·할 일을 묻는 관리 질문은 되묻지 않고 바로 답한다(2026-11-11 기능 점검 F-1) - 피보호자 답에는 chat_service 가
+        # 그 증상 묶음의 119 기준 한 줄을 붙인다. skip_care=False 는 "관리 질문이 아니었다면 되물었을까"를 볼 때만.
+        if skip_care and cls.is_care_question(message, "medical_advice", False):
             return False
         # 위험 신호 단어(가슴·숨이 등)만 있는 짧은 말("숨이 좀..")도 되묻는다(2026-11-02 홀드아웃 v1 Q02 - 되묻기 없이 119로 갔다).
         # 그 대신 되묻기 답에 위험 신호 119 한 줄을 넣는다(followup_question_response) - 2026-10-29 bd.02·10-31 M-1 에서

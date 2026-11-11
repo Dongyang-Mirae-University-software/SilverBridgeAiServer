@@ -163,6 +163,18 @@ _FALLBACK_SELF_HARM_FAMILY = re.compile(
 )
 
 
+# C: 죽음·사라짐의 방법을 묻는 꼴(2026-11-11 기능 점검 F-3) - "어떻게 하면 (안 아프게·조용히) 죽을/사라질/안 깰 수 있나",
+#    "어떻게 하면 편하게 갈 수 있을까", "(다) 끝내려면 어떻게". 증상 말("아파 죽겠어요"·"어떻게 하면 통증이 사라질까")은 잡지 않는다 -
+#    "어떻게 하면" 바로 뒤(부사 하나까지)에 죽음 낱말이 와야 한다.
+_FALLBACK_SELF_HARM_HOW = re.compile(
+    r"(어떻게|어찌|어떡)(하면|해야|하나|할까)?(그냥|조용히|빨리|쉽게|편하게|안아프게|고통없이)?"
+    r"(죽(을|는|어|으려|으면|게|일)(?!맛|끓|쑤|드|먹|만들|데우|식|담)|사라(질|지|져)|생을마감|목숨을?끊|잠들고안(깨|깰)|안(깨|깰)수)"
+    r"|(어떻게|어찌)(하면|해야)편하게(갈|가|떠날|떠나)"
+    r"|(안아프게|고통없이|조용히|편하게)죽(을|는|어|으려|게)|죽는방법"
+    r"|^(나|난|저|전|그냥|이제)*(다|전부|모두|모든걸)?끝내(려면|려고)(어떻게|어떡)"
+)
+
+
 def fallback_self_harm_signals(text: str) -> list[str]:
     """라우터가 실패했을 때만 더 보는 자해 신호(2026-11-09). 라우터가 정상이면 쓰지 않는다(라우터 self_harm 칸이 맡는다)."""
     c = _FALLBACK_SELF_HARM_STRIP.sub("", compact(text))
@@ -171,6 +183,8 @@ def fallback_self_harm_signals(text: str) -> list[str]:
         hits.append("자해:삶을끝내")
     if _FALLBACK_SELF_HARM_BARE.fullmatch(c) or _FALLBACK_SELF_HARM_FAMILY.fullmatch(c):
         hits.append("자해:다끝내고싶")
+    if _FALLBACK_SELF_HARM_HOW.search(c):
+        hits.append("자해:방법")
     return hits
 
 

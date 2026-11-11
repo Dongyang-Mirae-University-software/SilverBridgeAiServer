@@ -315,3 +315,86 @@ def test_service_emergency_next_turn_gets_suggestions(env, monkeypatch) -> None:
     assert yes["riskLevel"] == "high" and verdicts[-1] is False  # 응급 답 자체는 지금처럼 빈 목록
     back = _ward(env, "허리가 일주일째 아파요", "s-sq")
     assert _EMERGENCY_FOLLOWUP in back["reply"] and verdicts[-1] is True
+
+
+# ---- 기능 점검 F-1: 관리 질문은 되묻지 않고 바로 답 + 피보호자 답에 그 묶음의 119 기준 한 줄 ----------------------
+
+from app.services import chat_keywords, chat_service as cs, followup_steps  # noqa: E402
+
+CARE_WOULD_ASK = ["무릎 아플 때 집에서 할 수 있는 거 있어요?", "감기 걸렸을 때 뭐 먹어요?", "변비에 좋은 음식 알려줘"]
+
+
+@pytest.mark.parametrize("text", CARE_WOULD_ASK)
+def test_care_question_skips_followup(text: str) -> None:
+    assert MedicalLlmService.needs_followup_question(text, skip_care=False)  # 관리 질문이 아니었다면 되물었을 말
+    assert not MedicalLlmService.needs_followup_question(text)
+
+
+def _fake_gen(env, monkeypatch, advice: str = "물을 자주 드세요. 사흘 넘게 계속되면 꼭 진료를 받아 보세요."):  # noqa: F811
+    real = MedicalLlmService(Settings(), _Loader(empathy="불편하셨겠어요.", symptoms="증상", advice=advice))
+    monkeypatch.setattr(env.llm, "generate", lambda m, c, h, **k: real.generate(m, c, h, **k))
+    monkeypatch.setattr(cs, "_medgemma_enabled", lambda: True)
+
+
+@pytest.mark.parametrize("text", CARE_WOULD_ASK)
+def test_ward_care_question_answers_with_red_flag_line(env, monkeypatch, text: str) -> None:  # noqa: F811
+    _router(env, monkeypatch, route="symptom")
+    _fake_gen(env, monkeypatch)
+    verdicts: list[bool] = []
+    monkeypatch.setattr(fq, "suggested_questions", lambda s, r, ri, m, **k: verdicts.append(fq.should_suggest(
+        r, ri, m, emergency_text=k["emergency_text"], self_harm_text=k["self_harm_text"], safety_lines=k.get("safety_lines", ()))) or [])
+    out = _ward(env, text, f"s-f1-{text}")
+    assert out.get("suggestedKind") != "answer" and "여쭤볼게요" not in out["reply"]  # 되묻기 아님
+    line = followup_steps.skipped_red_flag_line(followup_steps.new_state(text, False))
+    if line:
+        assert line in out["reply"] and out["reply"].count("119") == 1
+        assert verdicts == [True]  # 고정 안전 줄이라 이어서 물어볼 질문은 막지 않는다
+
+
+def test_guardian_care_question_has_no_extra_line(env, monkeypatch) -> None:  # noqa: F811
+    _router(env, monkeypatch, route="symptom")
+    _fake_gen(env, monkeypatch)
+    text = CARE_WOULD_ASK[0]
+    out = env.svc.process_message(env.db, ChatRequest(userId="u1", message=text, sessionId="s-f1-g", context=ChatContext(role="GUARDIAN")))
+    line = followup_steps.skipped_red_flag_line(followup_steps.new_state(text, False))
+    assert "여쭤볼게요" not in out["reply"] and (line is None or line not in out["reply"])
+
+
+def test_ward_plain_symptom_still_asks_step(env, monkeypatch) -> None:  # noqa: F811
+    _router(env, monkeypatch, route="symptom")
+    _fake_gen(env, monkeypatch)
+    out = _ward(env, "무릎이 아파요", "s-f1-plain")
+    assert out.get("suggestedKind") == "answer"  # 관리 질문이 아닌 짧은 증상은 지금처럼 단계 되묻기
+
+
+# ---- 기능 점검 F-3: 라우터 실패 때 죽음·사라짐의 방법을 묻는 말은 위기 응답 ------------------------------------------
+
+HOW_CRISIS = ["어떻게 하면 편하게 갈 수 있을까", "어떻게 하면 안 아프게 죽어요", "어떻게 하면 잠들고 안 깰 수 있어요",
+              "다 끝내려면 어떻게 해야 해요", "어떻게 하면 사라질 수 있어요", "어떻게 하면 죽을 수 있어요", "죽는 방법 알려줘"]
+HOW_NOT = ["아파 죽겠어요", "배가 아파서 죽을 것 같아요", "어떻게 하면 통증이 사라질까요", "어떻게 하면 기침이 사라져요",
+           "어떻게 하면 병원에 편하게 갈 수 있어요", "숙제 다 끝내려면 어떻게 해야 해", "죽 먹는 방법", "어떻게 하면 죽을 맛있게 끓여요",
+           "어떻게 하면 죽을 드실 수 있어요", "이 약 먹으면 죽어요?", "어떻게 하면 잠이 잘 와요"]
+
+
+@pytest.mark.parametrize("text", HOW_CRISIS)
+def test_fallback_self_harm_how(text: str) -> None:
+    assert chat_keywords.fallback_self_harm_signals(text)
+
+
+@pytest.mark.parametrize("text", HOW_NOT)
+def test_fallback_self_harm_how_not_symptom_talk(text: str) -> None:
+    assert not chat_keywords.fallback_self_harm_signals(text)
+
+
+class _FailingRouter:
+    def route(self, *a, **k):
+        raise RuntimeError("router down")
+
+
+@pytest.mark.parametrize("role", ["WARD", "GUARDIAN"])
+def test_router_failure_how_crisis_gets_crisis_reply(env, monkeypatch, role: str) -> None:  # noqa: F811
+    monkeypatch.setattr(cs, "get_chat_router_service", lambda: _FailingRouter())
+    _fake_gen(env, monkeypatch)
+    out = env.svc.process_message(env.db, ChatRequest(userId="u1", message=HOW_CRISIS[1], sessionId=f"s-f3-{role}",
+                                                      context=ChatContext(role=role)))
+    assert "109" in out["reply"] and out["suggestedQuestions"] == []
