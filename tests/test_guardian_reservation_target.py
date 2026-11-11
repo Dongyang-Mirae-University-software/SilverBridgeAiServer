@@ -290,3 +290,14 @@ def test_option_label_shapes() -> None:
 def test_duplicate_wards_are_listed_once() -> None:
     req = ChatRequest(userId="g", message="x", context=ChatContext(role="GUARDIAN", guardianWards=[WARDS[0], WARDS[0]]))
     assert [w.wardId for w in reservation_target.guardian_wards(req)] == ["w1"]
+
+
+def test_field_name_matches_the_be_contract() -> None:
+    # BE ChatRelayService.PATIENT_CHOICE_FIELD 가 이 칸의 선택 값을 검증한다(#472).
+    assert reservation_target.TARGET_FIELD == "reservation_patient"
+
+
+def test_self_choice_is_not_booked_for_the_guardian(env) -> None:
+    _send(env, "내과 예약해줘")
+    out = _send(env, ui=(reservation_target.TARGET_FIELD, "__self__"))
+    assert _flat(out["reply"]) == reservation_target.STALE_REPLY and env.orch.calls == [] and env.cred.users == []

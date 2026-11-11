@@ -19,7 +19,8 @@ from typing import Any
 
 from app.schemas.chat_schema import ChatRequest, GuardianWard, UiOption, UiPayload
 
-TARGET_FIELD = "reservation_target"
+# BE(#472 ChatRelayService.PATIENT_CHOICE_FIELD)가 이 칸의 선택 값을 ACTIVE 연결로 검증한다 - 이름을 바꾸면 BE·FE 도 함께.
+TARGET_FIELD = "reservation_patient"
 # 대상 질문은 확인 카드와 같은 30분 안에 골라야 한다(오래된 질문으로 예약이 시작되지 않게).
 TARGET_TTL_SECONDS = 1800
 MAX_OPTIONS = 20
