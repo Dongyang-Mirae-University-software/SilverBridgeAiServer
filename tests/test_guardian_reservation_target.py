@@ -148,6 +148,45 @@ def test_reservation_without_ward_asks_who_first(env, wards, caplog) -> None:
     assert "guardianWards" not in _ctx(env, out)["userContext"]
 
 
+def test_stored_question_row_keeps_no_ward_names(env) -> None:
+    """응답 선택지에는 이름이 있지만, 기록(context_json)의 ui 에는 "피보호자"만 남는다(BE 2026-11-11 점검 M-1)."""
+    out = _send(env, "내과 예약해줘")
+    assert _ui(out)["options"][0]["label"] == "김순자(어머니)"
+    stored = _ctx(env, out)["ui"]
+    assert stored["field"] == reservation_target.TARGET_FIELD
+    assert [o["value"] for o in stored["options"]] == ["w1", "w2"]
+    assert {o["label"] for o in stored["options"]} == {reservation_target.STORED_OPTION_LABEL}
+    row = env.db.query(ChatLog).filter(ChatLog.id == out["chatLogId"]).one()
+    assert "김순자" not in row.context_json and "어머니" not in row.context_json
+
+
+def test_stored_ui_of_other_fields_is_unchanged() -> None:
+    ui = {"field": "time", "options": [{"value": "0930", "label": "오전 9:30"}]}
+    assert reservation_target.persistable_ui(ui) == ui
+    assert reservation_target.persistable_ui(None) is None
+
+
+def test_ward_withdrawal_deletes_the_question_row(env) -> None:
+    """질문 행은 보호자 본인 상담 행이지만, 선택지에 든 피보호자가 탈퇴하면 함께 지운다(M-1)."""
+    out = _send(env, "내과 예약해줘")
+    own_row = _send(env, "요즘 잠이 안 와요", session="s2")
+    assert "w1" in cs.ChatService._proxy_ward_ids(_raw(env, out))
+    cs.ChatService.delete_logs(env.db, "w1")
+    ids = {r.id for r in env.db.query(ChatLog).all()}
+    assert out["chatLogId"] not in ids
+    assert own_row["chatLogId"] in ids  # 피보호자와 무관한 보호자 본인 상담은 남는다
+
+
+def test_disconnect_deletes_the_question_row_for_that_pair(env) -> None:
+    out = _send(env, "내과 예약해줘")
+    assert cs.ChatService.delete_proxy_logs(env.db, "g-1", "w2") == 1
+    assert env.db.query(ChatLog).filter(ChatLog.id == out["chatLogId"]).count() == 0
+
+
+def _raw(env, out: dict[str, Any]) -> str:
+    return env.db.query(ChatLog).filter(ChatLog.id == out["chatLogId"]).one().context_json
+
+
 def test_no_connected_ward_gets_notice_without_booking(env) -> None:
     out = _send(env, "내과 예약해줘", wards=[])
     assert _flat(out["reply"]) == reservation_target.NO_WARD_REPLY
