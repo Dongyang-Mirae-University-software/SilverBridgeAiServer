@@ -23,7 +23,7 @@ PAST_TERMS = ("지난", "어제", "예전", "옛날", "여행")
 FALLBACK_FOLLOWUP = (
     "그러셨군요. 조금 더 들려주실 수 있을까요?",
     "말씀해 주셔서 고맙습니다. 그 이야기 조금 더 해 주실 수 있으세요?",
-    "그랬군요. 그때 마음은 어떠셨어요?",
+    "네, 잘 들었어요. 더 하고 싶으신 말씀 있으세요?",  # 11/12 M-1: 짧은 대답에도 맞게 시점(그때)을 뺐다
 )
 # 그 턴의 글 기분이 부정(슬픔·화남·우울)이면 이 목록에서 고른다 (11/11)
 FALLBACK_EMPATHY = (
@@ -32,6 +32,15 @@ FALLBACK_EMPATHY = (
     "힘든 이야기 꺼내 주셔서 고맙습니다. 제가 더 들어 드려도 될까요?",
 )
 NEGATIVE_TURN_LABELS = ("슬픔", "화남", "우울")
+# 어르신이 아무 말도 하지 않은 턴(무응답)의 문장 (11/12 점검 H-1). 말을 들은 것처럼 받지 않고, 편하게 다시 말을 건넨다.
+# 무응답 턴에는 대화를 다시 여는 질문이 화제 전환이 아니다
+FALLBACK_NO_RESPONSE = (
+    "천천히 생각하셔도 괜찮아요. 편하실 때 말씀해 주시겠어요?",
+    "제 말이 잘 들리셨을까요? 편하실 때 한 번 더 말씀해 주시겠어요?",
+    "괜찮으시면 지금 기분이 어떠신지 들려주시겠어요?",
+)
+# 검수 목록에 남는 대체 문장 버전. 대체 문장 목록을 고치면 올린다 (v2: 11/11~12 화제 전환 제거·공감·무응답 목록)
+FALLBACK_VERSION = "fallback-v2"
 FALLBACK_LAST = (
     "오늘도 이야기 나눠 주셔서 고맙습니다. 편안한 하루 보내세요.",
 )
@@ -96,15 +105,18 @@ def is_negative_mood(text_mood: dict | None) -> bool:
     return bool(text_mood and text_mood.get("usable") and text_mood.get("turnLabel") in NEGATIVE_TURN_LABELS)
 
 
-def fallback_options(is_last_turn: bool, negative: bool = False) -> tuple[str, ...]:
-    """대체 문장 목록. 마지막 턴은 마무리 문장, 부정 기분 턴은 공감 문장, 그 밖은 받아 주는 문장."""
+def fallback_options(is_last_turn: bool, negative: bool = False, no_response: bool = False) -> tuple[str, ...]:
+    """대체 문장 목록. 마지막 턴은 마무리 문장, 무응답 턴은 다시 말을 건네는 문장,
+    부정 기분 턴은 공감 문장, 그 밖은 받아 주는 문장."""
     if is_last_turn:
         return FALLBACK_LAST
+    if no_response:
+        return FALLBACK_NO_RESPONSE
     return FALLBACK_EMPATHY if negative else FALLBACK_FOLLOWUP
 
 
-def fallback_text(turn_no: int, is_last_turn: bool, negative: bool = False) -> str:
-    options = fallback_options(is_last_turn, negative)
+def fallback_text(turn_no: int, is_last_turn: bool, negative: bool = False, no_response: bool = False) -> str:
+    options = fallback_options(is_last_turn, negative, no_response)
     return options[turn_no % len(options)]  # 턴마다 다른 문장이 나오도록 번갈아 쓴다
 
 
@@ -160,6 +172,15 @@ def generate_reply(
 
 
 def no_response_reply(turn_no: int, is_last_turn: bool) -> ReplyResult:
-    """어르신이 답하지 않은 턴의 응답. LLM을 부르지 않고 미리 정한 문장을 쓴다 (S7-8)."""
-    return ReplyResult(text=_fallback(turn_no, is_last_turn), isFollowUp=not is_last_turn,
+    """어르신이 답하지 않은 턴의 응답. LLM을 부르지 않고 무응답 문장을 쓴다 (S7-8, 11/12 H-1)."""
+    return ReplyResult(text=fallback_text(turn_no, is_last_turn, no_response=True), isFollowUp=not is_last_turn,
+                       source="FALLBACK", failures=["무응답"])
+
+
+def timeout_reply(turn_no: int, is_last_turn: bool) -> ReplyResult:
+    """대답 생성이 턴 상한을 넘긴 턴의 응답. 어르신 말은 있으므로 받아 주는 문장을 쓴다 (11/12 H-1).
+
+    부정 기분이면 pipeline 이 공감 문장으로 바꾼다. 실패 이름은 전과 같은 "무응답"이다(검수·로그 호환).
+    """
+    return ReplyResult(text=fallback_text(turn_no, is_last_turn), isFollowUp=not is_last_turn,
                        source="FALLBACK", failures=["무응답"])

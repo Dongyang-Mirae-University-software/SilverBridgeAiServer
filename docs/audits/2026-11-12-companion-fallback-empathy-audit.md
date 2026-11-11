@@ -58,3 +58,15 @@
 - `risk_first` 꺼진 경로: 글 기분 계산이 반환 직전에서 공감 교체 직전으로 옮겨졌을 뿐, 대기 작업이 끝난 뒤라 턴 상한·결과 모양은 같다. gosky는 기본값(켜짐).
 - 계약: 턴 응답 칸(`reply`·`replySource`·`textMood`·`riskFlag`)과 `replySource` 값은 그대로다. 공감 문장도 `FALLBACK`이다. BE 중계·저장에 영향 없음.
 - 개인 정보: 새 로그·응답 칸 없음.
+
+## 조치 (2026-11-12, `fix/companion-no-response-fallback`)
+
+| 이슈 | 조치 |
+|---|---|
+| H-1 | `FALLBACK_NO_RESPONSE` 3문장(말을 들은 것처럼 받지 않고 다시 말을 건넴). `no_response_reply`는 이 목록, 대답 생성 시간 초과는 새 `timeout_reply`(받아 주는 문장 → 부정 기분이면 공감 문장). `_avoid_repeat`는 `turnResult.source == NO_RESPONSE`면 무응답 목록 안에서 바꾼다. 실패 이름은 둘 다 "무응답" 그대로 |
+| M-1 | "그랬군요. 그때 마음은 어떠셨어요?" → "네, 잘 들었어요. 더 하고 싶으신 말씀 있으세요?" |
+| L-1 | 검수 버전 `FALLBACK_VERSION = "fallback-v2"` (BE는 이 값을 쓰지 않음) |
+| L-2 | 유지 (공감 문장을 다 쓰면 그대로 둔다 - 시험으로 고정) |
+| L-3 | 시험 34건 추가: 무응답 목록 규칙·말을 들은 척 안 함·턴 1~7, 무응답 마지막 턴, 시간 초과 평온/부정, GGARA02 분노·상처, 무응답 반복 방지, 공감 목록 소진 |
+
+- 전체 pytest(운영 이미지 일회용 컨테이너): 3602 passed · 1 failed(기존 `pgrep` 환경 실패) · 12 skipped
