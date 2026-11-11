@@ -252,7 +252,11 @@ class ClipService:
                 _LOG.info("clip not enough frames session=%r frames=%d", session_id, len(snapshot))
                 raise ClipError(409, "CLIP_NOT_ENOUGH_FRAMES", "요청한 구간에 프레임이 없습니다.")
 
+            # fps 는 요청 구간이 아니라 실제로 담긴 프레임의 시각 범위로 잡는다(A-8) - 버퍼가 짧아 구간 앞이 비면 재생이 빨라졌다.
             span = request.preSeconds + request.postSeconds
+            actual_span = (snapshot[-1][0] - snapshot[0][0]).total_seconds()
+            if actual_span > 0:
+                span = actual_span
             frames, fps = select_frames([item[1] for item in snapshot], span)
             size = parse_jpeg_size(frames[0])
             if size is None:
