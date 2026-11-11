@@ -122,8 +122,9 @@ def env(monkeypatch):
 
 
 def _send(env, message: str = "", *, ui: tuple[str, str] | None = None, session: str = "s1", ward: str | None = None,
-          user: str = "user-1") -> dict[str, Any]:
-    ctx = ChatContext(name="홍길동", wardId=ward) if ward else ChatContext(name="홍길동")
+          user: str = "user-1", role: str | None = "WARD") -> dict[str, Any]:
+    # 단계 되묻기는 피보호자 본인(WARD)만(2026-11-11) - 이 파일의 대화 흐름은 기본 WARD 로 본다.
+    ctx = ChatContext(name="홍길동", wardId=ward, role=role) if ward else ChatContext(name="홍길동", role=role)
     return env.svc.process_message(env.db, ChatRequest(
         userId=user, message=message, sessionId=session, context=ctx,
         uiSelection=UiSelection(field=ui[0], value=ui[1]) if ui else None))
