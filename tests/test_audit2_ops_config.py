@@ -61,23 +61,13 @@ def test_new_settings_defaults() -> None:
     assert (s.medgemma_generate_max_time_sec, s.db_connect_timeout_sec, s.db_pool_timeout_sec) == (90.0, 5, 10)
 
 
-def test_postgres_engine_gets_timeouts_and_sqlite_does_not(monkeypatch) -> None:
-    import importlib
+def test_postgres_engine_gets_timeouts_and_sqlite_does_not() -> None:
+    # 모듈을 reload 하면 get_db 가 바뀌어 다른 테스트의 의존성 재정의가 깨지므로 소스 분기만 확인한다
     from app.database import session as sess
-    captured = {}
-    real = sess.create_engine
-    monkeypatch.setattr(sess, "create_engine", lambda url, **kw: captured.update(kw) or real("sqlite://"))
-    monkeypatch.setattr(sess.settings.__class__, "database_url", "postgresql+psycopg://u:p@h/db", raising=False)
-    try:
-        importlib.reload(sess)
-    except Exception:
-        pass
-    # reload 는 create_engine 을 다시 import 하므로 직접 검증하는 대신 소스 분기를 확인한다
     src = open(sess.__file__, encoding="utf-8").read()
-    assert '"connect_timeout"' in src and "pool_timeout" in src
-    assert "check_same_thread" in src.split("else:")[0]
-    monkeypatch.undo()
-    importlib.reload(sess)
+    sqlite_part, pg_part = src.split("else:", 1)
+    assert "connect_timeout" not in sqlite_part and "pool_timeout" not in sqlite_part
+    assert '"connect_timeout": settings.db_connect_timeout_sec' in pg_part and "pool_timeout=settings.db_pool_timeout_sec" in pg_part
 
 
 def test_credential_cipher_unavailable_is_503_other_value_error_400() -> None:
