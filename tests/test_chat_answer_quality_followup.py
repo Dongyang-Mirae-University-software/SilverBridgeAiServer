@@ -77,4 +77,5 @@ def test_rule8_asks_for_symptom_signals_without_119() -> None:
     assert "계속되거나 심해지면 꼭 진료를 받아 보세요" in rule8  # 신호를 모를 때의 문장
     assert "위험 신호가 함께 있을 때만" in rule8  # 119 규칙은 그대로
     example1 = next(line for line in SYSTEM_PROMPT.splitlines() if line.startswith('{"empathy": "허리가'))
-    assert "다리가 저려 오면" in example1 and "119" not in example1
+    # 2026-11-11: 예시 둘째 문장의 다른 몸 부위(다리 저림)가 다른 증상 답으로 복사돼 몸 부위가 없는 신호로 바꿨다
+    assert "통증이 점점 심해지면" in example1 and "다리" not in example1.split('"advice"')[1] and "119" not in example1

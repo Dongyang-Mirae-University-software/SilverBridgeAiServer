@@ -232,7 +232,7 @@ def test_fallback_arrest_signal_negative(q: str) -> None:
 
 def test_eval_general_221_no_arrest_false_positive() -> None:
     general = [it for it in _unique_items() if (it.get("expect") or {}).get("emergency") is False]
-    assert len(general) == 221
+    assert len(general) == 309  # 2026-11-11 holdout v6(일반 증상 88문항) 추가 전 221
     assert [it["id"] for it in general if kw.fallback_arrest_signal(it["q"])] == []
     not_cpr = [it["id"] for it in _unique_items()
                if (it.get("expect") or {}).get("cpr_aed") is False and kw.fallback_arrest_signal(it["q"])]
