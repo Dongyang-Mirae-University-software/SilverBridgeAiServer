@@ -333,7 +333,9 @@ def test_fire_only_payload_matches_previous_contract(
     }
     assert {k: payload[k] for k in expected} == expected
     assert isinstance(payload["analyzedAt"], str)
-    assert set(payload) == {"detectedType", "confidence", "danger", "detections", "analyzedAt", "results"}
+    base_keys = {"detectedType", "confidence", "danger", "detections", "analyzedAt", "results"}
+    # 판정 불가(unknown)면 unavailable 칸이 더해진다(2차 점검 A-3) - 기존 칸은 그대로
+    assert set(payload) == base_keys | ({"unavailable"} if detected_type == "unknown" else set())
     assert session_analysis_store.get_result(sid) == payload
 
 

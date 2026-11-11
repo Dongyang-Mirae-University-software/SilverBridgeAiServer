@@ -26,12 +26,16 @@ def _detector_status() -> dict:
 
 @router.get("/health")
 def health() -> dict:
-    return success_response(
-        message="AI 서버가 정상 동작 중입니다.",
-        data={
-            "status": "ok",
-            "timestamp": datetime.utcnow().isoformat(),
-            "ffmpeg": ffmpeg_available(),
-            "detectors": _detector_status(),
-        },
-    )
+    detectors = _detector_status()
+    data = {
+        "status": "ok",  # 감지기 하나가 안 떠도 서버 자체는 응답 중이라 그대로 둔다(로드밸런서·헬스체크가 서버를 내리지 않게)
+        "timestamp": datetime.utcnow().isoformat(),
+        "ffmpeg": ffmpeg_available(),
+        "detectors": detectors,
+    }
+    unavailable = [kind for kind, info in detectors.items() if info["enabled"] and not info["loaded"]]
+    if unavailable:
+        # 켜져 있는데 적재되지 않은 종류가 있다(A-3). 칸은 켜진 경우에만 더한다.
+        data["degraded"] = True
+        data["unavailableDetectors"] = unavailable
+    return success_response(message="AI 서버가 정상 동작 중입니다.", data=data)

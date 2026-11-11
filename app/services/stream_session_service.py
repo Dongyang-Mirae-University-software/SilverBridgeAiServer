@@ -33,6 +33,52 @@ _LOG = logging.getLogger(__name__)
 _analysis_clock = time.monotonic
 
 
+_STALE_PURGE_CHECK_SEC = 60.0
+_stale_purge_lock = Lock()
+_last_stale_purge: float | None = None
+_UNAVAILABLE_LOG_INTERVAL_SEC = 600.0
+
+
+def _analysis_is_stale(analyzed_at: Any, max_age_sec: float) -> bool:
+    """analyzedAt(ISO, UTC 기준)이 max_age_sec 보다 오래됐거나 읽을 수 없으면 True."""
+    if not analyzed_at:
+        return True
+    try:
+        at = datetime.fromisoformat(str(analyzed_at))
+    except ValueError:
+        return True
+    if at.tzinfo is not None:
+        from datetime import timezone
+
+        at = at.astimezone(timezone.utc).replace(tzinfo=None)
+    return datetime.utcnow() - at > timedelta(seconds=max_age_sec)
+
+
+class _UnavailableLog:
+    """켜진 탐지기가 적재 실패·추론 불가(unknown)일 때 세션·종류별로 10분에 한 번만 ERROR 로그(A-3). 세션 ID 는 끝 6자."""
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._last: dict[tuple[str, str], float] = {}
+
+    def report(self, session_id: str, kind: str) -> None:
+        now = time.monotonic()
+        with self._lock:
+            last = self._last.get((session_id, kind))
+            if last is not None and now - last < _UNAVAILABLE_LOG_INTERVAL_SEC:
+                return
+            self._last[(session_id, kind)] = now
+        _LOG.error("[LIVE-DETECTOR-UNAVAILABLE] kind=%s session=...%s", kind, session_id[-6:])
+
+    def clear(self, session_id: str) -> None:
+        with self._lock:
+            for key in [k for k in self._last if k[0] == session_id]:
+                self._last.pop(key, None)
+
+
+_unavailable_log = _UnavailableLog()
+
+
 def _is_cuda_oom(exc: BaseException) -> bool:
     """torch 의 GPU 메모리 부족 예외인지 (torch 가 없으면 False)."""
     try:
@@ -110,6 +156,25 @@ class StreamFrameStore:
         with self._lock:
             return self._viewers.get(session_id, 0)
 
+    def clear_session(self, session_id: str) -> None:
+        """세션의 프레임(최대 수 MB)·시각·fps·시청자 수·순번을 지운다(A-7). 시청 중이던 MJPEG 는 프레임이 없으면 그냥 건너뛴다."""
+        with self._lock:
+            self._frames.pop(session_id, None)
+            self._frame_times.pop(session_id, None)
+            self._last_epoch.pop(session_id, None)
+            self._fps_map.pop(session_id, None)
+            self._viewers.pop(session_id, None)
+            self._seq.pop(session_id, None)
+
+    def stale_session_ids(self, max_age_sec: float) -> list[str]:
+        """마지막 프레임이 max_age_sec 보다 오래됐고 보는 사람이 없는 세션 ID."""
+        cutoff = datetime.utcnow() - timedelta(seconds=max_age_sec)
+        with self._lock:
+            return [
+                sid for sid, at in self._frame_times.items()
+                if at < cutoff and self._viewers.get(sid, 0) <= 0
+            ]
+
 
 class StreamSessionService:
     def __init__(self, db: Session, frame_store: StreamFrameStore) -> None:
@@ -143,6 +208,8 @@ class StreamSessionService:
         fall_hold_tracker.clear(session_id)
         fire_hold_tracker.clear(session_id)
         knife_hold_tracker.clear(session_id)
+        # 직전 분석 결과·프레임 카운터도 비운다(A-2) - 이전 송출의 옛 danger 가 새 세션 구독에 나가지 않게. 세대도 올라가 진행 중이던 옛 분석은 저장되지 않는다.
+        session_analysis_store.clear_session(session_id)
         if self.use_memory_state:
             return self._state_store.create_or_restart(session_id, camera_identifier, device_type)
 
@@ -192,6 +259,7 @@ class StreamSessionService:
         )
 
     def ingest_frame(self, session: StreamSessionState, frame_bytes: bytes) -> StreamSessionState:
+        self._purge_stale_sessions(exclude=session.session_id)
         frame_time, fps = self.frame_store.set_frame(session.session_id, frame_bytes)
         if self.use_memory_state:
             return self._state_store.ingest_frame(session.session_id, frame_time, fps)
@@ -268,6 +336,7 @@ class StreamSessionService:
         """
         kind_results: list[tuple[str, dict[str, Any]]] = []
         timings_ms: dict[str, float] = {}
+        generation = session_analysis_store.generation(session_id)  # 이 분석 도중 stop·재시작되면 결과를 버린다(A-6)
         quality_started = time.perf_counter()
         verdict = self._assess_frame_quality(frame_bytes)
         if self.settings.fire_smoke_enabled and self.settings.frame_quality_gate_enabled:
@@ -291,6 +360,8 @@ class StreamSessionService:
                 for box in result.get("ignoredBoxes") or []:
                     ignored_box_log_limiter.log_ignored(session_id, box["area"], box["confidence"])
                 result = self._apply_fall_hold(session_id, result)
+            if result.get("detectedType") == "unknown":
+                _unavailable_log.report(session_id, kind)
             kind_results.append((kind, result))
         _inference_timing.record(timings_ms)
 
@@ -299,7 +370,12 @@ class StreamSessionService:
             payload["frameQuality"] = verdict.as_payload()
         if payload.get("analyzedAt") is None:
             payload["analyzedAt"] = datetime.utcnow().isoformat()
-        session_analysis_store.set_result(session_id, payload)
+        if not session_analysis_store.set_result(session_id, payload, generation=generation):
+            # 분석하는 사이 세션이 멈췄다(또는 재시작) - 직전 결과를 다시 채우지 않고, 방금 갱신한 추적기도 비운다.
+            fall_hold_tracker.clear(session_id)
+            fire_hold_tracker.clear(session_id)
+            knife_hold_tracker.clear(session_id)
+            return payload
         try:
             training_sample_collector.offer(
                 session_id,
@@ -415,21 +491,66 @@ class StreamSessionService:
             held["detectedType"] = "fall"
         return held
 
+    def _max_analysis_age_sec(self) -> float:
+        try:
+            return float(getattr(self.settings, "live_latest_analysis_max_age_sec", 30.0))
+        except (TypeError, ValueError):
+            return 30.0
+
     def latest_analysis_for_session(self, session_id: str, camera_identifier: str) -> dict[str, Any] | None:
+        """직전 분석 결과. analyzedAt 이 LIVE_LATEST_ANALYSIS_MAX_AGE_SEC 보다 오래됐으면 None(A-2).
+
+        BE 는 analyzedAt 의 나이를 보지 않으므로, 끊긴 카메라의 옛 danger 가 구독·재접속 때 새 알림이 되지 않게 내보내지 않는다.
+        프레임마다 나가는 실시간 방송은 이 함수를 거치지 않는다.
+        """
+        max_age = self._max_analysis_age_sec()
         cached = session_analysis_store.get_result(session_id)
         if cached is not None:
-            return cached
-        return self.latest_analysis(camera_identifier)
+            return cached if max_age <= 0 or not _analysis_is_stale(cached.get("analyzedAt"), max_age) else None
+        return self.latest_analysis(camera_identifier, max_age_sec=max_age)
+
+    def _release_session_memory(self, session_id: str) -> None:
+        # clear_session 은 세대 번호도 올려, 진행 중이던 분석이 끝나며 결과를 다시 채우지 못하게 한다(A-6).
+        session_analysis_store.clear_session(session_id)
+        bbox_overlay.clear_session(session_id)
+        clip_frame_buffer.clear(session_id)
+        fall_hold_tracker.clear(session_id)
+        ignored_box_log_limiter.clear(session_id)
+        fire_hold_tracker.clear(session_id)
+        knife_hold_tracker.clear(session_id)
+        frame_quality.block_log_limiter.clear(session_id)
+        _unavailable_log.clear(session_id)
+        self.frame_store.clear_session(session_id)  # 마지막 프레임(최대 4MB)·시각·시청자 수(A-7)
+
+    def _purge_stale_sessions(self, exclude: str | None = None) -> int:
+        """마지막 프레임 뒤 LIVE_STALE_SESSION_PURGE_SEC 이 지난(stop 이 오지 않은) 세션의 메모리 상태를 지연 정리한다(A-7).
+
+        백그라운드 스레드 없이 프레임 수신·목록 조회 때 60초에 한 번만 훑는다. 세션 기록(상태)은 지우지 않는다.
+        """
+        try:
+            max_age = float(getattr(self.settings, "live_stale_session_purge_sec", 1800.0))
+        except (TypeError, ValueError):
+            max_age = 1800.0
+        if max_age <= 0:
+            return 0
+        now = time.monotonic()
+        with _stale_purge_lock:
+            global _last_stale_purge
+            if _last_stale_purge is not None and now - _last_stale_purge < _STALE_PURGE_CHECK_SEC:
+                return 0
+            _last_stale_purge = now
+        purged = 0
+        for sid in self.frame_store.stale_session_ids(max_age):
+            if sid == exclude:
+                continue
+            self._release_session_memory(sid)
+            purged += 1
+        if purged:
+            _LOG.info("[LIVE-STALE-PURGED] sessions=%d", purged)
+        return purged
 
     def stop(self, session: StreamSessionState) -> StreamSessionState:
-        session_analysis_store.clear_session(session.session_id)
-        bbox_overlay.clear_session(session.session_id)
-        clip_frame_buffer.clear(session.session_id)
-        fall_hold_tracker.clear(session.session_id)
-        ignored_box_log_limiter.clear(session.session_id)
-        fire_hold_tracker.clear(session.session_id)
-        knife_hold_tracker.clear(session.session_id)
-        frame_quality.block_log_limiter.clear(session.session_id)
+        self._release_session_memory(session.session_id)
         if self.use_memory_state:
             return self._state_store.stop(session.session_id)
 
@@ -466,7 +587,7 @@ class StreamSessionService:
                 self.db.commit()
         return session
 
-    def latest_analysis(self, camera_identifier: str) -> dict[str, Any] | None:
+    def latest_analysis(self, camera_identifier: str, max_age_sec: float = 0.0) -> dict[str, Any] | None:
         result = (
             self.db.query(AnalysisResult)
             .filter(AnalysisResult.camera_identifier == camera_identifier)
@@ -474,6 +595,10 @@ class StreamSessionService:
             .first()
         )
         if not result:
+            return None
+        if max_age_sec > 0 and (
+            result.created_at is None or datetime.utcnow() - result.created_at > timedelta(seconds=max_age_sec)
+        ):
             return None
         return {
             "detectedType": result.detected_type,
@@ -511,6 +636,7 @@ class StreamSessionService:
                 )
                 for s in self.db.query(StreamSession).order_by(StreamSession.started_at.desc()).all()
             ]
+        self._purge_stale_sessions()
         items: list[dict[str, Any]] = []
         for session in sessions:
             refreshed = self.refresh_disconnect_status(session)
