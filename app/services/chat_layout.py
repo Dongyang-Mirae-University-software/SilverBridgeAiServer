@@ -308,6 +308,36 @@ def flatten(layout: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def append_notice(result: dict[str, Any], notice: str, emoji: bool = True) -> bool:
+    """모양을 다 정한 답 끝에 안내 문장을 붙인다(2026-11-11 라우터 실패 안내). 붙였으면 True.
+    apply 뒤에 부른다 - 피보호자 답 줄이기·본문 4줄 규칙이 이 문장을 자르거나 카드로 옮기지 않게.
+    layout 이 있으면 본문(body) 맨 끝에 한 줄 한 문장으로 넣고 reply 를 다시 펼친다(화면과 글이 같은 자리).
+    layout 이 없는 답(예약·선택지)은 reply 끝에만 붙인다. 이미 든 문장은 다시 붙이지 않는다.
+    긴급 표시(urgent) layout 에는 붙이지 않는다 - 응급·위기 답은 부르는 쪽이 먼저 거르고, 여기서 한 번 더 막는다."""
+    reply = result.get("reply")
+    if not isinstance(reply, str) or not reply.strip():
+        return False
+    layout = result.get("layout")
+    if isinstance(layout, dict) and layout.get("urgent"):
+        return False
+    present = [kw.strip_layout_emoji(s).strip() for line in reply.split("\n") for s in _sentences(line)]
+    missing = [s for s in _sentences(notice) if not _in(s, present)]
+    if not missing:
+        return False
+    if isinstance(layout, dict):
+        layout["body"] = [*(layout.get("body") or []), *((_emoji(s) if emoji else s) for s in missing)]
+        result["reply"] = flatten(layout)
+    else:
+        result["reply"] = "\n".join([reply.rstrip("\n"), *missing])
+    return True
+
+
+def strip_notices(text: str, notices: Any) -> str:
+    """다음 턴 이력용: 답에 붙였던 안내 문장 줄을 뺀 글. 모델이 앞 답의 안내 문장을 따라 쓰지 않게 한다."""
+    pool = [s for notice in notices for s in _sentences(str(notice))]
+    return "\n".join(line for line in (text or "").split("\n") if not _in(kw.strip_layout_emoji(line).strip(), pool))
+
+
 def split_warning(items: list[str] | None) -> list[str]:
     """응급 경고 박스는 내용 그대로, 한 문장씩 나눈 목록으로(문장 3개가 한 항목에 들어 있었다)."""
     out: list[str] = []

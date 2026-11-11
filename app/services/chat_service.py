@@ -26,7 +26,7 @@ from app.services.claude_structured_client import failure_cause
 from app.services.router_failure_monitor import failure_kind, get_router_failure_monitor
 from app.services import chat_keywords, chat_layout
 from app.services.medical_llm_service import (
-    DRUG_ALCOHOL_SENTENCES, MedicalLlmService, get_medgemma_loader, get_medical_llm_service)
+    DEGRADED_NOTICES, DRUG_ALCOHOL_SENTENCES, MedicalLlmService, get_medgemma_loader, get_medical_llm_service)
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS, fresh_flow_state, fresh_pending_action
 from app.services.reservation_intake import CHANGE_DATE_OPTION, PICK_CALENDAR_OPTION, RETRY_SLOTS_OPTION, _find_department
 from app.services.reservation_orchestrator import (
@@ -633,6 +633,19 @@ class ChatService:
         chat_layout.apply(
             result, DRUG_ALCOHOL_SENTENCES, concise=ward_reader, emoji=bool(getattr(self._settings, "chat_layout_emoji", False))
         )
+        # 라우터(Claude) 실패 턴 안내 한 줄(2026-11-11) - 모양을 다 정한 뒤에 붙여 피보호자 답 줄이기가 자르지 않게 한다.
+        degraded = self._degraded_notice_kind(
+            result, route_info, message, ui_selection, router_failed=router_failure is not None,
+            after_emergency=after_emergency, awaiting=self._active_reservation_flow(latest_log, session_id, ward_id),
+        ) if router_failure is not None and bool(getattr(self._settings, "chat_degraded_notice", True)) else None
+        if degraded and chat_layout.append_notice(
+            result, DEGRADED_NOTICES[degraded], emoji=bool(getattr(self._settings, "chat_layout_emoji", False))
+        ):
+            result.setdefault("meta", {})
+            if isinstance(result["meta"], dict):
+                # 기록용(종류만, 본문 없음) - 안내가 나간 턴 수를 센다.
+                result["meta"]["degradedNotice"] = degraded
+            _LOG.info("[CHAT-QUALITY] degraded_notice=%s", degraded)
         post_started = time.perf_counter()
         if route_info:
             result.setdefault("meta", {})
@@ -1030,7 +1043,9 @@ class ChatService:
             items.append({"role": "user", "content": user_text})
             if (log.reply or "").strip():
                 # 줄 머리 이모지는 지운 문장으로 - 이력 기반 판정(위기·응급 다음·진료과)이 이모지를 보지 않게(2026-11-01).
-                items.append({"role": "assistant", "content": chat_keywords.strip_layout_emoji(log.reply)})
+                # 라우터 실패 안내 줄(2026-11-11)도 뺀다 - 모델이 다음 답에서 따라 쓰지 않게.
+                items.append({"role": "assistant", "content": chat_layout.strip_notices(
+                    chat_keywords.strip_layout_emoji(log.reply), DEGRADED_NOTICES.values())})
         return items[-_SERVER_HISTORY_ITEMS:]
 
     @staticmethod
@@ -1394,6 +1409,40 @@ class ChatService:
         if MedicalLlmService.self_harm_signals(message):
             return False
         return chat_keywords.is_off_topic_question(message)
+
+    @staticmethod
+    def _degraded_notice_kind(
+        result: dict, route_info: dict, message: str, ui_selection: dict | None, *, router_failed: bool,
+        after_emergency: bool, awaiting: tuple[bool, str | None],
+    ) -> str | None:
+        """라우터(Claude) 호출이 실패한 턴의 답에 붙일 안내 종류(2026-11-11). None 이면 붙이지 않는다.
+        "router": 키워드 경로로 답한 일반·상담 답 / "reservation-input": 예약 흐름이 글 입력을 읽지 못해 같은 칸을 다시 물은 답.
+        응급(119)·위기(109)·위기 뒤 해제·응급 다음 턴·위험 신호 "네" 끝맺음에는 붙이지 않는다 - 애매하면 붙이지 않는 쪽.
+        되묻기 질문 턴(질문 하나만 보이는 화면)·엉뚱한 질문 고정 안내·인사·종료 말에도 붙이지 않는다. 판정 값은 읽기만 한다."""
+        if not router_failed or not message or not isinstance(result.get("reply"), str):
+            return None
+        meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+        if any(meta.get(k) for k in ("selfHarm", "crisisFollowup", "emergencyFollowup", "followupRedFlag")):
+            return None
+        if after_emergency or result.get("riskLevel") == "high" or result.get("emergencyWarning") or route_info.get("emergency"):
+            return None
+        ui = result.get("ui")
+        reservation = (
+            route_info.get("route") == "reservation" or result.get("intent") == "hospital_reservation"
+            or bool(ui) or bool(result.get("tool")) or result.get("type") not in (None, "message")
+        )
+        if reservation:
+            # 버튼 턴·정상 진행·글 입력 칸(버튼이 없다)에는 아무것도 붙이지 않는다. 직전 턴이 묻던 칸을 버튼·달력으로 다시 물을 때만.
+            active, asked = awaiting
+            field = ui.get("field") if isinstance(ui, dict) else getattr(ui, "field", None)
+            kind = ui.get("kind") if isinstance(ui, dict) else getattr(ui, "kind", None)
+            same_step = active and bool(asked) and field == asked and kind in ("select", "date")
+            return "reservation-input" if same_step and not ui_selection else None
+        if any(meta.get(k) for k in ("followupAsked", "offTopic")):
+            return None
+        if _is_closing_message(message):
+            return None
+        return "router"
 
     @staticmethod
     def _off_topic_reply() -> dict:

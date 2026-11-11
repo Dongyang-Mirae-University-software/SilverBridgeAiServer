@@ -248,6 +248,8 @@ class Settings(BaseModel):
     # 답 줄 머리 이모지(2026-11-01 가독성). 2026-11-09 기본 끔 - 어르신 화면에서 문장만 보이게(응급 🚨도 끈다, 핵심 줄은 119 전화 문장).
     # 판정은 원래 이모지 없는 문장 기준이라 이 값과 무관하다. 다시 켜려면 CHAT_LAYOUT_EMOJI=true.
     chat_layout_emoji: bool = _as_bool("CHAT_LAYOUT_EMOJI", False)
+    # Claude(라우터) 호출이 실패한 턴의 답 끝에 안내 한 줄(2026-11-11). 응급·위기·되묻기 질문 턴에는 붙이지 않는다. 끄려면 false.
+    chat_degraded_notice: bool = _as_bool("CHAT_DEGRADED_NOTICE", True)
     # 라우터 실패 누적 알림(2026-11-08): 창(초) 안에서 실패가 기준 횟수에 닿으면 ERROR 한 번(창마다 1회).
     # 크레딧 소진·API 장애처럼 실패가 이어지는 상황을 사람이 알게 한다. 코드 기본값으로 동작(.env 불필요).
     chat_router_failure_alert_window_sec: int = _as_int_in_range("CHAT_ROUTER_FAILURE_ALERT_WINDOW_SEC", 600, 60, 86400)
