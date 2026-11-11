@@ -43,6 +43,14 @@ def require_game_api_key(
         require_api_key(x_api_key, settings)
 
 
+def admin_api_key_warning(settings: Settings) -> str | None:
+    """ADMIN_API_KEY 가 공용 API_KEY 와 같으면 경고 문구, 아니면 None. 값은 문구에 넣지 않는다. 기동 때 main.py 가 부른다."""
+    admin_key = settings.admin_api_key.strip()
+    if admin_key and admin_key == settings.api_key.strip():
+        return "ADMIN_API_KEY 가 API_KEY 와 같습니다 - 관리 키를 나눈 의미가 없습니다. 다른 값으로 바꾸세요."
+    return None
+
+
 def require_admin_api_key(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     settings: Settings = Depends(get_settings),
@@ -51,8 +59,9 @@ def require_admin_api_key(
 
     공용 키는 BE·FE 서버가 함께 쓰므로, 모델을 내리는 조작까지 그 키로 되지 않게 나눌 수 있게 했다(2026-11-10 전체 점검 M-4).
     """
-    if settings.admin_api_key.strip():
-        if not api_key_matches(x_api_key, settings.admin_api_key):
+    admin_key = settings.admin_api_key.strip()
+    if admin_key:
+        if not api_key_matches(x_api_key, admin_key):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"success": False, "message": "유효하지 않은 API Key 입니다.", "errorCode": "AUTH_INVALID_KEY", "data": None},

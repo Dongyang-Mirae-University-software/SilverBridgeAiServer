@@ -8,8 +8,12 @@ import re
 _API_KEY_IN_URL = re.compile(r"(?i)([?&\s](?:apikey|userid|guardianid|wardid)=)[^&\s\"']+")
 
 
+# 경로 속 회원 ID: /companion/wards/{id}/... (P-7). 세션 ID 경로는 운영 진단용이라 가리지 않는다.
+_WARD_ID_IN_PATH = re.compile(r"(/companion/wards/)[^/?\s\"']+")
+
+
 def redact_api_key(text: str) -> str:
-    return _API_KEY_IN_URL.sub(r"\1***", text)
+    return _WARD_ID_IN_PATH.sub(r"\1***", _API_KEY_IN_URL.sub(r"\1***", text))
 
 
 class ApiKeyRedactingFilter(logging.Filter):
