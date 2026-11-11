@@ -16,7 +16,8 @@ from app.schemas.chat_schema import ChatContext, ChatRequest
 from app.services import chat_service as cs
 from app.services.medical_llm_service import MedicalLlmService
 
-from app.services.followup_steps import INTRO  # noqa: E402 - 2026-11-09 단계 되묻기 첫 턴 앞말
+# 보호자 상담(WARD 아님)은 #196 이전 한 번 되묻기(2026-11-11) - 이 파일은 role 없이 보내 그 흐름을 본다. 단계 문답은 test_followup_steps.
+INTRO = "말씀해 주셔서 고마워요. 더 정확히 안내해 드리려고 몇 가지 여쭤볼게요."
 
 
 class _Router:
@@ -58,8 +59,8 @@ def env(monkeypatch):
     db.close()
 
 
-def _send(env, message: str, session: str = "s1", ward: str | None = None) -> dict[str, Any]:
-    ctx = ChatContext(name="홍길동", wardId=ward) if ward else ChatContext(name="홍길동")
+def _send(env, message: str, session: str = "s1", ward: str | None = None, role: str | None = None) -> dict[str, Any]:
+    ctx = ChatContext(name="홍길동", wardId=ward, role=role) if ward else ChatContext(name="홍길동", role=role)
     return env.svc.process_message(env.db, ChatRequest(userId="user-1", message=message, sessionId=session, context=ctx))
 
 
@@ -100,8 +101,9 @@ def test_other_sentences_do_not_need_followup(message: str) -> None:
 def test_first_turn_asks_without_calling_medgemma(env) -> None:
     out = _send(env, "머리가 아파요")
     assert all(part in out["reply"] for part in INTRO.split(". ")) and out["layout"]["questions"]  # 핵심 한 줄이 맨 위(2026-11-01)
-    # 2026-11-09 단계 되묻기: 질문 하나(위험 신호부터), 이모지 없음. 진료과 줄은 결과 답으로 옮겼다.
-    assert out["layout"]["questions"] == ["갑자기 아주 심하게 아프세요?"]
+    # 보호자 상담은 #196 이전 그대로 질문 3개 + 진료과 한 줄(Q2) - 줄 머리 이모지만 없다(2026-11-11).
+    assert "언제부터 그러셨나요?" in out["reply"] and len(out["layout"]["questions"]) == 3
+    assert "신경과 진료를 생각해 보셔도 좋아요." in out["reply"]
     assert "119" not in out["reply"] and not out["emergencyWarning"] and out["riskLevel"] == "medium"
     assert env.llm.calls == []
 
@@ -132,9 +134,9 @@ def test_thanks_after_followup_is_not_joined(env) -> None:
 
 def test_proxy_question_wording(env) -> None:
     out = _send(env, "기침이 나요", ward="ab12")
-    assert out["layout"]["questions"] == ["숨쉬기 힘들어하세요?"]
+    assert "어르신께서 언제부터 그러셨나요?" in out["reply"]
     out = _send(env, "엄마가 어지러워해요", session="s2")
-    assert out["layout"]["questions"] == ["말씀이 어눌하거나 팔다리 힘이 빠지세요?"]
+    assert "어르신께서 언제부터 그러셨나요?" in out["reply"]
 
 
 def test_router_emergency_never_asks(env) -> None:

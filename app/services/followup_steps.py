@@ -151,7 +151,9 @@ _GROUPS: tuple[Group, ...] = (
         "joint",
         # 손·발은 통증 말만, 목은 뻐근·결림만(옛 답 칩 표와 같은 기준, 2026-11-03 점검 L-1).
         re.compile(r"무릎|허리|어깨|관절|뼈|손목|발목|다리|팔|손가락|발가락|손이아|발이아|손이쑤|발이쑤|목이뻐근|목뻐근|목이결|목결"),
-        _yn("다친 뒤로 많이 부었어요?", "다치신 뒤로 많이 부었대요?", "", "다쳐서 부은 건 아니에요", yes_words=r"넘어|다쳤|다친|다쳐|삐었|삐끗|접질|부딪"), "visit",
+        # 다쳤다고 단정하지 않는다(2026-11-11 "다치신 뒤로 많이 부었대요?" 지적) - 다침 또는 심한 부기 둘 다 오늘 진료 기준.
+        _yn("다치셨거나 많이 부었어요?", "다치셨거나 많이 부으셨대요?", "", "다치거나 붓지는 않았어요",
+            yes_words=r"넘어|다쳤|다친|다쳐|삐었|삐끗|접질|부딪|부었|부어|부으|붓고|퉁퉁"), "visit",
         _yn("걸을 때 더 아프세요?", "걸으실 때 더 아프시대요?", "걸을 때 더 아파요", "걸을 때 더 아프지는 않아요"),
         "정형외과", "", "",
     ),
@@ -270,7 +272,7 @@ def interpret(state: dict[str, Any], message: str) -> tuple[str, str | None]:
         yes = bool(
             _YES.match(c) or _YES_WORD.match(message or "") or _YES_ALONE.fullmatch(c) or (q.yes_words and q.yes_words.search(c))
             # 강조 말은 기간·"점점"이 없을 때만 - "일주일째인데 점점 심해져요"는 갑자기 심한 게 아니라 설명이다(시험지 fq.13)
-            # 심한 정도를 묻는 위험 신호 질문(mild="no" - 머리·배·기본 묶음)에만 쓴다. 관절("다친 뒤로 부었어요?")처럼 있는지를 묻는 질문에는 아니다(fq.19).
+            # 심한 정도를 묻는 위험 신호 질문(mild="no" - 머리·배·기본 묶음)에만 쓴다. 관절("다치셨거나 많이 부었어요?")처럼 있는지를 묻는 질문에는 아니다(fq.19).
             or (red_flag_question and q.mild == "no" and _INTENSE.search(c) and not _ONSET.search(c) and "점점" not in c)
             or (red_flag_question and red_flag_action(state) == "119" and chat_keywords.has_red_flag(c))
         )
