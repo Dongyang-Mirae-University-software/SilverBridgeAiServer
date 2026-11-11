@@ -261,14 +261,28 @@ _ARREST_AWAKE = re.compile(
 
 
 _ARREST_PAST = re.compile(r"었|았|셨|더니")
+# "의식이 없어지셨어요"·"숨이 멎어 버리셨어요"는 지난 일이 아니라 지금 상태다(상태가 바뀐 꼴, 2026-11-10 2차 점검 P-1).
+_ARREST_STATE_CHANGE = re.compile(r"^(이|을|도)?(없)?(어|아)(지|져|버리|버렸)")
+# 회복 뒤에 이 말이 끼면 그 뒤의 반응·호흡 없음은 시제와 관계없이 다시 나빠진 것이다("깼는데 다시 숨을 안 쉬었어요").
+_ARREST_AGAIN = re.compile(r"다시|또|도로|이제는|지금은|방금")
+
+
+def _arrest_past(c: str, m) -> bool:
+    """반응·호흡이 없다는 말(m)이 지난 일로 적혔는가."""
+    tail = c[m.end():m.end() + 8]
+    if _ARREST_STATE_CHANGE.match(tail):
+        return False
+    return bool(_ARREST_PAST.search(tail[:6]))
 
 
 # 두 사람이 섞인 문장(2026-11-10 전체 점검 M-9): "아버지는 의식이 없어요. 어머니는 숨은 쉬세요"의 "숨은 쉬세요"는 다른 사람 이야기다.
 # 의식이 있다는 말 바로 앞의 사람과 반응·호흡이 없다는 말 바로 앞의 사람이 둘 다 적혀 있고 서로 다를 때만 그 말을 빼고 본다.
 # 한쪽이라도 사람이 적혀 있지 않으면 지금처럼 같은 사람으로 본다("의식이 없어요. 숨은 쉬세요" - 숨을 쉬면 가슴압박 대상이 아니다).
+# 신고하는 본인("저는 숨은 쉬어요")과 "환자분"도 사람으로 본다(2차 점검 P-3 - 가장 흔한 "환자 + 신고자" 꼴이 빠져 있었다).
+# 공백을 뺀 문장이라 "나는"("열이 나는데")·"제가"("문제가")는 낱말 속에 걸려 넣지 않는다.
 _ARREST_PERSON = re.compile(
     r"(엄마|아빠|어머니|아버지|어머님|아버님|할머니|할아버지|할매|할배|부모님|남편|아내|와이프|아들|딸|며느리|사위|손자|손녀|누나|언니|오빠|동생|"
-    r"어르신|환자)(께서는|께서|는|은|가|이|도)"
+    r"어르신|환자분|환자|저)(께서는|께서|는|은|가|이|도)"
 )
 
 
@@ -282,7 +296,7 @@ def _person_before(c: str, pos: int) -> str | None:
 def _awake(c: str) -> bool:
     """지금 의식이 있다는 말이 (반응·호흡이 없다는) 그 사람 이야기로 있는가."""
     live = [m for m in _ARREST_WORDS.finditer(c)
-            if not _ARREST_NOT_NOW.search(c[m.end():m.end() + 8]) and not _ARREST_PAST.search(c[m.end():m.end() + 6])]
+            if not _ARREST_NOT_NOW.search(c[m.end():m.end() + 8]) and not _arrest_past(c, m)]
     patients = {p for p in (_person_before(c, m.start()) for m in live) if p}
     for a in _ARREST_AWAKE.finditer(c):
         who = _person_before(c, a.start())
@@ -298,7 +312,8 @@ def _recovered(c: str) -> bool:
     for r in _ARREST_RECOVERED.finditer(c):
         # 뒤에 나온 말이 지난 일("지금은 멀쩡해요 숨을 안 쉬었었대요")이면 다시 나빠진 것이 아니다.
         again = any(
-            not _ARREST_NOT_NOW.search(c[m.end():m.end() + 8]) and not _ARREST_PAST.search(c[m.end():m.end() + 6])
+            bool(_ARREST_AGAIN.search(c[r.end():m.start()]))
+            or (not _ARREST_NOT_NOW.search(c[m.end():m.end() + 8]) and not _arrest_past(c, m))
             for m in _ARREST_WORDS.finditer(c, r.end())
         )
         if not again:
