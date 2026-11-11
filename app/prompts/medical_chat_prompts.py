@@ -42,6 +42,14 @@ SYSTEM_PROMPT = """너는 노인 돌봄 서비스의 의료 보조 AI다. 어르
 """
 
 
+# 증상이 있을 때 무엇을 먹거나 어떻게 하면 좋은지 묻는 질문(2026-11-11 ②) - 규칙 8 이 advice 를 "진료과 + 진료 기준"으로 묶어
+# 묻는 내용(먹을 것·할 일)이 답에서 빠졌다. 그런 질문일 때만 이 한 줄을 더한다(다른 질문의 프롬프트는 글자 그대로).
+_CARE_QUESTION_LINE = (
+    "- 이 질문은 증상이 있을 때 무엇을 먹거나 어떻게 하면 좋은지 묻는다. advice 첫 문장은 그 질문에 맞는 안전하고 흔히 권하는 방법"
+    " 한 가지(물·부드러운 음식처럼 먹을 것, 피할 것, 할 일)를 쓴다. 굶기·특정 건강식품·민간요법은 권하지 않는다. 둘째 문장에"
+    " 권장 진료과 힌트의 과(힌트가 없으면 \"가까운 병원\")와 언제 꼭 진료를 받아야 하는지 기준을 함께 쓴다.\n"
+)
+
 _WARD_CONCISE_LINE = (
     "- 이 답은 어르신 본인이 읽는다. 모든 문장을 쉬운 말로 짧게 쓰고, 어려운 의학 용어와 괄호 설명은 쓰지 않는다. "
     "advice는 해야 할 일을 먼저 쓴다.\n"
@@ -57,11 +65,13 @@ def build_user_prompt(
     processed_symptom: str | None = None,
     department_hint: str | None = None,
     concise: bool = False,
+    care_question: bool = False,
 ) -> str:
     symptom = (processed_symptom or "").strip() or message
     # concise: 피보호자(WARD) 본인 상담 - 어르신이 읽는 답이라 쉬운 말·짧은 문장 한 줄만 더한다(2026-11-04).
     # 보호자·대리 상담 프롬프트는 글자 하나 다르지 않다(WARD 일 때만 이 줄이 붙는다). 예시 문장은 두지 않는다(베끼기 방지).
     ward_line = _WARD_CONCISE_LINE if concise else ""
+    care_line = _CARE_QUESTION_LINE if care_question else ""
     return f"""[의도]
 {intent}
 
@@ -88,4 +98,4 @@ def build_user_prompt(
 - 의도가 medical_advice·emergency_guidance면 empathy·symptoms·advice를 채우고 reply는 ""로 둔다.
 - 의도가 general_chat이면 reply만 채우고 나머지는 ""로 둔다.
 - 권장 진료과 힌트가 있으면 advice에서 그 과를 권한다(예약 안내와 같은 과여야 한다).
-{ward_line}"""
+{care_line}{ward_line}"""

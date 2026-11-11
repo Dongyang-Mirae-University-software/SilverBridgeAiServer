@@ -88,7 +88,8 @@ def test_l1_department_not_offered_asks_the_hospital_departments() -> None:
     orch = make_orchestrator(fake, {})
     out = _handle(orch, _stored(), ui=("date", FUTURE))
     assert out["ui"].field == "department", out["reply"]
-    assert {o.value for o in out["ui"].options} == {"가정의학과", "소화기내과"}
+    # 병원 진료과 + 끝에 [다른 병원에서 찾기](2026-11-11 - 원하는 과가 그 병원에 없을 때)
+    assert [o.value for o in out["ui"].options] == ["가정의학과", "소화기내과", "__other_hospital__"]
     assert "_departmentNotOffered" not in (out.get("meta") or {}), "같은 턴 표시는 저장되지 않는다"
 
 

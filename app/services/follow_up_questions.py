@@ -65,18 +65,32 @@ _client_lock = threading.Lock()
 _client: ClaudeStructuredClient | None = None
 
 
-def should_suggest(result: dict, route_info: dict | None, message: str, *, emergency_text: bool, self_harm_text: bool) -> bool:
-    """이 답에 이어서 물어볼 질문을 붙여도 되는가."""
+def _without_lines(reply: str, lines: tuple[str, ...]) -> str:
+    """서버가 덧붙인 고정 안전 줄(그 줄 전체가 같을 때만)을 뺀 답."""
+    if not lines:
+        return reply
+    drop = {line.strip() for line in lines if line and line.strip()}
+    return "\n".join(x for x in reply.split("\n") if x.strip() not in drop)
+
+
+def should_suggest(
+    result: dict, route_info: dict | None, message: str, *, emergency_text: bool, self_harm_text: bool,
+    safety_lines: tuple[str, ...] = (),
+) -> bool:
+    """이 답에 이어서 물어볼 질문을 붙여도 되는가.
+    safety_lines: 응급이 아닌 답 끝에 서버가 붙인 고정 안전 줄(응급 다음 턴 119 한 줄·단계 결과의 119 기준 한 줄, 2026-11-11).
+    그 줄만으로는 막지 않는다 - 그 줄을 뺀 답에 119가 남거나 아래 응급·자해·위기 조건이면 지금처럼 빈 목록."""
     meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
     route_info = route_info or {}
     if result.get("riskLevel") == "high" or result.get("intent") in ("emergency_guidance", "hospital_reservation"):
         return False
     # redFlag119·drugAlcohol: 위험 신호 119 답·약 + 술 답도 응급·자해와 같은 기준으로 붙이지 않는다(2026-10-31 M-2).
-    flags = ("selfHarm", "crisisFollowup", "emergencyFollowup", "followupAsked", "generationFailed", "redFlag119", "drugAlcohol")
+    # emergencyFollowup(응급 다음 턴 한 줄)은 표시만으로 막지 않는다(2026-11-11) - 그 줄은 safety_lines 로 넘어와 아래 119 검사에서만 빠진다.
+    flags = ("selfHarm", "crisisFollowup", "followupAsked", "generationFailed", "redFlag119", "drugAlcohol")
     if any(meta.get(flag) for flag in flags):
         return False
-    # 답에 119 안내가 있으면 표시와 상관없이 붙이지 않는다 - 응급 다음 턴이 답의 119 유무로 갈리지 않게.
-    if isinstance(result.get("reply"), str) and "119" in result["reply"]:
+    # 답에 119 안내가 있으면 표시와 상관없이 붙이지 않는다 - 서버 고정 안전 줄(safety_lines)만 빼고 본다.
+    if isinstance(result.get("reply"), str) and "119" in _without_lines(result["reply"], safety_lines):
         return False
     if route_info.get("emergency") or route_info.get("route") == "reservation":
         return False
@@ -135,13 +149,15 @@ def _model_questions(settings: Settings, message: str, reply: str, proxy: bool) 
 
 def suggested_questions(
     settings: Settings, result: dict, route_info: dict | None, message: str, *, proxy: bool,
-    emergency_text: bool = False, self_harm_text: bool = False,
+    emergency_text: bool = False, self_harm_text: bool = False, safety_lines: tuple[str, ...] = (),
 ) -> list[str]:
     """응답 suggestedQuestions 값. 붙이지 않는 답이면 빈 목록."""
     # 설정 칸이 없는 객체(테스트의 가짜 설정)는 끈 것으로 본다 - 실제 Settings 에는 항상 있다.
     if not getattr(settings, "follow_up_enabled", False):
         return []
-    if not should_suggest(result, route_info, message, emergency_text=emergency_text, self_harm_text=self_harm_text):
+    if not should_suggest(
+        result, route_info, message, emergency_text=emergency_text, self_harm_text=self_harm_text, safety_lines=safety_lines,
+    ):
         return []
     route = (route_info or {}).get("route")
     started = time.perf_counter()

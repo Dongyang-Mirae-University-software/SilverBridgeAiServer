@@ -18,6 +18,7 @@ from app.services.reservation_api_client import ReservationApiClient
 from app.services.reservation_common import _date_choice_label, _date_label, _digits, _phone_last4, _trace
 from app.services.reservation_confirm_flow import (
     CONFIRM_FIELDS,
+    DEPARTMENT_EDIT_FALLBACK_FLAG,
     DEPARTMENT_NOT_OFFERED_FLAG,
     ReservationFlowMixin,
     draft_from_dict,
@@ -93,6 +94,8 @@ _symptom_department = chat_keywords.symptom_department
 MAX_REGION_OPTIONS = 6
 OTHER_REGION_OPTION = "__other__"  # 다른 지역으로 찾기(location_confirm)
 OTHER_DEPARTMENT_OPTION = "__department__"  # 다른 진료과 고르기(location_confirm, 검색 결과 0건)
+# 병원 진료과 목록 끝의 [다른 병원에서 찾기](department) - 그 병원에 원하는 과가 없을 때 진료과·병원을 비우고 처음부터(2026-11-11).
+OTHER_HOSPITAL_OPTION = "__other_hospital__"
 MORE_SIDO_OPTION = "__more_sido__"  # 다른 시·도 고르기(location)
 TYPE_LOCATION_OPTION = "__type__"  # 직접 입력(location·location_sido) - 선택지에 원하는 곳이 없을 때만
 _LOCATION_SPECIAL = {OTHER_REGION_OPTION, OTHER_DEPARTMENT_OPTION, MORE_SIDO_OPTION, TYPE_LOCATION_OPTION}
@@ -787,6 +790,12 @@ class ReservationOrchestrator(ReservationFlowMixin):
         if field in {"hospital", "hospital_confirm"}:
             draft.hospital_name = value or draft.hospital_name
         elif field == "department":
+            if value == OTHER_HOSPITAL_OPTION:
+                # [다른 병원에서 찾기] - 진료과·병원을 비우면 _advance 가 전체 진료과 목록부터 다시 낸다(날짜는 그대로).
+                draft.department = None
+                draft.hospital_name = None
+                draft.hospital_id = None
+                return None
             draft.department = value or draft.department
         elif field == "date":
             # [달력에서 다른 날 고르기]·형식이 틀리거나 지난 날짜는 날짜를 비워 다시 묻는다(_advance 가 달력 또는 선택지를 낸다).
@@ -1263,6 +1272,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
             )
 
         if draft.hospital_id is not None and not draft.department:
+            edit_fallback = bool(meta.pop(DEPARTMENT_EDIT_FALLBACK_FLAG, False))
             dept_res = self._reservation.list_departments(draft.hospital_id, api_key_override=reservation_api_key)
             dept_st = int(dept_res.get("httpStatus") or 0)
             dept_data = dept_res.get("data")
@@ -1288,7 +1298,8 @@ class ReservationOrchestrator(ReservationFlowMixin):
                             kind="select",
                             field="department",
                             label=f"{draft.hospital_name}의 진료과를 선택해 주세요" if draft.hospital_name else "진료과를 선택해 주세요",
-                            options=[UiOption(value=d, label=d) for d in departments],
+                            options=[UiOption(value=d, label=d) for d in departments]
+                            + [UiOption(value=OTHER_HOSPITAL_OPTION, label="다른 병원에서 찾기")],
                         ),
                         "tool": None,
                         "data": None,
@@ -1300,6 +1311,13 @@ class ReservationOrchestrator(ReservationFlowMixin):
                         "meta": meta,
                         "decisionTrace": meta.get("decisionTrace") or [],
                     }
+            if edit_fallback:
+                # [고치기 → 진료과]인데 이 병원의 진료과 목록을 못 받았다 - 진료과 없이 그 병원으로 가지 않고
+                # 병원도 비워 전체 진료과 목록·검색으로 간다(고치기 전 동작).
+                _trace(meta, "department_edit_fallback", hospital_id=draft.hospital_id)
+                draft.hospital_name = None
+                draft.hospital_id = None
+                return self._advance(req, meta, draft, reservation_api_key, replaces)
 
         if not draft.reservation_date:
             _trace(meta, "reservation_gap", missing="date")

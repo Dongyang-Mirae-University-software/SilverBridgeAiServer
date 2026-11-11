@@ -32,6 +32,7 @@ from app.services.reservation_intake import CHANGE_DATE_OPTION, PICK_CALENDAR_OP
 from app.services.reservation_orchestrator import (
     MORE_SIDO_OPTION,
     OTHER_DEPARTMENT_OPTION,
+    OTHER_HOSPITAL_OPTION,
     OTHER_REGION_OPTION,
     TYPE_LOCATION_OPTION,
     ReservationOrchestrator,
@@ -98,7 +99,7 @@ _HISTORY_UI_FIELDS = frozenset({"hospital", "hospital_confirm", "department", "d
 # 화면 이동용 버튼 값(다른 지역·다른 시·도·직접 입력·다른 진료과·다시 불러오기)도 사용자 말이 아니라 뺀다(2026-11-04 점검 L-1).
 _HISTORY_SKIP_VALUES = frozenset({
     OTHER_REGION_OPTION, CHANGE_DATE_OPTION, MORE_SIDO_OPTION, TYPE_LOCATION_OPTION, OTHER_DEPARTMENT_OPTION, RETRY_SLOTS_OPTION,
-    PICK_CALENDAR_OPTION,
+    PICK_CALENDAR_OPTION, OTHER_HOSPITAL_OPTION,
 })
 _CONTACT_UI_FIELDS = frozenset({"patient_name", "phone"})
 _UI_LOG_RE = re.compile(r"^\[선택\] ([^:]+): (.*)$", re.S)
@@ -585,6 +586,8 @@ class ChatService:
                 message or log_message, history, emergency=after_emergency, proxy=self._is_proxy(payload, message or log_message)
             ))
             route_info = {}
+        # 응급이 아닌 답 끝에 서버가 붙인 고정 안전 줄 - 이 줄만으로는 이어서 물어볼 질문을 막지 않는다(2026-11-11 ⑤).
+        safety_lines: list[str] = []
         if step_generate and isinstance(result.get("reply"), str) and isinstance(result.get("meta", {}), dict):
             result.setdefault("meta", {})["followupResult"] = True
             # 위험 신호 질문에 답하지 않고 설명으로 결과에 온 답 - 그 묶음의 119 기준 한 줄(이미 119 안내가 있으면 두지 않는다).
@@ -592,6 +595,7 @@ class ChatService:
                 line = followup_steps.skipped_red_flag_line(step_state)
                 if line:
                     result["reply"] = f"{result['reply']}\n{line}"
+                    safety_lines.append(line)
         if crisis_followup and route_info and isinstance(result.get("reply"), str):
             result["reply"] = f"{_CRISIS_FOLLOWUP}\n{result['reply']}"
             result.setdefault("meta", {})
@@ -611,6 +615,7 @@ class ChatService:
             and "119" not in result["reply"]
         ):
             result["reply"] = f"{result['reply']}\n{_EMERGENCY_FOLLOWUP}"
+            safety_lines.append(_EMERGENCY_FOLLOWUP)
             result.setdefault("meta", {})
             if isinstance(result["meta"], dict):
                 result["meta"]["emergencyFollowup"] = True
@@ -628,6 +633,7 @@ class ChatService:
                 proxy=self._is_proxy(payload, proxy_text),
                 emergency_text=bool(message) and not step_negated and bool(MedicalLlmService.emergency_signals(message)),
                 self_harm_text=bool(message) and bool(MedicalLlmService.self_harm_signals(message)),
+                safety_lines=tuple(safety_lines),
             )
         # 답 모양(2026-11-01 가독성): 모든 판정·고정 문장·이어서 물어볼 질문이 끝난 뒤 모양만 바꾼다(문장 뜻·판정 값 그대로).
         # 피보호자 본인(WARD)이면 같은 자리에서 모델 문장만 줄인다 - 119·109·고정 문장·과 안내 핵심 줄·되묻기는 그대로.
