@@ -129,8 +129,6 @@ class Settings(BaseModel):
     )
     # 기본값 없음 — 비어 있으면 인증이 필요한 API 는 모두 401 이다(키를 코드에 두지 않는다, QA AI-2).
     api_key: str = os.getenv("API_KEY", "")
-    # 관리 경로(/api/admin/*) 전용 키. 비어 있으면 공용 키로 받는다(전체 점검 M-4)
-    admin_api_key: str = os.getenv("ADMIN_API_KEY", "")
 
     model_base_path: str = os.getenv("MODEL_BASE_PATH", str(_PROJECT_ROOT / "models"))
     upload_base_path: str = os.getenv("UPLOAD_BASE_PATH", str(_PROJECT_ROOT / "uploads"))

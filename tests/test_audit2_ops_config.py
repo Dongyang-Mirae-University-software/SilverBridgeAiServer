@@ -12,7 +12,6 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core import config as cfg
-from app.core.security import admin_api_key_warning, require_admin_api_key
 from app.database.base import Base
 from app.database.session import get_db
 from app.routers import companion_router, reservation_credential_router
@@ -88,19 +87,6 @@ def test_credential_cipher_unavailable_is_503_other_value_error_400() -> None:
             r = c.post("/api/v1/reservation-credentials", json=body)
         assert r.status_code == 400
     session.close()
-
-
-def test_admin_key_compared_after_strip() -> None:
-    s = cfg.Settings(admin_api_key="  adminkey  ", api_key="common")
-    require_admin_api_key("adminkey", s)  # 예외 없음
-    with pytest.raises(Exception):
-        require_admin_api_key("common", s)
-
-
-def test_admin_key_warning() -> None:
-    assert admin_api_key_warning(cfg.Settings(admin_api_key=" same ", api_key="same")) is not None
-    assert admin_api_key_warning(cfg.Settings(admin_api_key="a", api_key="b")) is None
-    assert admin_api_key_warning(cfg.Settings(admin_api_key="", api_key="")) is None
 
 
 def test_redact_ward_id_in_path_but_not_session_id() -> None:

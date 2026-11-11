@@ -461,12 +461,28 @@ def department_info_ask_after(text: str, start: int = 0) -> bool:
     return bool(_DEPARTMENT_INFO_ASK.search(compact(text)[start:]))
 
 
+_DEPARTMENT_INFO_COST = re.compile(r"비용|진료비|검사비|얼마|돈이|돈은|돈들")
+_DEPARTMENT_INFO_PREPARE = re.compile(r"준비|챙기|챙겨|가져가|가지고가|들고가|금식|굶")
+
+
+def department_info_kind(text: str) -> str:
+    """진료과 정보 질문의 종류 - cost(비용) > prepare(준비물·금식) > exam(검사·문진·무엇을 하나). is_department_info_question 뒤에 쓴다."""
+    c = compact(text)
+    if _DEPARTMENT_INFO_COST.search(c):
+        return "cost"
+    if _DEPARTMENT_INFO_PREPARE.search(c):
+        return "prepare"
+    return "exam"
+
+
 def is_department_info_question(text: str) -> bool:
-    """진료과에서 무엇을 하는지·준비·비용을 묻는 말인가. 위험 신호·응급·예약 낱말이 있으면 False(그 판정이 먼저다).
+    """진료과에서 무엇을 하는지·준비·비용을 묻는 말인가. 위험 신호·응급(라우터 실패 때 판정·반응 없음 포함)·예약 낱말이 있으면 False.
     자해 신호는 부르는 쪽(chat_service)이 먼저 거른다."""
     c = compact(text)
     m = DEPARTMENT_MENTION.search(c)
     if not m or not _DEPARTMENT_INFO_ASK.search(c[m.end():]):
+        return False
+    if ARREST_SIGNAL.search(c) or fallback_emergency_signals(text):
         return False
     return not (has_red_flag(text) or emergency_signals(text) or has_reservation_word(text))
 

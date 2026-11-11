@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import get_settings
 from app.core.companion_errors import register_companion_error_handler
 from app.core.response import error_response
-from app.core.security import require_admin_api_key, require_api_key
+from app.core.security import require_api_key
 from app.database.base import Base
 from app.database.schema_upgrades import encrypt_plain_reservation_keys, ensure_indexes, upgrade_member_id_columns
 from app.database.session import engine
@@ -26,7 +26,6 @@ from app.routers.game_router import router as game_router
 from app.routers.health_router import router as health_router
 from app.routers.live_stream_router import router as live_stream_router
 from app.routers.live_ws_router import router as live_ws_router
-from app.routers.medgemma_switch_router import router as medgemma_switch_router
 from app.routers.medication_ocr_router import router as medication_ocr_router
 from app.routers.model_router import router as model_router
 from app.routers.reservation_credential_router import router as reservation_credential_router
@@ -117,7 +116,12 @@ async def lifespan(_: FastAPI):
             else:
                 _LOG.error("[MEDGEMMA-STARTUP-FAILED] stage=load - 상담은 대체 응답으로 나간다(이상감지는 정상 기동)")
         except Exception as exc:  # noqa: BLE001 - 상담 모델 문제로 감지·예약·받아쓰기까지 내리지 않는다
-            _LOG.error("[MEDGEMMA-STARTUP-FAILED] stage=warmup type=%s - 상담은 대체 응답으로 나간다", type(exc).__name__)
+            # 원인 위치(파일:줄, 가장 안쪽 프레임부터 3개)만 남긴다 - 2026-11-11 torch 2.13 시도 때 클래스명만으로는 어느 라이브러리
+            # 문제인지 가릴 수 없었다. 예외 문구는 남기지 않는다.
+            _LOG.error(
+                "[MEDGEMMA-STARTUP-FAILED] stage=warmup type=%s at=%s - 상담은 대체 응답으로 나간다",
+                type(exc).__name__, _exception_frames(exc),
+            )
     else:
         _LOG.info("MEDGEMMA_ENABLED=false - MedGemma 를 올리지 않는다")
     get_medication_ocr_service()  # 모델 설정 확인(haiku 면 기동 시 경고 후 sonnet 대체)
@@ -130,6 +134,18 @@ async def lifespan(_: FastAPI):
     gc.collect()
 
 
+def _exception_frames(exc: BaseException, limit: int = 3) -> str:
+    """예외가 난 곳의 파일:줄을 안쪽 프레임부터 limit 개. 문구·값은 넣지 않는다."""
+    frames: list[str] = []
+    tb = exc.__traceback__
+    while tb is not None:
+        code = tb.tb_frame.f_code
+        parts = code.co_filename.replace("\\", "/").split("/")
+        frames.append(f"{'/'.join(parts[-2:])}:{tb.tb_lineno}")
+        tb = tb.tb_next
+    return " < ".join(reversed(frames[-limit:])) or "?"
+
+
 def _startup_housekeeping() -> None:
     """기동 때 한 번 하는 정리·경고(2026-11-10 2차 점검 A-1·P-8). 실패해도 기동은 계속한다."""
     try:
@@ -140,14 +156,6 @@ def _startup_housekeeping() -> None:
         purge_expired(start_loop=True)
     except Exception as exc:  # noqa: BLE001
         _LOG.warning("[COLLECT] 보관 정리 시작 실패 type=%s", type(exc).__name__)
-    try:
-        from app.core.security import admin_api_key_warning
-
-        warning = admin_api_key_warning(settings)
-        if warning:
-            _LOG.warning(warning)
-    except Exception as exc:  # noqa: BLE001
-        _LOG.warning("[SECURITY] 관리 키 확인 실패 type=%s", type(exc).__name__)
 
 
 def _start_companion_warmup() -> None:
@@ -212,6 +220,5 @@ app.include_router(live_stream_router, dependencies=[Depends(require_api_key)])
 app.include_router(live_ws_router)
 app.include_router(reservation_credential_router, dependencies=[Depends(require_api_key)])
 app.include_router(medication_ocr_router, dependencies=[Depends(require_api_key)])
-app.include_router(medgemma_switch_router, dependencies=[Depends(require_admin_api_key)])  # MedGemma 켜기·끄기 (재시작 없음)
 app.include_router(companion_router)  # 말벗: 자체 키(X-API-Key, COMPANION_API_KEY)를 라우터 안에서 붙인다
 register_companion_error_handler(app)
