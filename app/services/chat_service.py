@@ -244,6 +244,16 @@ class ChatService:
         step_state = self._previous_followup_step(latest_log, session_id, ward_id) if after_followup and ward_reader else None
         # 그 되묻기를 시작한 증상 문장 - 시작 기준(anchorLogId) 뒤 첫 사용자 문장, 옛 상태면 이력에서 턴 수만큼 앞(I-4).
         step_symptom = self._step_symptom(step_state, history, rows=recent_logs, session_id=session_id, ward_id=ward_id)
+        # 되묻기 도중 지금 질문과 무관한 새 증상(2026-11-11 - 무릎 단계 중 "기침이 나요"가 무릎에 이어 붙어 정형외과로 답했다):
+        # 앞 흐름을 닫고 그 말을 처음 한 것처럼 처리한다(turn_text - 전환 문장이면 뒤 증상 부분). 응급·자해·위기 판정은 아래 그대로 먼저다.
+        turn_text = message
+        switched = self._followup_switch_text(
+            step_state if step_symptom else None, after_followup and not ward_reader, message, ui_selection, history,
+        )
+        if switched is not None:
+            _LOG.info("[CHAT-QUALITY] followup_new_symptom=true steps=%s", step_state is not None)
+            turn_text = switched
+            step_state, step_symptom, after_followup = None, "", False
         # 단계 되묻기 답이 질문 낱말을 부정으로 되받아("숨쉬기 힘들지 않아요") 키워드 응급 강제를 건너뛴 턴인가(I-5).
         step_negated = False
         step: tuple[str, Any] | None = None
@@ -577,11 +587,11 @@ class ChatService:
                 # 의료·예약과 무관한 질문(2026-11-08) - 생성 결과마다 답이 달라지지 않게 고정 안내(MedGemma 를 부르지 않는다).
                 _LOG.info("[CHAT-QUALITY] off_topic=true engine=%s", route_info.get("engine"))
                 result = self._off_topic_reply()
-            elif self._should_ask_followup(route_info, message, ui_selection, crisis_followup, after_emergency, after_followup):
+            elif self._should_ask_followup(route_info, turn_text, ui_selection, crisis_followup, after_emergency, after_followup):
                 # 정보가 부족한 일반 증상 한마디 - 언제부터·얼마나·동반 증상을 한 번 묻는다(C-1, MedGemma 를 부르지 않는다).
                 proxy = self._is_proxy(payload, message)
                 _LOG.info("[CHAT-QUALITY] followup_asked=true proxy=%s", proxy)
-                result = MedicalLlmService.followup_question_response(message, proxy=proxy, steps=ward_reader)
+                result = MedicalLlmService.followup_question_response(turn_text, proxy=proxy, steps=ward_reader)
                 new_step = result.get("meta", {}).get("followupStep") if isinstance(result.get("meta"), dict) else None
                 if isinstance(new_step, dict):
                     # 증상 문장을 찾는 고정 기준(I-4): 이 턴 직전까지의 마지막 기록 ID. 이 뒤 첫 사용자 문장이 증상 문장이다.
@@ -590,7 +600,7 @@ class ChatService:
                 local_llm = get_medical_llm_service()
                 llm_started = time.perf_counter()
                 try:
-                    gen_message = message
+                    gen_message = turn_text
                     if route_info["route"] == "symptom":
                         llm_intent = "emergency_guidance" if route_info.get("emergency") else "medical_advice"
                     else:
@@ -600,7 +610,7 @@ class ChatService:
                         step_generate = step[1]
                     # 피보호자 관리 질문이라 단계 되묻기를 건너뛴 턴(F-1) - 답 끝에 그 증상 묶음의 119 기준 한 줄을 남긴다(아래).
                     care_skipped_step = ward_reader and step_generate is None and self._should_ask_followup(
-                        route_info, message, ui_selection, crisis_followup, after_emergency, after_followup, skip_care=False,
+                        route_info, turn_text, ui_selection, crisis_followup, after_emergency, after_followup, skip_care=False,
                     )
                     followup_answer = (
                         step_generate[0] if step_generate else self._followup_answer_text(route_info, message, history, after_followup)
@@ -654,7 +664,7 @@ class ChatService:
             and "119" not in result["reply"] and not (isinstance(result.get("meta"), dict) and result["meta"].get("generationFailed"))
         ):
             # 관리 질문이라 위험 신호 질문(단계 첫 질문)을 건너뛰었다 - 단계 결과 턴과 같은 그 묶음의 119 기준 한 줄(F-1).
-            line = followup_steps.skipped_red_flag_line(followup_steps.new_state(message, False))
+            line = followup_steps.skipped_red_flag_line(followup_steps.new_state(turn_text, False))
             if line:
                 result["reply"] = f"{result['reply']}\n{line}"
                 safety_lines.append(line)
@@ -987,6 +997,24 @@ class ChatService:
         return state
 
     @staticmethod
+    def _followup_switch_text(
+        step_state: dict | None, legacy_followup: bool, message: str, ui_selection: dict | None, history: list[dict[str, str]],
+    ) -> str | None:
+        """되묻기 다음 턴의 말이 새 증상이면 그 증상 문장(아니면 None).
+        피보호자 단계(step_state): followup_steps.switch_text - 다른 묶음 증상·전환 문장.
+        보호자 옛 되묻기(legacy_followup): 질문이 "같이 나타나는 증상이 있나요?"라 다른 증상은 그 답이다 - 앞 증상이 나아졌다는 전환 문장만."""
+        if not message or ui_selection or _is_closing_message(message):
+            return None
+        if step_state is not None:
+            return followup_steps.switch_text(step_state, message)
+        if not legacy_followup:
+            return None
+        previous_user = next((h.get("content", "") for h in reversed(history or []) if h.get("role") == "user"), "")
+        if not previous_user.strip():
+            return None
+        return followup_steps.relief_switch_text(followup_steps.group_for(previous_user), message)
+
+    @staticmethod
     def _step_symptom(
         state: dict | None, history: list[dict[str, str]], rows: list[Any] | None = None, session_id: str = "", ward_id: str = "",
     ) -> str:
@@ -1008,10 +1036,10 @@ class ChatService:
                     continue
                 text = ChatService._history_user_text(log.message or "")
                 if text:
-                    return text.strip()
+                    return followup_steps.step_symptom_part(state, text.strip())
         users = [h.get("content", "") for h in history or [] if h.get("role") == "user"]
         turns = state["turns"]
-        return users[-turns].strip() if 0 < turns <= len(users) else ""
+        return followup_steps.step_symptom_part(state, users[-turns].strip()) if 0 < turns <= len(users) else ""
 
     @staticmethod
     def _followup_step_outcome(
@@ -1033,8 +1061,12 @@ class ChatService:
             symptom = ChatService._step_symptom(state, history)
         if not symptom:
             return None
-        verdict, phrase = followup_steps.interpret(state, message)
         index = state["index"]
+        if followup_steps.red_flag_answer(state, message) and not negated_red_flag:
+            # 진행 중 답에 위험 신호 낱말("가슴이 답답해요") - 묶음·몇 번째 질문과 상관없이 그 자리에서 119(2026-11-11).
+            _LOG.info("[CHAT-SAFETY] followup_red_flag=119 group=%s step=%s source=answer", state["group"], index + 1)
+            return "reply", MedicalLlmService.followup_red_flag_emergency(f"{symptom} {message}", state["proxy"])
+        verdict, phrase = followup_steps.interpret(state, message)
         _LOG.info("[CHAT-QUALITY] followup_step=%s verdict=%s group=%s", index + 1, verdict, state["group"])
         if verdict == "yes" and index == 0:
             if followup_steps.red_flag_action(state) == "119":

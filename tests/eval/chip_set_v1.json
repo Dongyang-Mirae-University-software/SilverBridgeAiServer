@@ -1,0 +1,3321 @@
+{
+ "version": "chip-v1",
+ "created": "2026-11-11",
+ "purpose": "칩(눌러서 물어보세요·되묻기 답 버튼·FE 빠른 질문)을 그 칩이 나오는 앞 턴 다음에 누른 것으로 재생 - 경로·생성 문장·응급·자해 오판을 본다. path: question(되묻기 질문)·119·visit(오늘 진료 규칙 답)·generate(MedGemma)·dept_info(진료과 정보 고정 안내)·reservation. gen_has: 생성에 넘긴 문장에 있어야 할 말. must: 실제 MedGemma 답에 있어야 할 내용 낱말(DGX 재생 판정, 본문은 남기지 않는다).",
+ "sources": [
+  "app/services/followup_steps.py 질문 칩",
+  "app/services/followup_answer_chips.py _LEGACY_GROUPS",
+  "SilverBridgeFe src/components/chatbot/ChatbotContent.tsx WARD_PROMPTS·GUARDIAN_PROMPTS (develop 427b77e)",
+  "app/services/follow_up_questions.py 생성 지시 꼴·규칙 문장"
+ ],
+ "items": [
+  {
+   "id": "cp.001",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "무릎이 아파요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "visit",
+   "group": "joint"
+  },
+  {
+   "id": "cp.002",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "무릎이 아파요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "joint"
+  },
+  {
+   "id": "cp.003",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "무릎이 아파요",
+    "아니요"
+   ],
+   "q": "오늘부터요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "joint"
+  },
+  {
+   "id": "cp.004",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "무릎이 아파요",
+    "아니요"
+   ],
+   "q": "며칠 됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "joint"
+  },
+  {
+   "id": "cp.005",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "무릎이 아파요",
+    "아니요"
+   ],
+   "q": "오래됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "joint"
+  },
+  {
+   "id": "cp.006",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "무릎이 아파요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "joint",
+   "gen_has": [
+    "무릎이 아파요"
+   ]
+  },
+  {
+   "id": "cp.007",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "무릎이 아파요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "joint",
+   "gen_has": [
+    "무릎이 아파요"
+   ]
+  },
+  {
+   "id": "cp.008",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "머리가 아파요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "119",
+   "group": "head"
+  },
+  {
+   "id": "cp.009",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "머리가 아파요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "head"
+  },
+  {
+   "id": "cp.010",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "머리가 아파요",
+    "아니요"
+   ],
+   "q": "오늘부터요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "head"
+  },
+  {
+   "id": "cp.011",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "머리가 아파요",
+    "아니요"
+   ],
+   "q": "며칠 됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "head"
+  },
+  {
+   "id": "cp.012",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "머리가 아파요",
+    "아니요"
+   ],
+   "q": "오래됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "head"
+  },
+  {
+   "id": "cp.013",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "머리가 아파요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "head",
+   "gen_has": [
+    "머리가 아파요"
+   ]
+  },
+  {
+   "id": "cp.014",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "머리가 아파요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "head",
+   "gen_has": [
+    "머리가 아파요"
+   ]
+  },
+  {
+   "id": "cp.015",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "배가 아파요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "119",
+   "group": "belly"
+  },
+  {
+   "id": "cp.016",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "배가 아파요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "belly"
+  },
+  {
+   "id": "cp.017",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "배가 아파요",
+    "아니요"
+   ],
+   "q": "오늘부터요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "belly"
+  },
+  {
+   "id": "cp.018",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "배가 아파요",
+    "아니요"
+   ],
+   "q": "며칠 됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "belly"
+  },
+  {
+   "id": "cp.019",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "배가 아파요",
+    "아니요"
+   ],
+   "q": "오래됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "belly"
+  },
+  {
+   "id": "cp.020",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "배가 아파요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "belly",
+   "gen_has": [
+    "배가 아파요"
+   ]
+  },
+  {
+   "id": "cp.021",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "배가 아파요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "belly",
+   "gen_has": [
+    "배가 아파요"
+   ]
+  },
+  {
+   "id": "cp.022",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "어지러워요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "119",
+   "group": "dizzy"
+  },
+  {
+   "id": "cp.023",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "어지러워요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "dizzy"
+  },
+  {
+   "id": "cp.024",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "어지러워요",
+    "아니요"
+   ],
+   "q": "오늘부터요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "dizzy"
+  },
+  {
+   "id": "cp.025",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "어지러워요",
+    "아니요"
+   ],
+   "q": "며칠 됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "dizzy"
+  },
+  {
+   "id": "cp.026",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "어지러워요",
+    "아니요"
+   ],
+   "q": "오래됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "dizzy"
+  },
+  {
+   "id": "cp.027",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "어지러워요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "dizzy",
+   "gen_has": [
+    "어지러워요"
+   ]
+  },
+  {
+   "id": "cp.028",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "어지러워요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "dizzy",
+   "gen_has": [
+    "어지러워요"
+   ]
+  },
+  {
+   "id": "cp.029",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "기침이 나요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "119",
+   "group": "cough"
+  },
+  {
+   "id": "cp.030",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "기침이 나요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "cough"
+  },
+  {
+   "id": "cp.031",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "기침이 나요",
+    "아니요"
+   ],
+   "q": "오늘부터요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "cough"
+  },
+  {
+   "id": "cp.032",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "기침이 나요",
+    "아니요"
+   ],
+   "q": "며칠 됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "cough"
+  },
+  {
+   "id": "cp.033",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "기침이 나요",
+    "아니요"
+   ],
+   "q": "오래됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "cough"
+  },
+  {
+   "id": "cp.034",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "기침이 나요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "cough",
+   "gen_has": [
+    "기침이 나요"
+   ]
+  },
+  {
+   "id": "cp.035",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "기침이 나요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "cough",
+   "gen_has": [
+    "기침이 나요"
+   ]
+  },
+  {
+   "id": "cp.036",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "저려요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "119",
+   "group": "numb"
+  },
+  {
+   "id": "cp.037",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "저려요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "numb"
+  },
+  {
+   "id": "cp.038",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "저려요",
+    "아니요"
+   ],
+   "q": "오늘부터요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "numb"
+  },
+  {
+   "id": "cp.039",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "저려요",
+    "아니요"
+   ],
+   "q": "며칠 됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "numb"
+  },
+  {
+   "id": "cp.040",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "저려요",
+    "아니요"
+   ],
+   "q": "오래됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "numb"
+  },
+  {
+   "id": "cp.041",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "저려요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "numb",
+   "gen_has": [
+    "저려요"
+   ]
+  },
+  {
+   "id": "cp.042",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "저려요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "numb",
+   "gen_has": [
+    "저려요"
+   ]
+  },
+  {
+   "id": "cp.043",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "피곤해요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "visit",
+   "group": "default"
+  },
+  {
+   "id": "cp.044",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "피곤해요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "default"
+  },
+  {
+   "id": "cp.045",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "피곤해요",
+    "아니요"
+   ],
+   "q": "오늘부터요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "default"
+  },
+  {
+   "id": "cp.046",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "피곤해요",
+    "아니요"
+   ],
+   "q": "며칠 됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "default"
+  },
+  {
+   "id": "cp.047",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "피곤해요",
+    "아니요"
+   ],
+   "q": "오래됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "default"
+  },
+  {
+   "id": "cp.048",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "피곤해요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "default",
+   "gen_has": [
+    "피곤해요"
+   ]
+  },
+  {
+   "id": "cp.049",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "피곤해요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "default",
+   "gen_has": [
+    "피곤해요"
+   ]
+  },
+  {
+   "id": "cp.050",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "숨이 좀 차요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "119",
+   "group": "chest"
+  },
+  {
+   "id": "cp.051",
+   "set": "chip-v1",
+   "cat": "단계 1번 칩",
+   "role": "WARD",
+   "history_user": [
+    "숨이 좀 차요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "chest"
+  },
+  {
+   "id": "cp.052",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "숨이 좀 차요",
+    "아니요"
+   ],
+   "q": "오늘부터요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "chest"
+  },
+  {
+   "id": "cp.053",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "숨이 좀 차요",
+    "아니요"
+   ],
+   "q": "며칠 됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "chest"
+  },
+  {
+   "id": "cp.054",
+   "set": "chip-v1",
+   "cat": "단계 2번 칩",
+   "role": "WARD",
+   "history_user": [
+    "숨이 좀 차요",
+    "아니요"
+   ],
+   "q": "오래됐어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "chest"
+  },
+  {
+   "id": "cp.055",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "숨이 좀 차요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "chest",
+   "gen_has": [
+    "숨이 좀 차요"
+   ]
+  },
+  {
+   "id": "cp.056",
+   "set": "chip-v1",
+   "cat": "단계 3번 칩",
+   "role": "WARD",
+   "history_user": [
+    "숨이 좀 차요",
+    "아니요",
+    "오늘부터요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "chest",
+   "gen_has": [
+    "숨이 좀 차요"
+   ]
+  },
+  {
+   "id": "cp.057",
+   "set": "chip-v1",
+   "cat": "단계 칩(대리)",
+   "role": "WARD",
+   "history_user": [
+    "엄마가 무릎이 아프대요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "visit",
+   "group": "joint"
+  },
+  {
+   "id": "cp.058",
+   "set": "chip-v1",
+   "cat": "단계 칩(대리)",
+   "role": "WARD",
+   "history_user": [
+    "엄마가 무릎이 아프대요",
+    "아니요"
+   ],
+   "q": "오늘부터래요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "joint"
+  },
+  {
+   "id": "cp.059",
+   "set": "chip-v1",
+   "cat": "단계 칩(대리)",
+   "role": "WARD",
+   "history_user": [
+    "엄마가 무릎이 아프대요",
+    "아니요"
+   ],
+   "q": "며칠 되셨대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "joint"
+  },
+  {
+   "id": "cp.060",
+   "set": "chip-v1",
+   "cat": "단계 칩(대리)",
+   "role": "WARD",
+   "history_user": [
+    "엄마가 무릎이 아프대요",
+    "아니요"
+   ],
+   "q": "오래되셨대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "joint"
+  },
+  {
+   "id": "cp.061",
+   "set": "chip-v1",
+   "cat": "단계 칩(대리)",
+   "role": "WARD",
+   "history_user": [
+    "엄마가 무릎이 아프대요",
+    "아니요",
+    "오늘부터래요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "joint",
+   "gen_has": [
+    "엄마가 무릎이 아프대요"
+   ]
+  },
+  {
+   "id": "cp.062",
+   "set": "chip-v1",
+   "cat": "단계 칩(대리)",
+   "role": "WARD",
+   "history_user": [
+    "아버지가 머리가 아프대요"
+   ],
+   "q": "네",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "119",
+   "group": "head"
+  },
+  {
+   "id": "cp.063",
+   "set": "chip-v1",
+   "cat": "단계 칩(대리)",
+   "role": "WARD",
+   "history_user": [
+    "아버지가 머리가 아프대요",
+    "아니요"
+   ],
+   "q": "오늘부터래요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "head"
+  },
+  {
+   "id": "cp.064",
+   "set": "chip-v1",
+   "cat": "단계 칩(대리)",
+   "role": "WARD",
+   "history_user": [
+    "아버지가 머리가 아프대요",
+    "아니요"
+   ],
+   "q": "며칠 되셨대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "head"
+  },
+  {
+   "id": "cp.065",
+   "set": "chip-v1",
+   "cat": "단계 칩(대리)",
+   "role": "WARD",
+   "history_user": [
+    "아버지가 머리가 아프대요",
+    "아니요"
+   ],
+   "q": "오래되셨대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "group": "head"
+  },
+  {
+   "id": "cp.066",
+   "set": "chip-v1",
+   "cat": "단계 칩(대리)",
+   "role": "WARD",
+   "history_user": [
+    "아버지가 머리가 아프대요",
+    "아니요",
+    "오늘부터래요"
+   ],
+   "q": "아니요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "group": "head",
+   "gen_has": [
+    "아버지가 머리가 아프대요"
+   ]
+  },
+  {
+   "id": "cp.067",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "저려요"
+   ],
+   "q": "오늘부터 그래요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "numb",
+   "gen_has": [
+    "저려요",
+    "오늘부터 그래요"
+   ]
+  },
+  {
+   "id": "cp.068",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "저려요"
+   ],
+   "q": "몇 달째 그래요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "numb",
+   "gen_has": [
+    "저려요",
+    "몇 달째 그래요"
+   ]
+  },
+  {
+   "id": "cp.069",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "저려요"
+   ],
+   "q": "밤에 더 저려요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "numb",
+   "gen_has": [
+    "저려요",
+    "밤에 더 저려요"
+   ]
+  },
+  {
+   "id": "cp.070",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "저려요"
+   ],
+   "q": "손발이 다 저려요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "numb",
+   "gen_has": [
+    "저려요",
+    "손발이 다 저려요"
+   ]
+  },
+  {
+   "id": "cp.071",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "저리다고 하세요"
+   ],
+   "q": "오늘부터 그러시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "numb",
+   "gen_has": [
+    "저리다고 하세요",
+    "오늘부터 그러시대요"
+   ]
+  },
+  {
+   "id": "cp.072",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "저리다고 하세요"
+   ],
+   "q": "몇 달째 그러시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "numb",
+   "gen_has": [
+    "저리다고 하세요",
+    "몇 달째 그러시대요"
+   ]
+  },
+  {
+   "id": "cp.073",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "저리다고 하세요"
+   ],
+   "q": "밤에 더 저리시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "numb",
+   "gen_has": [
+    "저리다고 하세요",
+    "밤에 더 저리시대요"
+   ]
+  },
+  {
+   "id": "cp.074",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "저리다고 하세요"
+   ],
+   "q": "손발이 다 저리시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "numb",
+   "gen_has": [
+    "저리다고 하세요",
+    "손발이 다 저리시대요"
+   ]
+  },
+  {
+   "id": "cp.075",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "어지러워요"
+   ],
+   "q": "오늘 처음 그래요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "dizzy",
+   "gen_has": [
+    "어지러워요",
+    "오늘 처음 그래요"
+   ]
+  },
+  {
+   "id": "cp.076",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "어지러워요"
+   ],
+   "q": "며칠째 계속 그래요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "dizzy",
+   "gen_has": [
+    "어지러워요",
+    "며칠째 계속 그래요"
+   ]
+  },
+  {
+   "id": "cp.077",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "어지러워요"
+   ],
+   "q": "일어설 때 심해요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "dizzy",
+   "gen_has": [
+    "어지러워요",
+    "일어설 때 심해요"
+   ]
+  },
+  {
+   "id": "cp.078",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "어지러워요"
+   ],
+   "q": "속도 메스꺼워요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "dizzy",
+   "gen_has": [
+    "어지러워요",
+    "속도 메스꺼워요"
+   ]
+  },
+  {
+   "id": "cp.079",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "어지럽다고 하세요"
+   ],
+   "q": "오늘 처음 그러시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "dizzy",
+   "gen_has": [
+    "어지럽다고 하세요",
+    "오늘 처음 그러시대요"
+   ]
+  },
+  {
+   "id": "cp.080",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "어지럽다고 하세요"
+   ],
+   "q": "며칠째 계속 그러시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "dizzy",
+   "gen_has": [
+    "어지럽다고 하세요",
+    "며칠째 계속 그러시대요"
+   ]
+  },
+  {
+   "id": "cp.081",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "어지럽다고 하세요"
+   ],
+   "q": "일어서실 때 심하시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "dizzy",
+   "gen_has": [
+    "어지럽다고 하세요",
+    "일어서실 때 심하시대요"
+   ]
+  },
+  {
+   "id": "cp.082",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "어지럽다고 하세요"
+   ],
+   "q": "속도 메스꺼우시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "dizzy",
+   "gen_has": [
+    "어지럽다고 하세요",
+    "속도 메스꺼우시대요"
+   ]
+  },
+  {
+   "id": "cp.083",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "머리가 아파요"
+   ],
+   "q": "오늘부터 아파요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "head",
+   "gen_has": [
+    "머리가 아파요",
+    "오늘부터 아파요"
+   ]
+  },
+  {
+   "id": "cp.084",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "머리가 아파요"
+   ],
+   "q": "며칠째 계속 아파요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "head",
+   "gen_has": [
+    "머리가 아파요",
+    "며칠째 계속 아파요"
+   ]
+  },
+  {
+   "id": "cp.085",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "머리가 아파요"
+   ],
+   "q": "점점 심해져요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "head",
+   "gen_has": [
+    "머리가 아파요",
+    "점점 심해져요"
+   ]
+  },
+  {
+   "id": "cp.086",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "머리가 아파요"
+   ],
+   "q": "열도 나요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "head",
+   "gen_has": [
+    "머리가 아파요",
+    "열도 나요"
+   ]
+  },
+  {
+   "id": "cp.087",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "머리가 아프다고 하세요"
+   ],
+   "q": "오늘부터 아프시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "head",
+   "gen_has": [
+    "머리가 아프다고 하세요",
+    "오늘부터 아프시대요"
+   ]
+  },
+  {
+   "id": "cp.088",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "머리가 아프다고 하세요"
+   ],
+   "q": "며칠째 계속 아프시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "head",
+   "gen_has": [
+    "머리가 아프다고 하세요",
+    "며칠째 계속 아프시대요"
+   ]
+  },
+  {
+   "id": "cp.089",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "머리가 아프다고 하세요"
+   ],
+   "q": "점점 심해지신대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "head",
+   "gen_has": [
+    "머리가 아프다고 하세요",
+    "점점 심해지신대요"
+   ]
+  },
+  {
+   "id": "cp.090",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "머리가 아프다고 하세요"
+   ],
+   "q": "열도 나신대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "head",
+   "gen_has": [
+    "머리가 아프다고 하세요",
+    "열도 나신대요"
+   ]
+  },
+  {
+   "id": "cp.091",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "배가 아파요"
+   ],
+   "q": "오늘부터 아파요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "belly",
+   "gen_has": [
+    "배가 아파요",
+    "오늘부터 아파요"
+   ]
+  },
+  {
+   "id": "cp.092",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "배가 아파요"
+   ],
+   "q": "며칠째 계속 아파요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "belly",
+   "gen_has": [
+    "배가 아파요",
+    "며칠째 계속 아파요"
+   ]
+  },
+  {
+   "id": "cp.093",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "배가 아파요"
+   ],
+   "q": "먹고 나면 더 아파요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "belly",
+   "gen_has": [
+    "배가 아파요",
+    "먹고 나면 더 아파요"
+   ]
+  },
+  {
+   "id": "cp.094",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "배가 아파요"
+   ],
+   "q": "설사도 해요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "belly",
+   "gen_has": [
+    "배가 아파요",
+    "설사도 해요"
+   ]
+  },
+  {
+   "id": "cp.095",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "배가 아프다고 하세요"
+   ],
+   "q": "오늘부터 아프시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "belly",
+   "gen_has": [
+    "배가 아프다고 하세요",
+    "오늘부터 아프시대요"
+   ]
+  },
+  {
+   "id": "cp.096",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "배가 아프다고 하세요"
+   ],
+   "q": "며칠째 계속 아프시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "belly",
+   "gen_has": [
+    "배가 아프다고 하세요",
+    "며칠째 계속 아프시대요"
+   ]
+  },
+  {
+   "id": "cp.097",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "배가 아프다고 하세요"
+   ],
+   "q": "드시고 나면 더 아프시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "belly",
+   "gen_has": [
+    "배가 아프다고 하세요",
+    "드시고 나면 더 아프시대요"
+   ]
+  },
+  {
+   "id": "cp.098",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "배가 아프다고 하세요"
+   ],
+   "q": "설사도 하신대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "belly",
+   "gen_has": [
+    "배가 아프다고 하세요",
+    "설사도 하신대요"
+   ]
+  },
+  {
+   "id": "cp.099",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아파요"
+   ],
+   "q": "며칠 전부터 아파요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "joint",
+   "gen_has": [
+    "무릎이 아파요",
+    "며칠 전부터 아파요"
+   ]
+  },
+  {
+   "id": "cp.100",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아파요"
+   ],
+   "q": "몇 달째 아파요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "joint",
+   "gen_has": [
+    "무릎이 아파요",
+    "몇 달째 아파요"
+   ]
+  },
+  {
+   "id": "cp.101",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아파요"
+   ],
+   "q": "걸을 때 더 아파요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "joint",
+   "gen_has": [
+    "무릎이 아파요",
+    "걸을 때 더 아파요"
+   ]
+  },
+  {
+   "id": "cp.102",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아파요"
+   ],
+   "q": "붓고 열감이 있어요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "joint",
+   "gen_has": [
+    "무릎이 아파요",
+    "붓고 열감이 있어요"
+   ]
+  },
+  {
+   "id": "cp.103",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아프다고 하세요"
+   ],
+   "q": "며칠 전부터 아프시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "joint",
+   "gen_has": [
+    "무릎이 아프다고 하세요",
+    "며칠 전부터 아프시대요"
+   ]
+  },
+  {
+   "id": "cp.104",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아프다고 하세요"
+   ],
+   "q": "몇 달째 아프시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "joint",
+   "gen_has": [
+    "무릎이 아프다고 하세요",
+    "몇 달째 아프시대요"
+   ]
+  },
+  {
+   "id": "cp.105",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아프다고 하세요"
+   ],
+   "q": "걸으실 때 더 아프시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "joint",
+   "gen_has": [
+    "무릎이 아프다고 하세요",
+    "걸으실 때 더 아프시대요"
+   ]
+  },
+  {
+   "id": "cp.106",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아프다고 하세요"
+   ],
+   "q": "붓고 열감이 있으시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "joint",
+   "gen_has": [
+    "무릎이 아프다고 하세요",
+    "붓고 열감이 있으시대요"
+   ]
+  },
+  {
+   "id": "cp.107",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "기침이 나요"
+   ],
+   "q": "오늘부터 그래요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "cough",
+   "gen_has": [
+    "기침이 나요",
+    "오늘부터 그래요"
+   ]
+  },
+  {
+   "id": "cp.108",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "기침이 나요"
+   ],
+   "q": "며칠째 계속돼요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "cough",
+   "gen_has": [
+    "기침이 나요",
+    "며칠째 계속돼요"
+   ]
+  },
+  {
+   "id": "cp.109",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "기침이 나요"
+   ],
+   "q": "밤에 더 심해요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "cough",
+   "gen_has": [
+    "기침이 나요",
+    "밤에 더 심해요"
+   ]
+  },
+  {
+   "id": "cp.110",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "기침이 나요"
+   ],
+   "q": "가래도 나와요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "cough",
+   "gen_has": [
+    "기침이 나요",
+    "가래도 나와요"
+   ]
+  },
+  {
+   "id": "cp.111",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "기침을 하신대요"
+   ],
+   "q": "오늘부터 그러시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "cough",
+   "gen_has": [
+    "기침을 하신대요",
+    "오늘부터 그러시대요"
+   ]
+  },
+  {
+   "id": "cp.112",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "기침을 하신대요"
+   ],
+   "q": "며칠째 계속되신대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "cough",
+   "gen_has": [
+    "기침을 하신대요",
+    "며칠째 계속되신대요"
+   ]
+  },
+  {
+   "id": "cp.113",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "기침을 하신대요"
+   ],
+   "q": "밤에 더 심하시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "cough",
+   "gen_has": [
+    "기침을 하신대요",
+    "밤에 더 심하시대요"
+   ]
+  },
+  {
+   "id": "cp.114",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "기침을 하신대요"
+   ],
+   "q": "가래도 나오신대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "cough",
+   "gen_has": [
+    "기침을 하신대요",
+    "가래도 나오신대요"
+   ]
+  },
+  {
+   "id": "cp.115",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "피곤해요"
+   ],
+   "q": "오늘부터 그래요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "default",
+   "gen_has": [
+    "피곤해요",
+    "오늘부터 그래요"
+   ]
+  },
+  {
+   "id": "cp.116",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "피곤해요"
+   ],
+   "q": "며칠 전부터 그래요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "default",
+   "gen_has": [
+    "피곤해요",
+    "며칠 전부터 그래요"
+   ]
+  },
+  {
+   "id": "cp.117",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "피곤해요"
+   ],
+   "q": "점점 심해져요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "default",
+   "gen_has": [
+    "피곤해요",
+    "점점 심해져요"
+   ]
+  },
+  {
+   "id": "cp.118",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(본인)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "피곤해요"
+   ],
+   "q": "참을 만해요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "default",
+   "gen_has": [
+    "피곤해요",
+    "참을 만해요"
+   ]
+  },
+  {
+   "id": "cp.119",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "피곤하다고 하세요"
+   ],
+   "q": "오늘부터 그러시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "default",
+   "gen_has": [
+    "피곤하다고 하세요",
+    "오늘부터 그러시대요"
+   ]
+  },
+  {
+   "id": "cp.120",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "피곤하다고 하세요"
+   ],
+   "q": "며칠 전부터 그러시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "default",
+   "gen_has": [
+    "피곤하다고 하세요",
+    "며칠 전부터 그러시대요"
+   ]
+  },
+  {
+   "id": "cp.121",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "피곤하다고 하세요"
+   ],
+   "q": "점점 심해지신대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "default",
+   "gen_has": [
+    "피곤하다고 하세요",
+    "점점 심해지신대요"
+   ]
+  },
+  {
+   "id": "cp.122",
+   "set": "chip-v1",
+   "cat": "보호자 옛 칩(대리)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "피곤하다고 하세요"
+   ],
+   "q": "참으실 만하시대요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "group": "default",
+   "gen_has": [
+    "피곤하다고 하세요",
+    "참으실 만하시대요"
+   ]
+  },
+  {
+   "id": "cp.123",
+   "set": "chip-v1",
+   "cat": "FE 기본(피보호자)",
+   "role": "WARD",
+   "history_user": [],
+   "q": "머리가 아파요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question"
+  },
+  {
+   "id": "cp.124",
+   "set": "chip-v1",
+   "cat": "FE 기본(피보호자)",
+   "role": "WARD",
+   "history_user": [],
+   "q": "배가 아파요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question"
+  },
+  {
+   "id": "cp.125",
+   "set": "chip-v1",
+   "cat": "FE 기본(피보호자)",
+   "role": "WARD",
+   "history_user": [],
+   "q": "무릎이 아파요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question"
+  },
+  {
+   "id": "cp.126",
+   "set": "chip-v1",
+   "cat": "FE 기본(피보호자)",
+   "role": "WARD",
+   "history_user": [],
+   "q": "어지러워요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question"
+  },
+  {
+   "id": "cp.127",
+   "set": "chip-v1",
+   "cat": "FE 기본(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [],
+   "q": "무릎이 아프다고 하세요",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "question",
+   "wardId": "ab12"
+  },
+  {
+   "id": "cp.128",
+   "set": "chip-v1",
+   "cat": "FE 기본(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [],
+   "q": "혈압약을 같이 먹어도 되나요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "gen_has": [
+    "혈압약"
+   ],
+   "must": "약사|의사|상의|함께|같이"
+  },
+  {
+   "id": "cp.129",
+   "set": "chip-v1",
+   "cat": "FE 기본(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [],
+   "q": "다음 병원 예약 알려줘",
+   "expect": {
+    "route": "reservation",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "reservation",
+   "wardId": "ab12"
+  },
+  {
+   "id": "cp.130",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "무릎이 아파요",
+    "아니요",
+    "오늘부터요",
+    "아니요"
+   ],
+   "q": "정형외과는 어떤 검사를 해요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "dept_info",
+   "gen_has": []
+  },
+  {
+   "id": "cp.131",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아프다고 하세요",
+    "며칠 전부터 아프시대요"
+   ],
+   "q": "정형외과는 어떤 검사를 해요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "dept_info",
+   "wardId": "ab12",
+   "gen_has": []
+  },
+  {
+   "id": "cp.132",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "무릎이 아파요",
+    "아니요",
+    "오늘부터요",
+    "아니요"
+   ],
+   "q": "정형외과 갈 때 뭘 챙겨가요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "dept_info",
+   "gen_has": []
+  },
+  {
+   "id": "cp.133",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아프다고 하세요",
+    "며칠 전부터 아프시대요"
+   ],
+   "q": "정형외과 갈 때 뭘 챙겨가요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "dept_info",
+   "wardId": "ab12",
+   "gen_has": []
+  },
+  {
+   "id": "cp.134",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "무릎이 아파요",
+    "아니요",
+    "오늘부터요",
+    "아니요"
+   ],
+   "q": "무릎에 좋은 운동이 있나요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "gen_has": [
+    "무릎에 좋은 운동이 있나요?"
+   ],
+   "must": "운동|걷|스트레칭|근력|수영|자전거"
+  },
+  {
+   "id": "cp.135",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아프다고 하세요",
+    "며칠 전부터 아프시대요"
+   ],
+   "q": "무릎에 좋은 운동이 있나요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "gen_has": [
+    "무릎에 좋은 운동이 있나요?"
+   ],
+   "must": "운동|걷|스트레칭|근력|수영|자전거"
+  },
+  {
+   "id": "cp.136",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "무릎이 아파요",
+    "아니요",
+    "오늘부터요",
+    "아니요"
+   ],
+   "q": "찜질은 따뜻하게 해요, 차갑게 해요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "gen_has": [
+    "찜질은 따뜻하게 해요, 차갑게 해요?"
+   ],
+   "must": "찜질|온찜|냉찜|따뜻|차갑|얼음"
+  },
+  {
+   "id": "cp.137",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아프다고 하세요",
+    "며칠 전부터 아프시대요"
+   ],
+   "q": "찜질은 따뜻하게 해요, 차갑게 해요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "gen_has": [
+    "찜질은 따뜻하게 해요, 차갑게 해요?"
+   ],
+   "must": "찜질|온찜|냉찜|따뜻|차갑|얼음"
+  },
+  {
+   "id": "cp.138",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "무릎이 아파요",
+    "아니요",
+    "오늘부터요",
+    "아니요"
+   ],
+   "q": "무릎 아플 때 피해야 할 자세가 있나요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "gen_has": [
+    "무릎 아플 때 피해야 할 자세가 있나요?"
+   ],
+   "must": "쪼그|계단|무릎 ?꿇|양반|자세|무리"
+  },
+  {
+   "id": "cp.139",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아프다고 하세요",
+    "며칠 전부터 아프시대요"
+   ],
+   "q": "무릎 아플 때 피해야 할 자세가 있나요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "gen_has": [
+    "무릎 아플 때 피해야 할 자세가 있나요?"
+   ],
+   "must": "쪼그|계단|무릎 ?꿇|양반|자세|무리"
+  },
+  {
+   "id": "cp.140",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "배가 아파요",
+    "아니요",
+    "며칠 됐어요",
+    "네"
+   ],
+   "q": "설사할 때 무엇을 먹으면 좋아요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "gen_has": [
+    "설사할 때 무엇을 먹으면 좋아요?"
+   ],
+   "must": "죽|미음|물|수분|바나나|흰 ?쌀|이온|부드러"
+  },
+  {
+   "id": "cp.141",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "배가 아프다고 하세요",
+    "설사도 하신대요"
+   ],
+   "q": "설사할 때 무엇을 먹으면 좋아요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "gen_has": [
+    "설사할 때 무엇을 먹으면 좋아요?"
+   ],
+   "must": "죽|미음|물|수분|바나나|흰 ?쌀|이온|부드러"
+  },
+  {
+   "id": "cp.142",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "배가 아파요",
+    "아니요",
+    "며칠 됐어요",
+    "네"
+   ],
+   "q": "배 아플 때 피해야 할 음식이 있나요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "gen_has": [
+    "배 아플 때 피해야 할 음식이 있나요?"
+   ],
+   "must": "기름|맵|자극|술|카페인|커피|유제품|우유|찬"
+  },
+  {
+   "id": "cp.143",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "배가 아프다고 하세요",
+    "설사도 하신대요"
+   ],
+   "q": "배 아플 때 피해야 할 음식이 있나요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "gen_has": [
+    "배 아플 때 피해야 할 음식이 있나요?"
+   ],
+   "must": "기름|맵|자극|술|카페인|커피|유제품|우유|찬"
+  },
+  {
+   "id": "cp.144",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "배가 아파요",
+    "아니요",
+    "며칠 됐어요",
+    "네"
+   ],
+   "q": "내과에서는 무슨 검사를 해요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "dept_info",
+   "gen_has": []
+  },
+  {
+   "id": "cp.145",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "배가 아프다고 하세요",
+    "설사도 하신대요"
+   ],
+   "q": "내과에서는 무슨 검사를 해요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "dept_info",
+   "wardId": "ab12",
+   "gen_has": []
+  },
+  {
+   "id": "cp.146",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "저려요",
+    "아니요",
+    "오래됐어요",
+    "네"
+   ],
+   "q": "신경과는 어떤 검사를 해요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "dept_info",
+   "gen_has": []
+  },
+  {
+   "id": "cp.147",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "저리다고 하세요",
+    "몇 달째 그러시대요"
+   ],
+   "q": "신경과는 어떤 검사를 해요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "dept_info",
+   "wardId": "ab12",
+   "gen_has": []
+  },
+  {
+   "id": "cp.148",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "저려요",
+    "아니요",
+    "오래됐어요",
+    "네"
+   ],
+   "q": "손 저릴 때 집에서 뭘 하면 좋아요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "gen_has": [
+    "손 저릴 때 집에서 뭘 하면 좋아요?"
+   ],
+   "must": "스트레칭|주물|따뜻|자세|쉬|움직"
+  },
+  {
+   "id": "cp.149",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "저리다고 하세요",
+    "몇 달째 그러시대요"
+   ],
+   "q": "손 저릴 때 집에서 뭘 하면 좋아요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "gen_has": [
+    "손 저릴 때 집에서 뭘 하면 좋아요?"
+   ],
+   "must": "스트레칭|주물|따뜻|자세|쉬|움직"
+  },
+  {
+   "id": "cp.150",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "기침이 나요",
+    "아니요",
+    "며칠 됐어요",
+    "아니요"
+   ],
+   "q": "기침에 좋은 음식이 있나요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "gen_has": [
+    "기침에 좋은 음식이 있나요?"
+   ],
+   "must": "물|따뜻|꿀|차|수분|배|도라지"
+  },
+  {
+   "id": "cp.151",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "기침을 하신대요",
+    "가래도 나오신대요"
+   ],
+   "q": "기침에 좋은 음식이 있나요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "gen_has": [
+    "기침에 좋은 음식이 있나요?"
+   ],
+   "must": "물|따뜻|꿀|차|수분|배|도라지"
+  },
+  {
+   "id": "cp.152",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "기침이 나요",
+    "아니요",
+    "며칠 됐어요",
+    "아니요"
+   ],
+   "q": "기침할 때 피해야 할 것이 있나요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "gen_has": [
+    "기침할 때 피해야 할 것이 있나요?"
+   ],
+   "must": "담배|흡연|찬|건조|먼지|자극|술"
+  },
+  {
+   "id": "cp.153",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "기침을 하신대요",
+    "가래도 나오신대요"
+   ],
+   "q": "기침할 때 피해야 할 것이 있나요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "gen_has": [
+    "기침할 때 피해야 할 것이 있나요?"
+   ],
+   "must": "담배|흡연|찬|건조|먼지|자극|술"
+  },
+  {
+   "id": "cp.154",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "혈압약을 먹고 있어요"
+   ],
+   "q": "혈압약은 언제 먹어야 해요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "gen_has": [
+    "혈압약은 언제 먹어야 해요?"
+   ],
+   "must": "아침|저녁|시간|같은 ?시간|매일|정해진|의사|약사"
+  },
+  {
+   "id": "cp.155",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "혈압약을 드시고 계세요"
+   ],
+   "q": "혈압약은 언제 먹어야 해요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "gen_has": [
+    "혈압약은 언제 먹어야 해요?"
+   ],
+   "must": "아침|저녁|시간|같은 ?시간|매일|정해진|의사|약사"
+  },
+  {
+   "id": "cp.156",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "혈압약을 먹고 있어요"
+   ],
+   "q": "혈압약을 감기약이랑 같이 먹어도 돼요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "gen_has": [
+    "혈압약을 감기약이랑 같이 먹어도 돼요?"
+   ],
+   "must": "약사|의사|상의|함께|같이"
+  },
+  {
+   "id": "cp.157",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "혈압약을 드시고 계세요"
+   ],
+   "q": "혈압약을 감기약이랑 같이 먹어도 돼요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "gen_has": [
+    "혈압약을 감기약이랑 같이 먹어도 돼요?"
+   ],
+   "must": "약사|의사|상의|함께|같이"
+  },
+  {
+   "id": "cp.158",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "혈압약을 먹고 있어요"
+   ],
+   "q": "혈압약 먹고 술 마셔도 돼요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "gen_has": [
+    "혈압약 먹고 술 마셔도 돼요?"
+   ],
+   "must": "술|음주|알코올|피하|마시지"
+  },
+  {
+   "id": "cp.159",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "혈압약을 드시고 계세요"
+   ],
+   "q": "혈압약 먹고 술 마셔도 돼요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "gen_has": [
+    "혈압약 먹고 술 마셔도 돼요?"
+   ],
+   "must": "술|음주|알코올|피하|마시지"
+  },
+  {
+   "id": "cp.160",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "무릎이 아파요",
+    "아니요",
+    "오늘부터요",
+    "아니요"
+   ],
+   "q": "병원에 가야 할까요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "gen_has": [
+    "병원에 가야 할까요?"
+   ],
+   "must": "병원|진료|정형외과"
+  },
+  {
+   "id": "cp.161",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아프다고 하세요",
+    "며칠 전부터 아프시대요"
+   ],
+   "q": "병원에 가야 할까요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "gen_has": [
+    "병원에 가야 할까요?"
+   ],
+   "must": "병원|진료|정형외과"
+  },
+  {
+   "id": "cp.162",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(피보호자)",
+   "role": "WARD",
+   "history_user": [
+    "무릎이 아파요",
+    "아니요",
+    "오늘부터요",
+    "아니요"
+   ],
+   "q": "집에서 뭘 하면 좋아요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "gen_has": [
+    "집에서 뭘 하면 좋아요?"
+   ],
+   "must": "쉬|찜질|무리|걷|운동|휴식"
+  },
+  {
+   "id": "cp.163",
+   "set": "chip-v1",
+   "cat": "꼬리 질문(보호자)",
+   "role": "GUARDIAN",
+   "history_user": [
+    "무릎이 아프다고 하세요",
+    "며칠 전부터 아프시대요"
+   ],
+   "q": "집에서 뭘 하면 좋아요?",
+   "expect": {
+    "route": "symptom",
+    "emergency": false,
+    "crisis": false
+   },
+   "path": "generate",
+   "wardId": "ab12",
+   "gen_has": [
+    "집에서 뭘 하면 좋아요?"
+   ],
+   "must": "쉬|찜질|무리|걷|운동|휴식"
+  }
+ ]
+}

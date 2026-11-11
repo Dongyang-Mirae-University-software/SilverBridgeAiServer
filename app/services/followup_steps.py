@@ -291,6 +291,9 @@ def interpret(state: dict[str, Any], message: str) -> tuple[str, str | None]:
             return "describe", None
     elif _ONSET.search(c):
         return ("answer" if len(c) <= _SHORT_ANSWER_MAX else "describe"), message.strip()
+    elif chat_keywords.has_red_flag(c) or chat_keywords.FOLLOWUP_SYMPTOM_NOUN.search(c):
+        # 기간 질문에 증상 말("배도 아파요", "열이 나요")로 답했다 - 짧아도 다시 묻지 않고 설명으로(2026-11-11, 예/아니요 질문과 같은 기준).
+        return "describe", None
     if _UNKNOWN.match(c) and len(c) <= _SHORT_ANSWER_MAX:
         return "unknown", None
     if len(c) >= _DESCRIPTION_MIN:
@@ -301,6 +304,87 @@ def interpret(state: dict[str, Any], message: str) -> tuple[str, str | None]:
 def is_okay_answer(state: dict[str, Any], message: str) -> bool:
     """예/아니요 질문에 "괜찮아요"(앞에 "네"·"지금은" 정도만 붙은 말)로 답했는가 - 종료 인사로 보지 않고 "아니요"로 읽는다."""
     return current_question(state).kind == "yesno" and bool(_OKAY.fullmatch(_compact(message)))
+
+
+# ── 진행 중 새 증상·위험 신호(2026-11-11) ─────────────────────────────────────────────────────────────
+# 앞 증상이 나아졌다는 말("무릎은 괜찮아졌고 기침이 나요") - 그 뒤가 지금 말하는 증상이다.
+_RELIEF_SPLIT = re.compile(r"^(?P<before>.*?)(괜찮|나았|나아졌|좋아졌|안 ?아프|덜 ?아프|가라앉)\S*[\s,.~]*(?P<rest>.*)$")
+
+
+def red_flag_answer(state: dict[str, Any], message: str) -> bool:  # noqa: ARG001 - 묶음과 상관없이 같은 기준
+    """단계 진행 중 답에 위험 신호 낱말(가슴·숨이 등)이 부정 없이 들었는가 - 그러면 묶음·몇 번째 질문과 상관없이 그 자리에서 119.
+    부정이 섞인 말("가슴은 괜찮아요", "숨이 안 차요")은 여기서 119로 보내지 않는다(지금처럼 설명 → 결과 턴의 119 기준 한 줄)."""
+    c = _compact(message)
+    return bool(c) and chat_keywords.has_red_flag(c) and not (_NO.match(c) or _NEG.search(c))
+
+
+def _group_word(group: Group, text: str) -> bool:
+    """문장에 그 묶음의 증상 낱말이 있는가. 기본 묶음(빈 정규식)·위험 신호 묶음(낱말 없음)은 없다고 본다."""
+    return group.name not in ("default", "chest") and bool(group.pattern.search(re.sub(r"\s+", "", text or "")))
+
+
+def _asked_nouns(group: Group) -> set[str]:
+    """그 묶음 질문 문장에 든 증상 낱말(머리 묶음 "열도 나세요?"의 열, 어지럼 묶음 "속도 메스꺼우세요?"의 속)."""
+    text = "".join(f"{q.text}{q.yes_phrase}" for q in questions(group))
+    return set(chat_keywords.FOLLOWUP_SYMPTOM_NOUN.findall(_compact(text)))
+
+
+def _answer_form(q: Question, message: str, c: str) -> bool:
+    """지금 질문의 답 꼴(네·아니요·괜찮아요·모름·정도 말·기간 말)로 시작하는가. 기간 말은 예/아니요 질문에서도 답 꼴이다
+    ("어제부터요, 열도 조금 있어요" - 앞 증상의 설명). 전환 문장("아까 무릎은 괜찮아졌고 …")은 이 검사 전에 따로 본다."""
+    if _PARDON.match(message or "") or _OKAY.fullmatch(c) or _NO.match(c) or _UNKNOWN.match(c) or _MILD.match(c) or _ONSET.match(c):
+        return True
+    return q.kind == "yesno" and bool(_YES.match(c) or _YES_WORD.match(message or "") or _YES_ALONE.fullmatch(c))
+
+
+def relief_switch_text(group: Group, message: str) -> str | None:
+    """앞 증상이 나아졌다며 다른 증상을 말한 문장("아까 무릎은 괜찮아졌고 기침이 나요")이면 뒤 증상 부분, 아니면 None."""
+    m = _RELIEF_SPLIT.match((message or "").strip())
+    if not m or not _group_word(group, m.group("before")):
+        return None
+    rest = m.group("rest").strip()
+    if not rest or _group_word(group, rest) or not chat_keywords.FOLLOWUP_SYMPTOM_NOUN.search(_compact(rest)):
+        return None
+    return rest
+
+
+def switch_text(state: dict[str, Any], message: str) -> str | None:
+    """단계 진행 중 답이 지금 질문과 무관한 새 증상인가 - 새 증상이면 그 증상 문장(전환이면 뒤 부분), 아니면 None(지금 흐름 그대로).
+    새 증상: 답 꼴로 시작하지 않고, 지금 묶음 낱말이 없고, 기본 묶음이 아닌 다른 묶음의 증상 낱말이 있으며, 그 낱말이 지금 묶음
+    질문이 묻는 낱말만은 아니다. 위험 신호 답은 새 증상으로 넘기지 않는다(그 자리 119 - red_flag_answer). 위험 신호 묶음(chest)
+    흐름은 넘기지 않는다(위험 신호 질문을 잃지 않게)."""
+    c = _compact(message)
+    group = _BY_NAME[state["group"]]
+    if not c or group.name == "chest" or red_flag_answer(state, message):
+        return None
+    text = relief_switch_text(group, message)
+    if text is None:
+        if _answer_form(current_question(state), message, c) or _group_word(group, message):
+            return None
+        text = message.strip()
+    tc = _compact(text)
+    if chat_keywords.has_red_flag(tc):
+        return None
+    new = next(g for g in _GROUPS[1:] if g.pattern.search(re.sub(r"\s+", "", text)))
+    if new.name in ("default", group.name):
+        return None
+    nouns = set(chat_keywords.FOLLOWUP_SYMPTOM_NOUN.findall(tc))
+    if nouns and nouns <= _asked_nouns(group):
+        return None
+    return text
+
+
+def step_symptom_part(state: dict[str, Any], text: str) -> str:
+    """새 증상으로 시작한 흐름의 증상 문장이 전환 문장("무릎은 괜찮아졌고 기침이 나요")이면 그 묶음의 뒤 부분만(결과 턴 진료과가 앞 증상으로
+    가지 않게). 묶음이 원문 그대로 맞으면 원문."""
+    group = _BY_NAME.get(state.get("group"))
+    if group is None or group_for(text).name == group.name:
+        return text
+    for g in _GROUPS[1:]:
+        rest = relief_switch_text(g, text)
+        if rest and group_for(rest).name == group.name:
+            return rest
+    return text
 
 
 def red_flag_action(state: dict[str, Any]) -> str:
