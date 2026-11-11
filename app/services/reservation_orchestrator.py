@@ -443,6 +443,17 @@ class ReservationOrchestrator(ReservationFlowMixin):
         )
 
     @staticmethod
+    def _typed_region(message: str) -> bool:
+        """글로 친 문장이 지역 이름만인가("서울 강남구"·"수원시 영통구"·"부산") - 한글·공백만, 20자 이하, 시·도 이름으로 시작하거나
+        시·군·구·동·읍·면으로 끝나는 칸이 있고, 날짜·시간·진료과 말이 없다."""
+        text = re.sub(r"\s+", " ", (message or "").strip())
+        if not text or len(text) > 20 or not re.fullmatch(r"[가-힣 ]+", text):
+            return False
+        if _find_date(text) or _find_time(text) or _find_department(text):
+            return False
+        return bool(_sido_of(text)) or any(re.fullmatch(r"[가-힣]{1,6}(시|군|구|동|읍|면)", token) for token in text.split(" "))
+
+    @staticmethod
     def _looks_like_reservation(message: str) -> bool:
         text = (message or "").strip()
         return bool(text) and any(keyword in text for keyword in ReservationOrchestrator.RESERVATION_KEYWORDS)
@@ -1045,6 +1056,11 @@ class ReservationOrchestrator(ReservationFlowMixin):
                 extracted = self._extract_reservation_fields(req, history_text, normalized_loc or loc, meta, draft_state=draft)
                 if extracted:
                     self._apply_extracted(draft, extracted)
+                elif meta.get("awaitingField") in {"location", "location_sido"} and self._typed_region(raw_message):
+                    # 라우터 실패 턴(awaitingField 는 그 턴에만 온다, 2차 전체 점검 I-2): 추출도 실패했으면 지역을 묻던 자리에
+                    # 글로 친 지역("서울 강남구")을 지역 버튼을 고른 것과 같게 반영한다.
+                    self._apply_ui_selection(draft, "location", raw_message.strip())
+                    _trace(meta, "typed_region_applied")
                 draft.reservation_date = _find_date(raw_message) or draft.reservation_date
                 draft.reservation_time = _find_time(raw_message) or draft.reservation_time
                 draft.symptom_summary = merge_symptom_summary(draft.symptom_summary, raw_message)

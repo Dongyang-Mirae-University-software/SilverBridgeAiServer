@@ -6,6 +6,7 @@ import re
 import logging
 import time
 from datetime import date, datetime
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 from uuid import uuid4
 from typing import Any
@@ -17,15 +18,16 @@ from app.core.config import get_settings
 from app.schemas.chat_schema import ChatHistoryItem, ChatRequest, UiOption, UiPayload
 from app.services.reservation_api_client import get_reservation_api_client
 from app.services.reservation_credential_service import (
-    get_reservation_credential_service, recently_proxy_purged, recently_purged)
+    get_reservation_credential_service, proxy_purged_since, purged_since, recently_proxy_purged, recently_purged)
 from app.services.chat_deadline import ChatDeadlineExceeded, chat_deadline, tighter_deadline
 from app.services.chat_router_service import ROUTER_RESERVE_SEC, get_chat_router_service
 from app.services import follow_up_questions, followup_answer_chips, followup_steps
 from app.services.claude_structured_client import failure_cause
 from app.services.router_failure_monitor import failure_kind, get_router_failure_monitor
 from app.services import chat_keywords, chat_layout
-from app.services.medical_llm_service import DRUG_ALCOHOL_SENTENCES, MedicalLlmService, get_medical_llm_service
-from app.services.reservation_confirm_flow import CONFIRM_FIELDS
+from app.services.medical_llm_service import (
+    DRUG_ALCOHOL_SENTENCES, MedicalLlmService, get_medgemma_loader, get_medical_llm_service)
+from app.services.reservation_confirm_flow import CONFIRM_FIELDS, fresh_flow_state, fresh_pending_action
 from app.services.reservation_intake import CHANGE_DATE_OPTION, PICK_CALENDAR_OPTION, RETRY_SLOTS_OPTION, _find_department
 from app.services.reservation_orchestrator import (
     MORE_SIDO_OPTION,
@@ -74,7 +76,7 @@ def _origin(exc: BaseException) -> str:
 # 오케스트레이터에 넘긴 입력값이 응답 meta 로 되돌아온다. 챗 기록(context_json)에는 남기지 않는다:
 # 예약 API 키(자격 증명), 직전 턴 상태 사본(storedFlow - 같은 기록이 이미 직전 행에 있음), 사용자 원문(message 컬럼에 있음),
 # 버튼으로 입력했던 환자 이름·전화(storedContact - 원래 기록의 message 에 있음).
-_UNSTORED_META_KEYS = ("reservationApiKey", "storedFlow", "rawMessage", "storedContact")
+_UNSTORED_META_KEYS = ("reservationApiKey", "storedFlow", "rawMessage", "storedContact", "awaitingField")
 # 위기 고정 응답 직후 첫 일반 턴(예약 재개·증상·일반 대화) 답 맨 앞에 붙이는 한 줄(2026-10-25 예약, 2026-10-26 점검 H-1로 확장).
 _CRISIS_FOLLOWUP = "힘드시면 언제든 자살예방 상담전화 109(24시간)에 이야기해 보세요."
 # 라우터 실패 시 앞 턴 위기에 이어지는 짧은 말로 볼 최대 길이(공백 제외, 점검 M-1).
@@ -133,6 +135,18 @@ def _is_closing_message(message: str) -> bool:
         return False
     rest = _NOT_LETTER.sub("", _CLOSING_FILLERS.sub("", _CLOSING_PHRASES.sub("", message)))
     return not rest
+# 단계 되묻기 도중 라우터가 실패한 턴: 예약 낱말을 부정으로 말한 답("예약은 안 했어요")은 예약 요청이 아니다(2차 전체 점검 I-5).
+_RESERVATION_NEGATED = re.compile(r"(예약|접수)[은는을를도이가]?\s*(아직\s*)?(안|못)\s*(했|해|하|됐|돼|되|잡)|(예약|접수)[가-힣\s]{0,6}(않|없|아니)")
+
+
+def _medgemma_enabled() -> bool:
+    """MedGemma 스위치가 켜져 있는가(관리자 끄기 포함). 읽지 못하면 켜진 것으로 본다(지금 동작 그대로)."""
+    try:
+        return bool(get_medgemma_loader().enabled)
+    except Exception:  # noqa: BLE001
+        return True
+
+
 # 직전 기록 확인 함수에 "아직 안 읽음"을 알리는 값 - 요청 처음에 한 번 읽은 기록을 나눠 쓴다(점검 L-3).
 _FETCH = object()
 
@@ -186,6 +200,8 @@ class ChatService:
 
     def _process_message(self, db: Session, payload: ChatRequest) -> dict:
         started = time.perf_counter()
+        # 이 턴이 시작된 시각 - 저장 직전에 "시작한 뒤에 회원 데이터가 지워졌는가"를 본다(2차 전체 점검 I-7).
+        turn_started = time.monotonic()
         # 구간 시간(ms). 거치지 않은 구간은 None. 챗 기록 upstreamMeta.timing 과 [CHAT-TIMING] 로그에만 남는다(응답 필드 아님).
         timing: dict[str, int | None] = {"routerMs": None, "llmMs": None, "reservationMs": None}
         message = (payload.message or "").strip()
@@ -207,7 +223,13 @@ class ChatService:
         proxy_text = message
         # 요청의 history 는 읽지 않는다 - 조작한 assistant 발화·지운 자해 발화로 경로·위기 응답·예약 값이 바뀌지 않게(S-7).
         # 아래 모든 단계(라우터·예약 추출·규칙 초안·MedGemma·위기 근거·대체 응답)가 payload.history 를 쓰므로 여기서 바꿔 끼운다.
-        recent_logs = self._recent_logs(db, payload.userId)
+        # 읽은 기록은 일반 값으로 옮겨 두고 트랜잭션을 끝낸다 - 라우터·MedGemma·예약 서비스를 기다리는 동안(최대 110초)
+        # DB 연결을 쥐고 있지 않게(2차 전체 점검 R-2). 이 뒤로는 ORM 객체를 다시 읽지 않는다.
+        recent_logs = [
+            SimpleNamespace(id=row.id, message=row.message, context_json=row.context_json, reply=row.reply, risk_level=row.risk_level)
+            for row in self._recent_logs(db, payload.userId)
+        ]
+        self._release_db(db)
         latest_log = recent_logs[0] if recent_logs else None
         history = self._server_history(db, payload.userId, session_id, ward_id, rows=recent_logs)
         # 버튼으로 입력했던 환자 이름·전화 - 이력(Claude)에는 넣지 않고, 저장 초안이 없을 때 예약 흐름이 빈 칸만 채운다(2026-10-29 점검 L-2).
@@ -218,6 +240,10 @@ class ChatService:
         after_followup = self._previous_turn_was_followup(latest_log, session_id, ward_id)
         # 단계 되묻기(2026-11-09)의 진행 상태 - 서버가 쓴 직전 기록에서만 읽는다(요청 값은 보지 않는다). 옛 되묻기 기록이면 None.
         step_state = self._previous_followup_step(latest_log, session_id, ward_id) if after_followup else None
+        # 그 되묻기를 시작한 증상 문장 - 시작 기준(anchorLogId) 뒤 첫 사용자 문장, 옛 상태면 이력에서 턴 수만큼 앞(I-4).
+        step_symptom = self._step_symptom(step_state, history, rows=recent_logs, session_id=session_id, ward_id=ward_id)
+        # 단계 되묻기 답이 질문 낱말을 부정으로 되받아("숨쉬기 힘들지 않아요") 키워드 응급 강제를 건너뛴 턴인가(I-5).
+        step_negated = False
         step: tuple[str, Any] | None = None
         # 단계 되묻기를 마치고 MedGemma 를 부르는 턴이면 (이어 붙인 문장, 위험 신호 질문에 답했는가, 대리 여부).
         step_generate: tuple[str, bool, bool] | None = None
@@ -254,7 +280,7 @@ class ChatService:
             # 자해·자살 신호는 진료과 답변·예약·MedGemma보다 먼저 고정 응답으로 보낸다(키워드 판정, 라우터 결과와 무관).
             self_harm_keyword = bool(message) and bool(MedicalLlmService.self_harm_signals(message))
             department_answer = self._department_question_reply(
-                message, history, fallback_symptom=self._step_symptom(step_state, history)
+                message, history, fallback_symptom=step_symptom
             ) if message and not self_harm_keyword else None
             if department_answer:
                 result = department_answer
@@ -305,9 +331,25 @@ class ChatService:
                     "emergency": False,
                     "engine": "ui",
                 }
+            step_live = step_state is not None and bool(message) and not ui_selection and not after_emergency and bool(step_symptom)
+            # 라우터가 응급이라고 한 턴·자해 키워드 턴(route_info.emergency)은 건너뛰지 않는다.
+            step_negated = (
+                step_live and not department_answer and not route_info.get("emergency") and not route_info.get("self_harm")
+                and self._step_negates_emergency(step_state, message, router_failed=not route_info)
+            )
             if not route_info and not department_answer:
                 route_info = self._keyword_route(message)
-            route_info = self._force_emergency(route_info, message)
+                if step_negated:
+                    _LOG.info("[CHAT-SAFETY] followup_negated_answer=true engine=keyword")
+                    route_info = {k: v for k, v in route_info.items() if k != "fallback_arrest"}
+                    route_info.update({"route": "symptom", "emergency": False, "reason": "followup-negated-answer"})
+                elif step_live and route_info["route"] == "reservation" and _RESERVATION_NEGATED.search(message):
+                    # "예약은 안 했어요" - 되묻기 답이지 예약 요청이 아니다. 응급 낱말이 있으면 아래 응급 강제가 그대로 이긴다.
+                    route_info = {**route_info, "route": "symptom", "reason": "followup-reservation-negated"}
+            elif step_negated:
+                _LOG.info("[CHAT-SAFETY] followup_negated_answer=true engine=%s", route_info.get("engine"))
+            if not step_negated:
+                route_info = self._force_emergency(route_info, message)
             self_harm_trigger = self._self_harm_trigger(self_harm_keyword, route_info, history)
             router_failed = route_info.get("engine") == "keyword"
             if router_failed and self_harm_trigger is None and self._crisis_continues_without_router(message, history):
@@ -321,8 +363,23 @@ class ChatService:
                 _LOG.info("[CHAT-SAFETY] self_harm_fallback_pattern=true text_len=%s", len(message))
                 self_harm_trigger = "keyword"
                 route_info = {**route_info, "route": "symptom", "emergency": True, "reason": "self-harm-fallback-pattern"}
+            if (
+                router_failed and message and self_harm_trigger is None and not route_info.get("emergency")
+                and route_info["route"] != "reservation" and step_state is None
+                and not _is_closing_message(message) and not chat_keywords.is_off_topic_question(message)
+            ):
+                # 라우터 실패·크레딧 소진(키워드 분류) 턴: 직전 기록에 유효한 예약 흐름 상태가 있으면 예약 낱말이 없는 답
+                # ("서울 강남구"·"내일 오후 3시"·"열한 시로 해줘")도 예약 단계의 답으로 잇는다(2차 전체 점검 I-2).
+                active, awaiting = self._active_reservation_flow(latest_log, session_id, ward_id)
+                if active:
+                    _LOG.info("[CHAT-RESERVATION] flow_continues_fallback=true")
+                    prev = self._last_reservation_state(db, payload.userId, session_id, ward_id, latest=latest_log) or "병원 예약:"
+                    route_info = {**route_info, "route": "reservation", "normalized_message": f"{prev} / {message}",
+                                  "reason": "flow-continues-fallback", "awaiting_field": awaiting}
+            # 버튼 턴도 직전 턴의 위기 표시를 읽는다 - 위기 응답 직후의 버튼 턴에도 109 한 줄이 붙게(I-9).
             prev_meta = (
-                self._previous_turn_meta(db, payload.userId, session_id, latest=latest_log) if message and not self_harm_keyword else {}
+                self._previous_turn_meta(db, payload.userId, session_id, latest=latest_log, ward_id=ward_id)
+                if (message or ui_selection) and not self_harm_keyword else {}
             )
             after_crisis = bool(prev_meta.get("selfHarm"))
             # 위기 뒤 해제된 턴(서버 기록 crisisFollowup)의 다음 턴도 history(앞 턴 자해 키워드) 근거로 다시 갇히지 않게
@@ -348,8 +405,9 @@ class ChatService:
                     crisis_followup = crisis_released = True
                     self_harm_trigger = None
                     route_info = {**route_info, "reason": "release-after-crisis"}
-            elif self_harm_trigger is None and message and (
-                after_crisis or (router_failed and MedicalLlmService.self_harm_in_history(history))
+            elif self_harm_trigger is None and (
+                (message and (after_crisis or (router_failed and MedicalLlmService.self_harm_in_history(history))))
+                or (not message and ui_selection and after_crisis)
             ):
                 crisis_followup = True
             self_harm = self_harm_trigger is not None
@@ -360,8 +418,11 @@ class ChatService:
                 route_info.get("engine"),
                 len(str(route_info.get("normalized_message") if route_info["route"] == "reservation" else route_info.get("symptom_summary") or "")),
             )
+            # message 와 버튼 선택이 함께 온 턴: 문장이 응급이면 예약 버튼보다 응급이 이긴다(I-9, 자해는 위 self_harm 이 맡는다).
+            emergency_text_turn = bool(message) and bool(route_info.get("emergency"))
             reservation_flow_hint = not self_harm and (
-                route_info["route"] == "reservation" or bool(ui_selection and ui_selection["field"] in reservation_ui_fields)
+                route_info["route"] == "reservation"
+                or bool(ui_selection and ui_selection["field"] in reservation_ui_fields and not emergency_text_turn)
             )
             reservation_api_key = None
             credential_unavailable = False
@@ -391,13 +452,15 @@ class ChatService:
                         name=str(user_context.get("name") or ""),
                         phone=str(user_context.get("phone") or ""),
                     )
+                    # 예약 키 조회가 연 트랜잭션도 예약 서비스 호출 전에 끝낸다(R-2).
+                    self._release_db(db)
                     if reservation_api_key is None and not reservation_disabled:
                         # 회원 예약 계정 키를 못 받았다(로그인·가입·발급 실패, 예약 서비스 장애) - 키 없이 예약 서비스를 부르지 않고
                         # 예약 꺼짐 안내로 끝낸다(2026-10-30, 공용 키·공용 계정 대체 제거). 진행 중이던 초안은 다음 턴에 넘긴다.
                         _LOG.info("[CHAT-RESERVATION] credential_unavailable")
                         reservation_disabled = credential_unavailable = True
                         reservation_result = None
-                        deadline_flow = {k: stored_flow[k] for k in ("flowState", "pendingAction") if isinstance(stored_flow.get(k), dict)}
+                        deadline_flow = self._flow_for_ward(stored_flow, ward_id)
                     else:
                         reservation_result = self._run_reservation(
                             payload, route_info, message, reservation_api_key, stored_flow, reservation_disabled, stored_contact
@@ -407,7 +470,7 @@ class ChatService:
                     _LOG.warning("[CHAT-DEADLINE] stage=%s action=reservation_fallback", exc.stage)
                     reservation_result = None
                     # 확인 대기(pendingAction)도 넘긴다 - 마감은 토큰 선점 전에만 여기로 오므로 같은 버튼으로 다시 시도할 수 있다(점검 L-1).
-                    deadline_flow = {k: stored_flow[k] for k in ("flowState", "pendingAction") if isinstance(stored_flow.get(k), dict)}
+                    deadline_flow = self._flow_for_ward(stored_flow, ward_id)
                 else:
                     if not credential_unavailable:
                         deadline_flow = None
@@ -443,7 +506,8 @@ class ChatService:
                                            else "reservation_disabled" if reservation_disabled else "reservation_flow_fallback"}],
                     }
             elif (step := self._followup_step_outcome(
-                step_state, route_info, message, ui_selection, crisis_followup, after_emergency, history
+                step_state, route_info, message, ui_selection, crisis_followup, after_emergency, history,
+                symptom=step_symptom, negated_red_flag=step_negated,
             )) is not None and step[0] == "reply":
                 # 단계 되묻기 다음 질문·다시 묻기·위험 신호 "네" 끝맺음(규칙 답, MedGemma 를 부르지 않는다).
                 result = step[1]
@@ -456,6 +520,10 @@ class ChatService:
                 proxy = self._is_proxy(payload, message)
                 _LOG.info("[CHAT-QUALITY] followup_asked=true proxy=%s", proxy)
                 result = MedicalLlmService.followup_question_response(message, proxy=proxy)
+                new_step = result.get("meta", {}).get("followupStep") if isinstance(result.get("meta"), dict) else None
+                if isinstance(new_step, dict):
+                    # 증상 문장을 찾는 고정 기준(I-4): 이 턴 직전까지의 마지막 기록 ID. 이 뒤 첫 사용자 문장이 증상 문장이다.
+                    new_step["anchorLogId"] = int(latest_log.id) if latest_log is not None else 0
             else:
                 local_llm = get_medical_llm_service()
                 llm_started = time.perf_counter()
@@ -549,7 +617,7 @@ class ChatService:
             suggested = follow_up_questions.suggested_questions(
                 self._settings, result, route_info, message,
                 proxy=self._is_proxy(payload, proxy_text),
-                emergency_text=bool(message) and bool(MedicalLlmService.emergency_signals(message)),
+                emergency_text=bool(message) and not step_negated and bool(MedicalLlmService.emergency_signals(message)),
                 self_harm_text=bool(message) and bool(MedicalLlmService.self_harm_signals(message)),
             )
         # 답 모양(2026-11-01 가독성): 모든 판정·고정 문장·이어서 물어볼 질문이 끝난 뒤 모양만 바꾼다(문장 뜻·판정 값 그대로).
@@ -618,7 +686,10 @@ class ChatService:
         )
         save_started = time.perf_counter()
         if (recently_purged(payload.userId) or (ward_id and recently_purged(ward_id))
-                or (ward_id and recently_proxy_purged(payload.userId, ward_id))):
+                or (ward_id and recently_proxy_purged(payload.userId, ward_id))
+                # 보류 시간(150초)이 지났어도 이 턴이 시작된 뒤에 표시된 삭제면 쓰지 않는다(I-7).
+                or purged_since(payload.userId, turn_started) or (ward_id and purged_since(ward_id, turn_started))
+                or (ward_id and proxy_purged_since(payload.userId, ward_id, turn_started))):
             # 방금 회원 데이터를 지운 ID - 탈퇴 순간 진행 중이던 턴이 끝나며 기록을 새로 남기지 않게 답만 돌려준다
             # (2026-10-30 통합 점검 L-1). chatLogId 는 null.
             _LOG.info("[CHAT-PURGE-HOLD] log_skipped")
@@ -695,7 +766,73 @@ class ChatService:
                 # 직전 턴이 남긴 확인 대기·고치기 상태. 서버 DB 값이라 클라이언트가 바꿀 수 없다.
                 "storedFlow": stored_flow,
                 "storedContact": stored_contact or {},
+                # 라우터 실패 턴에 예약 흐름을 이은 경우에만: 직전 턴이 묻던 칸(서버 기록의 ui.field, I-2).
+                **({"awaitingField": route_info["awaiting_field"]} if route_info.get("awaiting_field") else {}),
             },
+        )
+
+    @staticmethod
+    def _release_db(db: Session) -> None:
+        """읽기만 한 트랜잭션을 끝내 연결을 풀에 돌려준다(R-2). 실패해도 턴은 이어 간다 - 로그는 예외 클래스명만."""
+        try:
+            db.commit()
+        except Exception as exc:  # noqa: BLE001
+            _LOG.warning("[CHAT-DB-RELEASE-FAILED] %s", type(exc).__name__)
+            with contextlib.suppress(Exception):
+                db.rollback()
+
+    @staticmethod
+    def _flow_for_ward(stored_flow: dict, ward_id: str) -> dict:
+        """마감·키 실패 턴에 다음 턴으로 넘길 예약 흐름 상태 - 지금 피보호자의 것만(2차 전체 점검 I-3).
+        다른 피보호자(또는 wardId 가 없는 옛 상태)의 초안을 이 상담 행에 복사하지 않는다."""
+        return {
+            k: stored_flow[k] for k in ("flowState", "pendingAction")
+            if isinstance(stored_flow.get(k), dict) and "wardId" in stored_flow[k] and (stored_flow[k].get("wardId") or "") == ward_id
+        }
+
+    @staticmethod
+    def _active_reservation_flow(latest: Any, session_id: str, ward_id: str) -> tuple[bool, str | None]:
+        """직전 기록(같은 세션·피보호자)에 유효 시간 안의 예약 흐름 상태(flowState·pendingAction)가 있는가(I-2).
+        (있는가, 직전 턴이 묻던 칸 - 기록의 ui.field). 유효 시간·피보호자 규칙은 예약 흐름이 이어 쓸 때와 같다."""
+        if latest is None:
+            return False, None
+        try:
+            ctx = json.loads(latest.context_json or "{}")
+        except json.JSONDecodeError:
+            return False, None
+        if not isinstance(ctx, dict) or ctx.get("sessionId") != session_id or ChatService._row_ward_id(ctx) != ward_id:
+            return False, None
+        meta = ctx.get("upstreamMeta") if isinstance(ctx.get("upstreamMeta"), dict) else {}
+        flow, pending = meta.get("flowState"), meta.get("pendingAction")
+        active = any(
+            check(item) and "wardId" in item and (item.get("wardId") or "") == ward_id
+            for item, check in ((flow, fresh_flow_state), (pending, fresh_pending_action))
+        )
+        ui = ctx.get("ui") if isinstance(ctx.get("ui"), dict) else {}
+        field = ui.get("field")
+        return active, (field if active and isinstance(field, str) else None)
+
+    @staticmethod
+    def _step_negates_emergency(state: dict, message: str, *, router_failed: bool) -> bool:
+        """단계 되묻기 답이 지금 질문의 낱말을 부정으로 되받은 말인가("숨쉬기 힘들지 않아요", I-5) - 그러면 키워드 응급 강제를 건너뛴다.
+        보수적으로: 답이 "아니요"(또는 부정 설명)로 읽히고, 걸린 응급 키워드가 모두 지금 질문의 증상 말(yes_words)·질문 문장에 든
+        낱말일 때만. 자해 신호·질문과 무관한 응급 낱말·라우터 실패 전용 응급 신호(거리 패턴·반응 없음)가 있으면 응급이 이긴다."""
+        if MedicalLlmService.self_harm_signals(message):
+            return False
+        question = followup_steps.current_question(state)
+        if question.kind != "yesno":
+            return False
+        verdict, phrase = followup_steps.interpret(state, message)
+        if not (verdict == "no" or (verdict == "describe" and bool(question.no_phrase) and phrase == question.no_phrase)):
+            return False
+        signals = MedicalLlmService.emergency_signals(message)
+        if router_failed and (chat_keywords.fallback_emergency_signals(message) or chat_keywords.fallback_arrest_signal(message)):
+            return False
+        if not signals:
+            return False  # 걸린 응급 키워드가 없으면 건너뛸 것이 없다 - 그 턴은 지금 동작 그대로
+        asked = re.sub(r"\s+", "", f"{question.text}{question.proxy}")
+        return all(
+            (question.yes_words is not None and question.yes_words.search(signal)) or signal in asked for signal in signals
         )
 
     @staticmethod
@@ -740,13 +877,38 @@ class ChatService:
         if not isinstance(ctx, dict) or ctx.get("sessionId") != session_id or ChatService._row_ward_id(ctx) != ward_id:
             return None
         meta = ctx.get("upstreamMeta") if isinstance(ctx.get("upstreamMeta"), dict) else {}
-        return followup_steps.valid_state(meta.get("followupStep")) if meta.get("followupAsked") else None
+        raw = meta.get("followupStep")
+        state = followup_steps.valid_state(raw) if meta.get("followupAsked") else None
+        if state is not None and isinstance(raw, dict):
+            anchor = raw.get("anchorLogId")
+            if isinstance(anchor, int) and not isinstance(anchor, bool) and anchor >= 0:
+                # 증상 문장을 찾는 고정 기준(I-4). 옛 상태(이 칸이 없음)는 턴 수로 찾는다.
+                state["anchorLogId"] = anchor
+        return state
 
     @staticmethod
-    def _step_symptom(state: dict | None, history: list[dict[str, str]]) -> str:
-        """단계 되묻기를 시작한 증상 문장(이력의 사용자 발화 중 질문 턴 수만큼 앞). 없거나 못 찾으면 빈 문자열."""
+    def _step_symptom(
+        state: dict | None, history: list[dict[str, str]], rows: list[Any] | None = None, session_id: str = "", ward_id: str = "",
+    ) -> str:
+        """단계 되묻기를 시작한 증상 문장. 상태에 시작 기준(anchorLogId - 시작 턴 직전의 마지막 기록 ID)이 있으면 그 뒤
+        같은 세션·피보호자의 첫 사용자 문장 - 같은 답이 두 번 저장돼도(더블 탭) 어긋나지 않는다(2차 전체 점검 I-4).
+        기준이 없는 옛 상태·기준으로 못 찾은 경우는 이력의 사용자 발화 중 질문 턴 수만큼 앞. 없으면 빈 문자열."""
         if not state:
             return ""
+        anchor = state.get("anchorLogId")
+        if isinstance(anchor, int) and rows:
+            for log in reversed(rows):  # 오래된 순
+                if log.id <= anchor:
+                    continue
+                try:
+                    ctx = json.loads(log.context_json or "{}")
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(ctx, dict) or ctx.get("sessionId") != session_id or ChatService._row_ward_id(ctx) != ward_id:
+                    continue
+                text = ChatService._history_user_text(log.message or "")
+                if text:
+                    return text.strip()
         users = [h.get("content", "") for h in history or [] if h.get("role") == "user"]
         turns = state["turns"]
         return users[-turns].strip() if 0 < turns <= len(users) else ""
@@ -754,7 +916,7 @@ class ChatService:
     @staticmethod
     def _followup_step_outcome(
         state: dict | None, route_info: dict, message: str, ui_selection: dict | None, crisis_followup: bool,
-        after_emergency: bool, history: list[dict[str, str]],
+        after_emergency: bool, history: list[dict[str, str]], symptom: str | None = None, negated_red_flag: bool = False,
     ) -> tuple[str, Any] | None:
         """단계 되묻기 다음 턴의 처리. None 이면 단계 흐름을 쓰지 않는다(지금 규칙 그대로).
         ("reply", 결과) - 다음 질문·다시 묻기·위험 신호 "네" 끝맺음 / ("generate", (이어 붙인 문장, 위험 신호에 답했나, 대리)) - MedGemma.
@@ -767,7 +929,8 @@ class ChatService:
         if _is_closing_message(message) and not followup_steps.is_okay_answer(state, message):
             return None
         turns = state["turns"]
-        symptom = ChatService._step_symptom(state, history)
+        if symptom is None:
+            symptom = ChatService._step_symptom(state, history)
         if not symptom:
             return None
         verdict, phrase = followup_steps.interpret(state, message)
@@ -785,8 +948,11 @@ class ChatService:
         # 위험 신호 질문에 짧고 분명한 "아니요"로 답했을 때만 답한 것으로 본다 - 긴 설명이면 결과에 그 묶음의 119 기준 한 줄.
         answered_red_flag = index > 0 or verdict == "no"
         if verdict == "describe" or index + 1 >= followup_steps.MAX_QUESTIONS:
-            extra = message if verdict == "describe" else None
-            text = followup_steps.generation_text(symptom, answers if verdict != "describe" else state["answers"], extra)
+            # 질문 낱말을 부정으로 되받은 설명("숨쉬기 힘들지 않아요", I-5)은 원문 대신 그 질문의 "아니요" 문장으로 넘긴다 -
+            # 원문의 응급 낱말이 생성 단계에서 119 답을 만들지 않게.
+            keep_phrase = verdict != "describe" or (negated_red_flag and bool(phrase))
+            extra = None if keep_phrase else message
+            text = followup_steps.generation_text(symptom, answers if keep_phrase else state["answers"], extra)
             return "generate", (text, answered_red_flag, state["proxy"])
         return "reply", MedicalLlmService.followup_step_response(
             {**state, "index": index + 1, "answers": answers, "retried": False, "turns": turns + 1}
@@ -801,7 +967,10 @@ class ChatService:
             return False
         if route_info.get("route") != "symptom" or route_info.get("emergency") or route_info.get("self_harm"):
             return False
-        return MedicalLlmService.needs_followup_question(message)
+        if not MedicalLlmService.needs_followup_question(message):
+            return False
+        # MedGemma 가 꺼져 있으면 새로 시작하지 않는다 - 3문항을 다 묻고 고정 대체 응답으로 끝나지 않게(2차 전체 점검 I-8).
+        return _medgemma_enabled()
 
     @staticmethod
     def _followup_answer_text(route_info: dict, message: str, history: list[dict[str, str]], after_followup: bool) -> str | None:
@@ -926,9 +1095,12 @@ class ChatService:
         return not ReservationOrchestrator._looks_like_reservation(message)
 
     @staticmethod
-    def _previous_turn_meta(db: Session, user_id: str, session_id: str, latest: Any = _FETCH) -> dict:
+    def _previous_turn_meta(
+        db: Session, user_id: str, session_id: str, latest: Any = _FETCH, ward_id: str | None = None,
+    ) -> dict:
         """같은 세션 직전 턴의 위기 표시(selfHarm = 위기 고정 응답 / crisisFollowup = 위기 뒤 해제되어 109 한 줄이 붙음).
-        클라이언트 history가 아니라 서버 챗 기록(upstreamMeta)으로 본다. 다른 세션이거나 기록이 없으면 빈 dict."""
+        클라이언트 history가 아니라 서버 챗 기록(upstreamMeta)으로 본다. 다른 세션이거나 기록이 없으면 빈 dict.
+        ward_id 를 주면 다른 피보호자 상담의 표시는 보지 않는다(I-9 - A 상담의 위기가 B 첫 턴으로 넘어가지 않게)."""
         log = ChatService._latest_log(db, user_id) if latest is _FETCH else latest
         if not log:
             return {}
@@ -936,9 +1108,11 @@ class ChatService:
             ctx = json.loads(log.context_json or "{}")
         except json.JSONDecodeError:
             return {}
-        if ctx.get("sessionId") != session_id:
+        if not isinstance(ctx, dict) or ctx.get("sessionId") != session_id:
             return {}
-        meta = ctx.get("upstreamMeta") or {}
+        if ward_id is not None and ChatService._row_ward_id(ctx) != ward_id:
+            return {}
+        meta = ctx.get("upstreamMeta") if isinstance(ctx.get("upstreamMeta"), dict) else {}
         return {k: bool(meta.get(k)) for k in ("selfHarm", "crisisFollowup")}
 
     @staticmethod
@@ -1341,7 +1515,9 @@ class ChatService:
 
     @staticmethod
     def _proxy_ward_ids(context_json: str | None) -> set[str]:
-        """기록이 대리 상담한 피보호자 ID(router.wardId·userContext.wardId). 형식이 이상하면 빈 집합."""
+        """기록이 대리 상담한 피보호자 ID(router.wardId·userContext.wardId) + 그 행에 든 예약 초안의 피보호자
+        (flowState.wardId·pendingAction.wardId - 다른 피보호자 표시 행에 복사된 초안도 지우게, 2차 전체 점검 I-3).
+        형식이 이상하면 빈 집합."""
         try:
             ctx = json.loads(context_json or "{}")
         except ValueError:
@@ -1351,7 +1527,8 @@ class ChatService:
         meta = ctx.get("upstreamMeta") if isinstance(ctx.get("upstreamMeta"), dict) else {}
         router = meta.get("router") if isinstance(meta.get("router"), dict) else {}
         user_context = ctx.get("userContext") if isinstance(ctx.get("userContext"), dict) else {}
-        return {str(v) for v in (router.get("wardId"), user_context.get("wardId")) if v}
+        drafts = [meta[k].get("wardId") for k in ("flowState", "pendingAction") if isinstance(meta.get(k), dict)]
+        return {str(v) for v in (router.get("wardId"), user_context.get("wardId"), *drafts) if v}
 
     @staticmethod
     def list_logs(db: Session, user_id: str | None = None) -> list[dict]:

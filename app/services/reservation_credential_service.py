@@ -32,6 +32,9 @@ def _hold_sec() -> float:
     except (TypeError, ValueError):
         return _PURGE_HOLD_SEC
     return value if value >= 0 else _PURGE_HOLD_SEC
+# 삭제 표시를 목록에 남겨 두는 최소 시간(초, 2차 전체 점검 I-7). 보류 시간(_hold_sec)이 이보다 짧아도, 삭제 전에 시작해
+# 아직 끝나지 않은 턴(챗 전체 마감 110초 + 저장)이 "내가 시작한 뒤에 지워졌는가"(purged_since)를 물을 수 있게 한다. 상한 600초.
+_TURN_TRACK_SEC = 600.0
 _PURGED: dict[str, float] = {}
 _PURGED_LOCK = threading.Lock()
 
@@ -39,7 +42,8 @@ _PURGED_LOCK = threading.Lock()
 def mark_purged(user_id: str) -> None:
     with _PURGED_LOCK:
         now = time.monotonic()
-        for uid in [u for u, at in _PURGED.items() if now - at > _hold_sec()]:
+        keep = max(_hold_sec(), _TURN_TRACK_SEC)
+        for uid in [u for u, at in _PURGED.items() if now - at > keep]:
             _PURGED.pop(uid, None)
         _PURGED[user_id] = now
 
@@ -62,6 +66,18 @@ def recently_purged(user_id: str) -> bool:
     with _PURGED_LOCK:
         at = _PURGED.get(user_id)
         return at is not None and time.monotonic() - at <= _hold_sec()
+
+
+def purged_since(user_id: str, since_monotonic: float) -> bool:
+    """since_monotonic(턴 시작 때의 time.monotonic()) 뒤에 그 ID 의 삭제가 표시됐는가 - 보류 시간(150초)과 무관하다(I-7).
+    보류 시간보다 오래 걸린 턴도 자기가 시작한 뒤의 삭제는 알아본다. 표시는 _TURN_TRACK_SEC 동안 남는다."""
+    with _PURGED_LOCK:
+        at = _PURGED.get(user_id)
+        return at is not None and at >= since_monotonic
+
+
+def proxy_purged_since(guardian_id: str, ward_id: str, since_monotonic: float) -> bool:
+    return purged_since(_proxy_key(guardian_id, ward_id), since_monotonic)
 
 
 @dataclass
@@ -251,6 +267,16 @@ class ReservationCredentialService:
         if not raw_api_key:
             return None
 
+        if recently_purged(user_id):
+            # 가입·로그인·발급(HTTP)을 기다리는 사이에 회원 데이터 삭제가 끝났다(2차 전체 점검 I-6) - 키를 저장하지 않고
+            # 방금 발급한 키를 폐기한다. best-effort: 폐기가 실패해도 저장하지 않는다. 로그는 건수만.
+            _LOG.info("[예약계정] 발급 중 회원 데이터 삭제 - 키를 저장하지 않고 폐기합니다")
+            db.rollback()
+            try:
+                self._revoke_ai_keys(client, access_token, f"AI-{user_id}")
+            except Exception as exc:  # noqa: BLE001 - 마감(ChatDeadlineExceeded) 포함
+                _LOG.info("[예약계정] 발급 중 삭제 - 키 폐기 건너뜀 %s", type(exc).__name__)
+            return None
         if current is None:
             current = ReservationCredential(
                 user_id=user_id,

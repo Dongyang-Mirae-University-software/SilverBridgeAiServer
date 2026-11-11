@@ -53,6 +53,15 @@ def fresh_flow_state(flow: Any) -> bool:
         and isinstance(flow.get("createdAt"), int)
         and 0 <= int(time.time()) - flow["createdAt"] <= _PENDING_TTL_SECONDS
     )
+def fresh_pending_action(pending: Any) -> bool:
+    """확인 대기(pendingAction)가 아직 유효 시간 안인가 - _valid_pending 과 같은 시간 규칙(토큰·종류·피보호자는 호출부가 본다)."""
+    return (
+        isinstance(pending, dict)
+        and isinstance(pending.get("createdAt"), int)
+        and 0 <= int(time.time()) - pending["createdAt"] <= _PENDING_TTL_SECONDS
+    )
+
+
 _STALE_REPLY = "확인 시간이 지났어요. 예약하실 병원과 진료과, 날짜를 다시 알려 주세요."
 
 
