@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from app.models.chat_log import ChatLog
 from app.core.config import get_settings
-from app.schemas.chat_schema import ChatHistoryItem, ChatRequest, UiOption, UiPayload
+from app.schemas.chat_schema import ChatHistoryItem, ChatRequest, UiOption, UiPayload, UiSelection
 from app.services.reservation_api_client import get_reservation_api_client
 from app.services.reservation_credential_service import (
     get_reservation_credential_service, proxy_purged_since, purged_since, recently_proxy_purged, recently_purged)
@@ -24,7 +24,7 @@ from app.services.chat_router_service import ROUTER_RESERVE_SEC, get_chat_router
 from app.services import follow_up_questions, followup_answer_chips, followup_steps
 from app.services.claude_structured_client import failure_cause
 from app.services.router_failure_monitor import failure_kind, get_router_failure_monitor
-from app.services import chat_keywords, chat_layout
+from app.services import chat_keywords, chat_layout, reservation_target
 from app.services.medical_llm_service import (
     DEGRADED_NOTICES, DRUG_ALCOHOL_SENTENCES, MedicalLlmService, get_medgemma_loader, get_medical_llm_service)
 from app.services.reservation_confirm_flow import CONFIRM_FIELDS, fresh_flow_state, fresh_pending_action
@@ -250,6 +250,9 @@ class ChatService:
         # 단계 되묻기를 마치고 MedGemma 를 부르는 턴이면 (이어 붙인 문장, 위험 신호 질문에 답했는가, 대리 여부).
         step_generate: tuple[str, bool, bool] | None = None
         care_skipped_step = False
+        # 보호자 예약 대상 고르기(2026-11-11): 선택 턴의 고정 답(다시 묻기·지남), 그 피보호자로 예약을 시작할 때의 앞 질문 내용.
+        target_reply: dict | None = None
+        target_start: dict | None = None
         payload = payload.model_copy(update={"history": [ChatHistoryItem(**item) for item in history]})
         log_message = message
         # 위기 응답 직후 첫 일반 턴이면 답 앞에 109 안내 한 줄을 붙인다(한 번만 - 이 턴 기록엔 selfHarm이 없다).
@@ -322,6 +325,27 @@ class ChatService:
                 route_info = self._apply_router_overrides(route_info, message)
             if department_answer:
                 route_info = {"route": "general", "engine": "rule", "normalized_message": message, "symptom_summary": "", "emergency": False}
+            elif not message and ui_selection and ui_selection["field"] == reservation_target.TARGET_FIELD:
+                # "누구의 병원 예약인가요?" 선택 턴 - 직전 기록(같은 세션)의 질문과 맞고 이 턴 wardId(BE 검증)가 고른 값일 때만 예약을 시작한다.
+                ask = reservation_target.pending_ask(latest_log, session_id)
+                outcome = reservation_target.selection_outcome(ask, ui_selection["value"], ward_id)
+                _LOG.info("[CHAT-RESERVATION] target_selected outcome=%s", outcome)
+                if outcome == "go" and ask is not None:
+                    target_start = ask
+                    route_info = {"route": "reservation", "normalized_message": ask["normalized"], "symptom_summary": "",
+                                  "emergency": False, "engine": "ui", "reason": "reservation-target-selected"}
+                else:
+                    wards = reservation_target.guardian_wards(payload)
+                    target_reply = (
+                        reservation_target.ask_reply(
+                            wards, model_name=self._settings.claude_model_name, start_ui=ask["startUi"], retry=True,
+                            carry={"message": ask["message"], "normalized": ask["normalized"]},
+                        )
+                        if outcome == "reask" and ask is not None and wards
+                        else reservation_target.stale_reply(self._settings.claude_model_name)
+                    )
+                    route_info = {"route": "general", "engine": "ui", "normalized_message": "", "symptom_summary": "",
+                                  "emergency": False, "reason": f"reservation-target-{outcome}"}
             elif not route_info and not message and ui_selection and ui_selection["field"] in reservation_ui_fields:
                 # UI 블록 선택 턴: 직전 규격화 문장에 선택값을 붙여 상태를 이어간다.
                 prev = self._last_reservation_state(db, payload.userId, session_id, ward_id, latest=latest_log) or "병원 예약:"
@@ -444,6 +468,25 @@ class ChatService:
                 # 상담 내용은 남기지 않는다 - 경로 플래그만.
                 _LOG.info("[CHAT-SAFETY] self_harm=true path=main trigger=%s family=%s", self_harm_trigger, family)
                 result = MedicalLlmService.self_harm_response(family=family, trigger=self_harm_trigger)
+            elif target_reply is not None:
+                result = target_reply
+            elif reservation_flow_hint and not reservation_disabled and (
+                ask_wards := self._reservation_target_wards(payload, ward_id, message, target_start)
+            ) is not None:
+                # 보호자 챗봇 예약은 피보호자만(2026-11-11) - wardId 없이 시작하면 예약하지 않고 먼저 대상을 묻는다(응급·자해 판정 뒤).
+                _LOG.info("[CHAT-RESERVATION] target_ask options=%s", len(ask_wards))
+                start_ui = (
+                    {"field": ui_selection["field"], "value": ui_selection["value"]}
+                    if ui_selection and not message else None
+                )
+                result = (
+                    reservation_target.ask_reply(
+                        ask_wards, model_name=self._settings.claude_model_name, start_ui=start_ui,
+                        retry=reservation_target.pending_ask(latest_log, session_id) is not None,
+                    )
+                    if ask_wards
+                    else reservation_target.no_ward_reply(self._settings.claude_model_name)
+                )
             elif reservation_flow_hint:
                 stored_flow = self._last_flow_state(db, payload.userId, session_id, latest=latest_log)
                 try:
@@ -465,8 +508,16 @@ class ChatService:
                         reservation_result = None
                         deadline_flow = self._flow_for_ward(stored_flow, ward_id)
                     else:
+                        # 대상 선택 턴: 앞 질문의 시작 문장·시작 버튼으로 예약을 시작한다(이 턴의 대상 버튼은 넘기지 않는다).
+                        res_payload, res_message = payload, message
+                        if target_start is not None:
+                            start_ui = target_start["startUi"]
+                            res_payload = payload.model_copy(
+                                update={"uiSelection": UiSelection(**start_ui) if start_ui else None}
+                            )
+                            res_message = target_start["message"]
                         reservation_result = self._run_reservation(
-                            payload, route_info, message, reservation_api_key, stored_flow, reservation_disabled, stored_contact
+                            res_payload, route_info, res_message, reservation_api_key, stored_flow, reservation_disabled, stored_contact
                         )
                 except ChatDeadlineExceeded as exc:
                     # 마감에 걸려 새 예약 호출을 시작하지 않았다 - 아래 기존 실패 문구로 끝내고 직전 초안은 다음 턴에 넘긴다.
@@ -561,13 +612,18 @@ class ChatService:
                         proxy_text = followup_answer
                         llm_intent = "medical_advice"
                         processed_symptom = (route_info.get("symptom_summary") if route_info["route"] == "symptom" else None) or followup_answer
+                    gen_proxy = (step_generate[2] if step_generate else False) or self._is_proxy(payload, proxy_text)
+                    # wardId 없이 가족·옆 사람 이야기면(대리 주어) 이 context 의 나이·성별은 말하는 사람 것이라 넘기지 않는다(2026-11-11).
+                    profile_omitted = gen_proxy and not ward_id
+                    if profile_omitted:
+                        _LOG.info("[CHAT-QUALITY] profile_omitted=proxy_subject")
                     result = local_llm.generate(
                         gen_message,
-                        self._medgemma_context(user_context),
+                        {} if profile_omitted else self._medgemma_context(user_context),
                         history,
                         intent=llm_intent,
                         processed_symptom=processed_symptom,
-                        proxy=(step_generate[2] if step_generate else False) or self._is_proxy(payload, proxy_text),
+                        proxy=gen_proxy,
                         # WARD 일 때만 넘긴다 - 보호자·role 없음 호출은 이전과 글자 그대로(인자 모양도 같다).
                         # 단계 되묻기는 WARD 만 타므로 결과 턴도 WARD 만 짧다(2026-11-11 - 보호자는 #196 이전 긴 답 그대로).
                         **({"concise": True} if ward_reader else {}),
@@ -639,8 +695,9 @@ class ChatService:
         suggested_kind = followup_answer_chips.KIND if suggested else None
         if suggested:
             _LOG.info("[CHAT-SUGGEST] source=answer count=%s", len(suggested))
-        elif isinstance(result.get("meta"), dict) and result["meta"].get("offTopic"):
-            # 엉뚱한 질문 고정 안내(2026-11-08)는 모델을 부르지 않는 답이라 이어서 물어볼 질문(모델 호출)도 붙이지 않는다.
+        elif isinstance(result.get("meta"), dict) and (result["meta"].get("offTopic") or result["meta"].get("reservationTargetNotice")):
+            # 엉뚱한 질문 고정 안내(2026-11-08)·예약 대상 안내(연결 없음·지남, 2026-11-11)는 모델을 부르지 않는 답이라
+            # 이어서 물어볼 질문(모델 호출)도 붙이지 않는다.
             suggested = []
         else:
             suggested = follow_up_questions.suggested_questions(
@@ -1540,6 +1597,22 @@ class ChatService:
             # 이어서 물어볼 질문(모델 호출)도 붙이지 않는다 - follow_up_questions.should_suggest 가 이 표시를 본다.
             "meta": {"offTopic": True},
         }
+
+    @staticmethod
+    def _reservation_target_wards(
+        payload: ChatRequest, ward_id: str, message: str, target_start: dict | None
+    ) -> list | None:
+        """예약 대상을 먼저 물어야 하면 선택지 피보호자 목록([] = 연결 없음 안내), 아니면 None(예약 흐름 그대로).
+        보호자 경로(BE 가 guardianWards 를 넣음)·wardId 없음·대상 선택 턴이 아님·"어떻게 취소해요?" 같은 안내 질문이 아닐 때.
+        옛 BE(칸 없음)는 묻지 않는다(하위 호환)."""
+        if ward_id or target_start is not None:
+            return None
+        wards = reservation_target.guardian_wards(payload)
+        if wards is None:
+            return None
+        if message and ReservationOrchestrator._is_cancel_change_question(message):
+            return None
+        return wards
 
     @staticmethod
     def _is_proxy(payload: ChatRequest, message: str) -> bool:
