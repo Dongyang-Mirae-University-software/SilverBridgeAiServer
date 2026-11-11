@@ -1,44 +1,20 @@
-"""관리 경로 전용 키·받아쓰기 디코딩 동시 상한(2026-11-10 전체 점검 M-4·M-2 남은 부분)."""
+"""받아쓰기 디코딩 동시 상한(2026-11-10 전체 점검 M-2). 관리 키 테스트는 2026-11-11 스위치 제거로 삭제."""
 from __future__ import annotations
-
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from fastapi import HTTPException
 
-from app.core import security
 from app.routers import companion_router as cr
 
 
-def _s(api: str, admin: str) -> SimpleNamespace:
-    return SimpleNamespace(api_key=api, admin_api_key=admin)
+def test_medgemma_admin_switch_removed() -> None:
+    from fastapi.testclient import TestClient
 
-
-def test_admin_key_unset_accepts_common_key() -> None:
-    security.require_admin_api_key("common", _s("common", ""))
-    with pytest.raises(HTTPException) as e:
-        security.require_admin_api_key("wrong", _s("common", ""))
-    assert e.value.status_code == 401
-
-
-def test_admin_key_set_rejects_common_key() -> None:
-    security.require_admin_api_key("admin-only", _s("common", "admin-only"))
-    for bad in ("common", "", None, "관리자"):
-        with pytest.raises(HTTPException) as e:
-            security.require_admin_api_key(bad, _s("common", "admin-only"))
-        assert e.value.status_code == 401 and e.value.detail["errorCode"] == "AUTH_INVALID_KEY"
-
-
-def test_admin_router_uses_admin_dependency() -> None:
     from app.main import app
 
-    routes = [r for r in app.routes if getattr(r, "path", "").startswith("/api/admin/medgemma")]
-    if not routes:  # 라우터를 감싸 등록하는 판에서는 OpenAPI 로만 경로를 확인한다
-        assert any(p.startswith("/api/admin/medgemma") for p in app.openapi()["paths"])
-        return
-    for r in routes:
-        assert any(d.call is security.require_admin_api_key for d in r.dependant.dependencies)
+    # 스위치 제거(2026-11-11): 어떤 키를 실어도 경로가 없다
+    r = TestClient(app).get("/api/admin/medgemma/status", headers={"X-API-Key": "x"})
+    assert r.status_code == 404
 
 
 class _Result:

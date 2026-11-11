@@ -105,25 +105,6 @@ def test_ensure_loaded_skips_retry_right_after_failure() -> None:
     assert calls == [1]
 
 
-def test_set_enabled_does_not_take_the_load_lock() -> None:
-    loader = _loader()
-    loader._lock.acquire()
-    try:
-        done = threading.Event()
-
-        def flip() -> None:
-            loader.set_enabled(False)
-            done.set()
-
-        threading.Thread(target=flip, daemon=True).start()
-        assert done.wait(1.0) and loader.enabled is False
-    finally:
-        loader._lock.release()
-    loader._load_failed_at = 1.0
-    loader.set_enabled(True)
-    assert loader._load_failed_at is None  # 다시 켜면 바로 적재를 시도한다
-
-
 def test_generate_max_time_default_and_bad_value() -> None:
     loader = _loader()
     assert loader._generate_max_time() == 90.0 or loader._generate_max_time() > 0

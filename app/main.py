@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import get_settings
 from app.core.companion_errors import register_companion_error_handler
 from app.core.response import error_response
-from app.core.security import require_admin_api_key, require_api_key
+from app.core.security import require_api_key
 from app.database.base import Base
 from app.database.schema_upgrades import encrypt_plain_reservation_keys, ensure_indexes, upgrade_member_id_columns
 from app.database.session import engine
@@ -26,7 +26,6 @@ from app.routers.game_router import router as game_router
 from app.routers.health_router import router as health_router
 from app.routers.live_stream_router import router as live_stream_router
 from app.routers.live_ws_router import router as live_ws_router
-from app.routers.medgemma_switch_router import router as medgemma_switch_router
 from app.routers.medication_ocr_router import router as medication_ocr_router
 from app.routers.model_router import router as model_router
 from app.routers.reservation_credential_router import router as reservation_credential_router
@@ -140,14 +139,6 @@ def _startup_housekeeping() -> None:
         purge_expired(start_loop=True)
     except Exception as exc:  # noqa: BLE001
         _LOG.warning("[COLLECT] 보관 정리 시작 실패 type=%s", type(exc).__name__)
-    try:
-        from app.core.security import admin_api_key_warning
-
-        warning = admin_api_key_warning(settings)
-        if warning:
-            _LOG.warning(warning)
-    except Exception as exc:  # noqa: BLE001
-        _LOG.warning("[SECURITY] 관리 키 확인 실패 type=%s", type(exc).__name__)
 
 
 def _start_companion_warmup() -> None:
@@ -212,6 +203,5 @@ app.include_router(live_stream_router, dependencies=[Depends(require_api_key)])
 app.include_router(live_ws_router)
 app.include_router(reservation_credential_router, dependencies=[Depends(require_api_key)])
 app.include_router(medication_ocr_router, dependencies=[Depends(require_api_key)])
-app.include_router(medgemma_switch_router, dependencies=[Depends(require_admin_api_key)])  # MedGemma 켜기·끄기 (재시작 없음)
 app.include_router(companion_router)  # 말벗: 자체 키(X-API-Key, COMPANION_API_KEY)를 라우터 안에서 붙인다
 register_companion_error_handler(app)
