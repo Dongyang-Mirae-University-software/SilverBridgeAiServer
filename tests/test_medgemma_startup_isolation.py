@@ -39,6 +39,7 @@ def _run_lifespan(monkeypatch: pytest.MonkeyPatch, loader: _Loader, order: list[
         monkeypatch.setattr(main, name, lambda n=name: _Detector(order, n))
     monkeypatch.setattr(main, "log_gpu_status", lambda: None, raising=False)
     monkeypatch.setattr(main, "_start_companion_warmup", lambda: None)
+    monkeypatch.setattr(main, "_startup_housekeeping", lambda: None)
     monkeypatch.setattr(main, "get_medication_ocr_service", lambda: None)
     monkeypatch.setattr(main, "get_drug_name_list", lambda: None)
     monkeypatch.setattr(main.settings, "medgemma_enabled", True, raising=False)
@@ -130,3 +131,18 @@ def test_generate_max_time_default_and_bad_value() -> None:
     assert loader._generate_max_time() == 90.0
     loader._settings = SimpleNamespace(medgemma_generate_max_time_sec="abc")
     assert loader._generate_max_time() == 90.0
+
+
+def test_startup_housekeeping_calls_purge_and_survives_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.services.training_sample_collector as collector
+
+    calls: list[dict] = []
+    monkeypatch.setattr(collector, "purge_expired", lambda *a, **k: calls.append(k))
+    main._startup_housekeeping()
+    assert calls == [{"start_loop": True}]
+
+    def boom(*a, **k):
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(collector, "purge_expired", boom)
+    main._startup_housekeeping()  # 예외를 올리지 않는다
