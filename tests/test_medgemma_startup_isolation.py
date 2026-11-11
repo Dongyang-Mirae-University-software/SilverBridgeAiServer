@@ -146,3 +146,15 @@ def test_startup_housekeeping_calls_purge_and_survives_errors(monkeypatch: pytes
 
     monkeypatch.setattr(collector, "purge_expired", boom)
     main._startup_housekeeping()  # 예외를 올리지 않는다
+
+
+def test_exception_frames_gives_locations_without_message() -> None:
+    def inner() -> None:
+        raise RuntimeError("secret text")
+
+    try:
+        inner()
+    except RuntimeError as exc:
+        out = main._exception_frames(exc)
+    assert "secret" not in out and "test_medgemma_startup_isolation.py:" in out
+    assert out.count("<") <= 2
