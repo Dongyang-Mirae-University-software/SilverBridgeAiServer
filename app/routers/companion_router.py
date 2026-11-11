@@ -222,6 +222,13 @@ def _dialogue_or_404(dialogue_id: str) -> Dialogue:
     return d
 
 
+def _risk_probability_out(p) -> float | None:
+    """턴 응답의 riskProbability. 백엔드 누적 기준(0.97)이 v9 척도라 다른 프롬프트(v4)의 확률은 내보내지 않는다."""
+    if p is None or get_settings().companion_risk_prompt != "v9":
+        return None
+    return round(float(p), 4)
+
+
 def _turn_response(d: Dialogue, result: dict, transcript: str | None = None, face: dict | None = None) -> dict:
     face_label = (face or {}).get("label") if (face or {}).get("usable") else None  # 표정을 못 읽었으면 기록하지 않는다
     updated = store.add_turn(d.dialogueId, result["turnResult"]["label"], result["turnResult"]["source"],
@@ -239,6 +246,8 @@ def _turn_response(d: Dialogue, result: dict, transcript: str | None = None, fac
         # 글 기분 분류 결과 (백엔드 테스트 계정 화면용, 2026-11-10). 무응답·다시 확인 턴은 null. 저장하지 않는다
         "textMood": result.get("textMood"),
         "riskFlag": bool(result.get("riskFlag")),  # 신호가 null 이어도 위험 여부는 항상 채운다 (백엔드 요청)
+        # v9 위험 확률 (백엔드 여러 날 위험 누적용, 2026-11-11). 계산 안 했거나 시간 초과·v9 아님이면 null. 저장·로그 없음
+        "riskProbability": _risk_probability_out(result.get("riskProbability")),
         "ended": updated.ended,
         "endReason": updated.endReason,
     }
