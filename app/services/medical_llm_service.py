@@ -467,6 +467,21 @@ _FOLLOWUP_QUESTIONS_PROXY = (
 )
 _FOLLOWUP_CLOSING = "갑자기 심해지면 바로 진료를 받으세요."
 
+# 진료과 정보 질문 고정 안내(2026-11-11 ③ - "신경과는 어떤 검사를 받나요?"). MedGemma 4B 는 이런 질문에 앞 상담 권고를 베끼거나
+# 지어낸 진료비 금액을 되풀이해서(DGX int8 재생) 모델을 부르지 않는다. 금액·확정 진단은 말하지 않는다. {department} 는 진료과 이름 또는 "병원".
+_DEPT_INFO_EXAM_OPEN = "{department}에서는 먼저 언제부터, 어떻게 불편하신지 자세히 여쭤보고 진찰해요."
+_DEPT_INFO_EXAM_CLOSE = "어떤 검사를 할지는 의사가 증상을 보고 정해요."
+_DEPT_INFO_EXAM_NEURO = "필요하면 균형·팔다리 힘을 보는 신경 진찰, 피 검사, CT·MRI 같은 영상 검사를 할 수 있어요."
+_DEPT_INFO_EXAM_INTERNAL = "필요하면 혈압을 재고, 피 검사·소변 검사, 엑스레이나 초음파 검사를 할 수 있어요."
+_DEPT_INFO_EXAM_ORTHO = "아픈 곳을 눌러 보거나 움직여 보고, 필요하면 엑스레이·초음파·MRI 검사를 할 수 있어요."
+_DEPT_INFO_EXAM_ENT = "귀·코·목 안을 내시경으로 들여다보고, 필요하면 청력 검사를 할 수 있어요."
+_DEPT_INFO_EXAM_EYE = "시력과 눈 압력을 재고, 기계로 눈 안쪽을 들여다볼 수 있어요."
+_DEPT_INFO_EXAM_SKIN = "피부를 직접 살펴보고, 필요하면 피부 조직이나 균 검사를 할 수 있어요."
+_DEPT_INFO_PREPARE = "{department}에 가실 때는 신분증과 지금 드시는 약(약 봉투)을 챙기시고, 언제부터 어떻게 불편했는지 적어 가시면 좋아요."
+_DEPT_INFO_FASTING = "피 검사가 있을 수 있으니 굶고 와야 하는지 병원에 미리 물어보세요."
+_DEPT_INFO_COST = "진료비는 병원과 받는 검사에 따라 달라서 정확한 금액은 말씀드리기 어려워요."
+_DEPT_INFO_COST_ASK = "가시기 전에 병원에 전화로 물어보시면 가장 정확해요."
+
 
 def _department_family(name: str) -> str:
     return "내과" if name.endswith("내과") else name
@@ -520,6 +535,18 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_HYPOGLYCEMIA_SENTENCE": ("self", "의식이 있으시면 사탕이나 단 음료를 드시게 하고, 의식이 흐리시면 억지로 먹이지 마세요."),
     "_HYPOGLYCEMIA_RECHECK": ("self", "15분쯤 뒤 혈당을 다시 재 드리고, 계속 낮거나 증상이 이어지면 의사에게 알려 주세요."),
     "_FOLLOWUP_INTRO": ("own_variant", None),
+    "_DEPT_INFO_EXAM_OPEN": ("self", "{department}에서는 먼저 어르신께 언제부터, 어떻게 불편하신지 자세히 여쭤보고 진찰해요."),
+    "_DEPT_INFO_EXAM_CLOSE": ("neutral", None),
+    "_DEPT_INFO_EXAM_NEURO": ("neutral", None),
+    "_DEPT_INFO_EXAM_INTERNAL": ("neutral", None),
+    "_DEPT_INFO_EXAM_ORTHO": ("neutral", None),
+    "_DEPT_INFO_EXAM_ENT": ("neutral", None),
+    "_DEPT_INFO_EXAM_EYE": ("neutral", None),
+    "_DEPT_INFO_EXAM_SKIN": ("neutral", None),
+    "_DEPT_INFO_PREPARE": ("self", "{department}에 모시고 가실 때는 어르신 신분증과 지금 드시는 약(약 봉투)을 챙기시고, 언제부터 어떻게 불편해하셨는지 적어 가시면 좋아요."),
+    "_DEPT_INFO_FASTING": ("neutral", None),
+    "_DEPT_INFO_COST": ("neutral", None),
+    "_DEPT_INFO_COST_ASK": ("neutral", None),
     "_FOLLOWUP_CLOSING": ("own_variant", None),
     "_DRUG_ALCOHOL_RULES.diabetes": ("self", "어르신이 당뇨약을 드시는 중에 술을 드시면 저혈당(식은땀·떨림·어지럼)이 늦게 올 수 있어요. 드시기 전에 의사·약사와 꼭 상의해 주세요."),
     "_DRUG_ALCOHOL_RULES.sedative": ("self", "어르신이 수면제나 안정제를 술과 함께 드시면 숨이 약해지거나 깨어나기 어려울 만큼 위험할 수 있어요. 술과 함께 드시지 않게 해 주세요."),
@@ -567,6 +594,11 @@ def _fixed(key: str, text: str) -> FixedSentence:
 
 for _name in [k for k in _SENTENCE_TABLE if "." not in k]:
     globals()[_name] = _fixed(_name, globals()[_name])
+# 진료과별 검사 한 줄(그 밖의 과는 앞뒤 문장만). 키는 예약 진료과 이름과 같다.
+_DEPT_INFO_EXAM_DETAIL = {
+    "신경과": _DEPT_INFO_EXAM_NEURO, "내과": _DEPT_INFO_EXAM_INTERNAL, "정형외과": _DEPT_INFO_EXAM_ORTHO,
+    "이비인후과": _DEPT_INFO_EXAM_ENT, "안과": _DEPT_INFO_EXAM_EYE, "피부과": _DEPT_INFO_EXAM_SKIN,
+}
 _DRUG_ALCOHOL_RULES = tuple(r._replace(sentence=_fixed(f"_DRUG_ALCOHOL_RULES.{r.name}", r.sentence)) for r in _DRUG_ALCOHOL_RULES)
 _DRUG_DIRECT_RULES = tuple(r._replace(sentence=_fixed(f"_DRUG_DIRECT_RULES.{r.name}", r.sentence)) for r in _DRUG_DIRECT_RULES)
 _LIFESTYLE_RULES = tuple(r._replace(sentence=_fixed(f"_LIFESTYLE_RULES.{r.name}", r.sentence)) for r in _LIFESTYLE_RULES)
@@ -934,6 +966,34 @@ class MedicalLlmService:
         red_flag = chat_keywords.has_red_flag(message)
         lines = followup_steps.question_lines(state, first=True, red_flag_line=_RED_FLAG_119_SENTENCE if red_flag else None)
         return MedicalLlmService._followup_step_result(lines, state, red_flag=red_flag)
+
+    @staticmethod
+    def department_info_response(kind: str, department: str | None, proxy: bool) -> dict[str, Any]:
+        """진료과 정보 질문 고정 안내(MedGemma 를 부르지 않는다, 2026-11-11 ③). kind = exam·prepare·cost(chat_keywords.department_info_kind).
+        department 를 모르면 "병원"으로 말한다. 금액·확정 진단은 말하지 않는다."""
+        name = department or "병원"
+        if kind == "cost":
+            lines = [str(_DEPT_INFO_COST), str(_DEPT_INFO_COST_ASK)]
+        elif kind == "prepare":
+            lines = [_DEPT_INFO_PREPARE.pick(proxy).format(department=name), str(_DEPT_INFO_FASTING)]
+        else:
+            detail = _DEPT_INFO_EXAM_DETAIL.get(department or "")
+            lines = [_DEPT_INFO_EXAM_OPEN.pick(proxy).format(department=name), *([str(detail)] if detail else []), str(_DEPT_INFO_EXAM_CLOSE)]
+        return {
+            "reply": "\n".join(lines),
+            "riskLevel": "low",
+            "recommendedAction": "home_monitoring",
+            "reservationRequired": False,
+            "intent": "general_chat",
+            "engine": "rule",
+            "modelName": None,
+            "summary": None,
+            "possibleCauses": [],
+            "homeCare": [],
+            "visitHospitalIf": [],
+            "emergencyWarning": [],
+            "meta": {"departmentInfo": kind},
+        }
 
     @staticmethod
     def _followup_legacy_response(message: str, proxy: bool) -> dict[str, Any]:

@@ -283,6 +283,13 @@ class ChatService:
             department_answer = self._department_question_reply(
                 message, history, fallback_symptom=step_symptom
             ) if message and not self_harm_keyword else None
+            if department_answer is None and message and not self_harm_keyword and not after_emergency \
+                    and not MedicalLlmService.self_harm_in_history(history):
+                # 진료과 정보 질문("신경과는 어떤 검사를 받나요?") - 고정 안내(2026-11-11 ③, MedGemma 는 앞 권고를 베끼거나 금액을 지어냈다).
+                # 응급 직후·위기 대화 중에는 끼어들지 않는다(그 턴의 119·109 판정이 먼저).
+                department_answer = self._department_info_reply(
+                    message, history, fallback_symptom=step_symptom, proxy=self._is_proxy(payload, message)
+                )
             if department_answer:
                 result = department_answer
             elif self_harm_keyword:
@@ -535,13 +542,6 @@ class ChatService:
                     else:
                         llm_intent = "general_chat"
                     processed_symptom = route_info.get("symptom_summary") if route_info["route"] == "symptom" else None
-                    if (llm_intent == "medical_advice" and not route_info.get("self_harm")
-                            and not MedicalLlmService.self_harm_signals(message) and chat_keywords.is_department_info_question(message)):
-                        # 진료과 정보 질문("신경과는 어떤 검사를 받나요?", 2026-11-11 ③) - 증상 요약 틀(공감·증상·권고)이면
-                        # 앞 상담 증상을 다시 요약하고 진료를 권하는 엉뚱한 답이 된다. 질문에 바로 답하는 일반 대화 틀로.
-                        # 응급(emergency_guidance)·위험 신호·예약 낱말은 위 판정 그대로다. 되묻기 답 턴은 아래에서 다시 medical_advice.
-                        _LOG.info("[CHAT-QUALITY] department_info_question=true")
-                        llm_intent, processed_symptom = "general_chat", None
                     if step is not None and step[0] == "generate":
                         step_generate = step[1]
                     followup_answer = (
@@ -1380,6 +1380,26 @@ class ChatService:
             "visitHospitalIf": [],
             "emergencyWarning": [],
         }
+
+    @staticmethod
+    def _department_info_reply(message: str, history: list[dict[str, str]], fallback_symptom: str = "", proxy: bool = False) -> dict | None:
+        """진료과 정보 질문 고정 안내 + 그 과 찾기 버튼(진료과를 알 때만). 진료과 = 이 문장 → 직전 답 → 되묻기 처음 증상 순.
+        general_chat 로 MedGemma 에 보내도 4B 모델은 상담 칸만 채워 빈 답이 됐다(2026-11-11 DGX 재생)."""
+        if not chat_keywords.is_department_info_question(message):
+            return None
+        last_assistant = next((h.get("content", "") for h in reversed(history) if h.get("role") == "assistant"), "")
+        department = _find_department(message) or _find_department(last_assistant) or (
+            chat_keywords.symptom_department(fallback_symptom) if fallback_symptom else None
+        )
+        kind = chat_keywords.department_info_kind(message)
+        _LOG.info("[CHAT-QUALITY] department_info=%s known_department=%s", kind, bool(department))
+        result = MedicalLlmService.department_info_response(kind, department, proxy)
+        if department:
+            result["ui"] = UiPayload(
+                kind="select", field="department", label="아래 버튼을 눌러 주세요",
+                options=[UiOption(value=department, label=f"가까운 {department} 찾기")],
+            )
+        return result
 
     @staticmethod
     def _is_off_topic_turn(

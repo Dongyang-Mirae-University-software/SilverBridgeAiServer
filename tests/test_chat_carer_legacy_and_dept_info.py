@@ -197,16 +197,56 @@ def test_department_question_table(message: str, fixed: bool, info: bool) -> Non
 
 @pytest.mark.parametrize("ask", ["신경과는 어떤 검사를 받게 되나요?", "신경과에서 어떤 문진을 하나요?"])
 @pytest.mark.parametrize("who", ["ward", "guardian"])
-def test_department_info_question_after_a_result_is_general_chat(flow, ask: str, who: str) -> None:
+def test_department_info_question_after_a_result_is_a_fixed_answer(flow, ask: str, who: str) -> None:
+    # MedGemma 4B 는 이 질문에 앞 권고를 베끼거나(medical_advice) 빈 답(general_chat)을 냈다(2026-11-11 DGX) - 규칙 안내로 답한다.
     send = _ward if who == "ward" else _guardian
     for m in (["어지러워요", "아니요", "오늘부터요", "속은 괜찮아요"] if who == "ward" else ["어지러워요", "오늘부터 그러시대요"]):
         send(flow, m)
     flow.llm.calls.clear()
     out = send(flow, ask)
-    assert len(flow.llm.calls) == 1
-    call = flow.llm.calls[0]
-    assert call["message"] == ask and call["intent"] == "general_chat" and call["processed_symptom"] is None
-    assert out["engine"] == "medgemma"
+    assert flow.llm.calls == [] and out["engine"] == "rule" and out["riskLevel"] == "low"
+    assert "신경과에서는 먼저" in out["reply"] and "CT·MRI" in out["reply"] and "의사가 증상을 보고 정해요." in out["reply"]
+    assert ("어르신께" in out["reply"]) is (who == "guardian")  # 대리 상담 말투
+    assert out["ui"].field == "department" and out["ui"].options[0].value == "신경과"
+    assert "진료를 권해드려요" not in out["reply"]
+
+
+INFO_REPLIES = [
+    # (문장, 종류, 들어갈 문장 조각, 버튼 진료과)
+    ("내과 진료비 얼마예요?", "cost", "정확한 금액은 말씀드리기 어려워요.", "내과"),
+    ("정형외과 갈 때 뭘 챙겨 가야 해요?", "prepare", "정형외과에 가실 때는 신분증과", "정형외과"),
+    ("안과 가면 뭐 해요?", "exam", "시력과 눈 압력을 재고", "안과"),
+    ("산부인과에서는 어떤 검사를 해요?", "exam", "산부인과에서는 먼저", "산부인과"),
+    ("어느 과에서 검사를 받나요?", "exam", "병원에서는 먼저", None),  # 진료과를 모르면 "병원", 버튼 없음
+]
+
+
+@pytest.mark.parametrize(("message", "kind", "piece", "dept"), INFO_REPLIES, ids=[r[0] for r in INFO_REPLIES])
+def test_department_info_fixed_reply_table(flow, message: str, kind: str, piece: str, dept: str | None) -> None:
+    out = _ward(flow, message)
+    assert kw.department_info_kind(message) == kind
+    assert flow.llm.calls == [] and piece in out["reply"]
+    assert not any(ch.isdigit() for ch in out["reply"])  # 금액·숫자를 말하지 않는다
+    assert all(kw.strip_layout_emoji(t) == t for t in _texts(out))
+    if dept:
+        assert out["ui"].options[0].value == dept
+    else:
+        assert not out.get("ui")
+
+
+def test_department_info_is_not_used_right_after_an_emergency(flow) -> None:
+    flow.router.emergency = True
+    _ward(flow, "가슴이 아파요")
+    flow.router.emergency = False
+    flow.llm.calls.clear()
+    out = _ward(flow, "내과에서는 어떤 검사를 하나요?")
+    assert "자세히 여쭤보고 진찰해요." not in out["reply"] and out["engine"] == "medgemma"
+
+
+def test_department_info_is_not_used_in_a_crisis_conversation(flow) -> None:
+    _ward(flow, "죽고 싶어요")
+    out = _ward(flow, "정신건강의학과에서는 어떤 검사를 하나요?")
+    assert "자세히 여쭤보고 진찰해요." not in out["reply"] and "109" in out["reply"]
 
 
 def test_department_where_question_keeps_the_fixed_answer(flow) -> None:
@@ -221,4 +261,4 @@ def test_department_info_with_red_flag_stays_emergency(flow) -> None:
     flow.router.emergency = True
     out = _ward(flow, "가슴이 아픈데 내과에서 무슨 검사 해요?")
     assert "119" in out["reply"] and out["riskLevel"] == "high"
-    assert all(c["intent"] != "general_chat" for c in flow.llm.calls)
+    assert "자세히 여쭤보고 진찰해요." not in out["reply"]
