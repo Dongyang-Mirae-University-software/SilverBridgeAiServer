@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -20,6 +21,15 @@ SILENCE_RMS = 0.01
 # 조용한 소리에서 받아쓰기가 만들어 내는 한 글자짜리 결과. 어르신의 대답으로 보지 않는다.
 # ("네"·"예"·"응"은 실제 대답이므로 뺀다.)
 FILLER_ONLY = {"그", "음", "어", "으", "아", "흠"}
+
+# 후처리(rich_transcription_postprocess)는 감정·소리 표시를 이모지로 바꿔 글자에 붙인다 ("괜찮아요.😔", "🎼테스트").
+# 챗봇 입력창에 그대로 들어가므로 지운다. 남은 <|..|> 표시도 함께 지운다. 한글·영문·숫자·문장부호는 이 범위 밖이다.
+_MARKS = re.compile(r"<\|[^|]*\|>|[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]")
+
+
+def strip_marks(text: str) -> str:
+    """이모지·<|..|> 표시를 지우고 공백을 하나로 줄인다."""
+    return " ".join(_MARKS.sub(" ", text).split())
 
 
 class SenseVoiceService:
@@ -85,7 +95,7 @@ class SenseVoiceService:
         elapsed = int((time.monotonic() - started) * 1000)
         raw = out[0]["text"] if out else ""
         # <|ko|><|NEUTRAL|>... 같은 표시를 떼고 글자만 남긴다
-        text = rich_transcription_postprocess(raw).strip()
+        text = strip_marks(rich_transcription_postprocess(raw))
         if text.strip(" .,!?~…") in FILLER_ONLY:  # "그." 같은 환각은 대답이 없는 것으로 본다
             text = ""
         # SenseVoice 는 확신도를 내지 않는다. 확신도 기준은 faster-whisper 에서만 쓴다.

@@ -256,7 +256,8 @@ def test_lexicon_mode_is_jaehee_behaviour(settings):
 
 # ---------- 챗봇 받아쓰기 API 엔진 ----------
 
-def test_stt_api_defaults_to_sensevoice(settings):
+def test_stt_api_sensevoice_still_selectable(settings):
+    """되돌리기용: COMPANION_STT_API_ENGINE=sensevoice 면 예전 SenseVoice 경로 그대로 (2026-11-11 기본은 turbo)."""
     settings(companion_stt_api_engine="sensevoice")
     assert stt_engine.get_stt_api_transcriber() == sensevoice_service.transcribe_pcm
 
@@ -276,4 +277,4 @@ def test_defaults_are_the_new_behaviour():
     s = get_settings()
     assert (s.companion_stt_engine, s.companion_vad, s.companion_confirm_mode) == ("turbo", "silero", "logprob")
     assert s.companion_stt_collapse_repeats is True and s.companion_confirm_logprob == -0.3
-    assert s.companion_stt_api_engine == "sensevoice"
+    assert s.companion_stt_api_engine == "turbo"  # 2026-11-11: 챗봇 받아쓰기도 turbo

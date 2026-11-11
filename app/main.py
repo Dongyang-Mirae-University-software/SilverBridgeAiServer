@@ -128,6 +128,7 @@ async def lifespan(_: FastAPI):
     get_drug_name_list()  # 약 이름 허가 목록을 한 번 메모리에 올린다(없으면 WARN 후 대조 생략)
     _startup_housekeeping()
     _start_companion_warmup()
+    _start_stt_warmup()
     yield
     if torch is not None and torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -177,6 +178,29 @@ def _start_companion_warmup() -> None:
             _LOG.warning("[COMPANION-LLM] warm-up failed (%s)", type(exc).__name__)
 
     threading.Thread(target=run, name="companion-llm-warmup", daemon=True).start()
+
+
+def _start_stt_warmup() -> None:
+    """말벗이 켜져 있고 받아쓰기 엔진(말벗·챗봇) 중 하나라도 turbo 면 turbo 를 백그라운드에서 미리 올린다 (2026-11-11).
+
+    올리지 않으면 재시작 뒤 첫 받아쓰기 요청이 모델을 올리느라 제한 시간(20초)을 넘겨 503 이 될 수 있다.
+    서버 기동은 기다리지 않는다. 실패해도 첫 호출에서 다시 시도한다 (오류 내용은 클래스명만 남긴다).
+    """
+    if not (settings.companion_api_key and settings.companion_stt_warmup):
+        return
+    if "turbo" not in (settings.companion_stt_engine, settings.companion_stt_api_engine):
+        return
+
+    def run() -> None:
+        from app.services.companion.turbo_service import turbo_service
+
+        try:
+            turbo_service.warm_up()
+            _LOG.info("[COMPANION-STT] turbo warm-up done")
+        except Exception as exc:  # noqa: BLE001
+            _LOG.warning("[COMPANION-STT] turbo warm-up failed (%s)", type(exc).__name__)
+
+    threading.Thread(target=run, name="companion-stt-warmup", daemon=True).start()
 
 
 app = FastAPI(
