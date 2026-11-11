@@ -261,3 +261,14 @@
 - 실동작(시험 계정, BE 경유): 상담 1턴 200(engine=medgemma), 예약 시작 200(진료과 선택지 12개), 상담 기록 목록 200, 받아쓰기 200, 프레임 3장 200 + 최근 분석 200(`unavailable` 없음), 세션 종료 뒤 최근 분석은 data 없음. BE의 AI WS 09:32 재연결, 6017 방화벽·`ADMIN_API_KEY` 유지.
 - 직전 운영 이미지는 `sb-ai-rollback:20261111-pre-audit2` 태그로 남겼다.
 - 다른 세션의 말벗 #226(textMood)이 같은 배포에 함께 올라갔다.
+
+## 후속: 남은 취약점 2건 해소 시도와 되돌림 (2026-11-11)
+
+- 대상: accelerate 1.14.0(GHSA-4j2p-28q2-5m79, 나눠진 체크포인트 경로 조작·서비스 거부, 1.15.0에서 해소)과 torch 2.11.0(CVE-2025-3000, `torch.jit.script` 메모리 손상, 2.13.0에서 해소).
+- 시도(#235): torch 2.13.0·torchvision 0.28.0(cu126) + torchaudio 2.11.0(cu126, `--no-deps`) + accelerate 1.15.0 + ctranslate2 4.9.0 고정. torchaudio 마지막 판 2.11.1(PyPI)은 CUDA 13용이라(`libcudart.so.13`) gosky GPU 드라이버 535에서 쓸 수 없었다.
+- 사전 확인은 통과했다 - 후보 이미지로 CUDA 초기화·cuDNN·bitsandbytes 8비트/4비트 연산·torchaudio 변환·ctranslate2·주요 import·`pip check`, 전체 pytest 2887.
+- **운영에서 실패**: 11/11 10:33 KST 배포 직후 `[MEDGEMMA-STARTUP-FAILED] stage=warmup type=RuntimeError`, 상담 턴이 `[CHAT-LLM-FAILED] RuntimeError`(42ms)로 대체 응답이 됐다. MedGemma는 `loaded: true`였고 생성만 실패했다. 탐지기 3종·받아쓰기·프레임 분석·말벗 LoRA 적재는 정상이었다 - 기동 격리(#228)가 없었다면 워밍업 예외로 서버 전체가 재시작을 반복했을 것이다.
+- 되돌림: 직전 이미지로 즉시 복구(약 3~4분간 상담이 대체 응답), 소스 revert(#237), main `659cc5a`로 다시 빌드·배포. 복구 뒤 torch 2.11.0·accelerate 1.14.0, 상담 1턴 `engine=medgemma` 200.
+- 원인 미확인: 오류 문구는 로그에 남기지 않아(클래스명만) torch 2.13.0과 accelerate 1.15.0 중 어느 쪽인지 가리지 못했다. 가리려면 실제 MedGemma int8을 올려 생성해 봐야 하는데, gosky는 운영 모델이 GPU를 쓰고 있어 옆에서 하나 더 올릴 수 없고 DGX는 aarch64·CUDA 13이라 같은 조합이 아니다.
+- 배운 것: 모델을 올리지 않는 후보 이미지 확인으로는 생성 경로의 호환 문제를 잡지 못한다. torch·accelerate·bitsandbytes·transformers를 올릴 때는 실제 모델 생성 확인이 있어야 한다.
+- 현재 상태: 두 건 모두 그대로 남았다. 둘 다 공격자가 준 체크포인트나 스크립트를 서버가 읽어야 성립하는데 요청 경로에 그런 입력이 없다.
