@@ -183,7 +183,7 @@ class ModelState:
 class MedGemmaLoader:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._enabled = settings.medgemma_enabled  # 관리자 스위치로 바꿀 수 있다 (재시작 없이)
+        self._enabled = settings.medgemma_enabled  # MEDGEMMA_ENABLED 설정값 (바꾸려면 .env 수정 후 재시작)
         self._lock = threading.Lock()
         # 마지막 적재 실패 시각(monotonic). 실패 뒤 이 간격 안에는 요청이 적재를 다시 시도하지 않는다(2026-11-10 2차 점검 I-1).
         self._load_failed_at: float | None = None
@@ -257,35 +257,6 @@ class MedGemmaLoader:
     @property
     def enabled(self) -> bool:
         return self._enabled
-
-    def set_enabled(self, on: bool) -> None:
-        """관리자 스위치. 컨테이너를 다시 만들지 않고 켜고 끈다. 끄면 바로 메모리에서 내린다 (unload 는 호출한 쪽이 한다)."""
-        # 잠금을 잡지 않는다 - 적재 중(잠금을 쥔 from_pretrained, 몇 분)에 끄기를 누르면 호출 스레드가 그동안 멈춘다
-        # (2차 점검 I-1: 끄기 경로가 이벤트 루프에서 이 잠금을 기다려 서버 전체가 멈출 수 있었다). 불리언 대입은 원자적이다.
-        self._enabled = bool(on)
-        if on:
-            self._load_failed_at = None  # 다시 켜면 바로 적재를 시도한다
-
-    def unload(self) -> None:
-        """MedGemma 를 메모리(GPU 포함)에서 내린다. 다시 켜기 전까지 의료 대답은 모델 없는 경로로 간다."""
-        import gc
-
-        with self._lock:
-            self._model = None
-            self._tokenizer = None
-            self._processor = None
-            self._uses_processor = False
-            self._quant = QUANT_NONE
-            self._state.loaded = False
-            self._state.load_error = "MEDGEMMA_DISABLED (관리자 스위치로 꺼짐)"
-        gc.collect()
-        try:
-            import torch  # type: ignore[reportMissingImports]
-
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except Exception:  # noqa: BLE001 - torch 가 없어도 내리기는 끝난 것으로 본다
-            pass
 
     def load(self) -> None:
         with self._lock:
