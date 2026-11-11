@@ -26,4 +26,4 @@ RUN mkdir -p /app/models /app/uploads/snapshots /app/logs /app/data
 
 EXPOSE 6017
 
-CMD ["sh", "-c", "uvicorn app.main:app --host ${APP_HOST:-0.0.0.0} --port ${APP_PORT:-6017}"]
+CMD ["sh", "-c", "uvicorn app.main:app --host ${APP_HOST:-0.0.0.0} --port ${APP_PORT:-6017} --timeout-graceful-shutdown 20"]

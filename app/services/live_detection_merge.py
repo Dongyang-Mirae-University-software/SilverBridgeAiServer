@@ -41,7 +41,9 @@ def merge_kind_results(kind_results: list[tuple[str, dict[str, Any]]]) -> dict[s
     for _, r in ordered:
         detections.extend(r.get("detections") or [])
 
-    return {
+    unavailable = [kind for kind, r in ordered if r.get("detectedType") == "unknown"]
+
+    merged = {
         "detectedType": detected_type,
         "confidence": confidence,
         "danger": danger,
@@ -59,6 +61,10 @@ def merge_kind_results(kind_results: list[tuple[str, dict[str, Any]]]) -> dict[s
             for kind, r in ordered
         ],
     }
+    # 켜진 탐지기 중 판정 불가(적재 실패·추론 오류)인 종류. 일부만 불가여도 최상위는 normal 로 나가므로 따로 알린다. 없으면 칸 자체를 넣지 않는다.
+    if unavailable:
+        merged["unavailable"] = unavailable
+    return merged
 
 
 def _priority(kind: str) -> int:

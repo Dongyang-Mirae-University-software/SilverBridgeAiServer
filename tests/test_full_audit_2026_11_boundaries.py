@@ -153,3 +153,69 @@ def test_other_person_awake_does_not_cancel_cpr(q: str) -> None:
 def test_same_person_awake_still_cancels_cpr(q: str) -> None:
     assert kw.arrest_conscious(kw.compact(q))
     assert not _cpr(q, hint=True)
+
+
+# ---- 2차 점검(2026-11-10) P-1·P-2·P-3·P-5 ------------------------------------------------------------------------
+
+@pytest.mark.parametrize("q", [
+    "깨셨다가 다시 의식이 없어지셨어요",      # 상태가 바뀐 꼴의 "셨"은 지난 일이 아니다
+    "깨어나셨는데 또 의식이 없으세요",
+    "깼는데 다시 숨을 안 쉬세요",
+    "정신이 돌아왔다가 도로 의식이 없어졌어요",
+])
+def test_relapse_in_honorific_or_state_change_form(q: str) -> None:
+    assert not kw.arrest_conscious(kw.compact(q))
+    assert _cpr(q, hint=False) and _cpr(q, hint=True)
+
+
+@pytest.mark.parametrize("q", [
+    "깼는데 숨을 안 쉬었어요",                 # "다시"가 없는 지난 일
+    "쓰러졌다가 지금은 멀쩡해요 숨을 안 쉬었었대요",
+    "깨어나셨어요 아까는 불러도 반응이 없었어요",
+])
+def test_past_event_after_recovery_stays_recovery(q: str) -> None:
+    assert kw.arrest_conscious(kw.compact(q)) and not _cpr(q, hint=True)
+
+
+@pytest.mark.parametrize("q", [
+    "남편은 의식이 없어요 저는 숨은 쉬어요",
+    "아버지가 의식이 없고 저는 말은 해요",
+    "환자분은 숨을 안 쉬어요 저는 말은 해요",
+    "아버지가 의식이 없는데 저도 놀라서 숨은 쉬어요",
+])
+def test_speaker_awake_does_not_cancel_patient_cpr(q: str) -> None:
+    assert not kw.arrest_conscious(kw.compact(q))
+    assert _cpr(q, hint=False) and _cpr(q, hint=True)
+
+
+@pytest.mark.parametrize("q", [
+    "아버지가 의식이 없고 열이 나는데 숨은 쉬어요",   # "나는"은 화자가 아니다
+    "저는 의식이 없을 것 같아요 숨은 쉬어요",
+])
+def test_speaker_rule_does_not_overreach(q: str) -> None:
+    assert kw.arrest_conscious(kw.compact(q)) and not _cpr(q, hint=True)
+
+
+@pytest.mark.parametrize("answer", ["불안해서 숨이 차요", "네 불안해서 떨려요", "미안해요 숨이 차요"])
+def test_anxious_is_not_negation(answer: str) -> None:
+    assert _first("가슴이 답답해요", answer) == "yes"
+
+
+@pytest.mark.parametrize("answer", ["불안해요", "미안해요"])
+def test_anxious_alone_is_asked_again(answer: str) -> None:
+    assert _first("가슴이 답답해요", answer) not in ("yes", "no")
+
+
+@pytest.mark.parametrize("answer", ["편안해요", "안 해요", "안 답답해요", "숨이 안 가빠요"])
+def test_real_negations_still_no(answer: str) -> None:
+    assert _first("가슴이 답답해요", answer) == "no"
+
+
+@pytest.mark.parametrize("answer", ["예 약간 그래요", "예 방금부터 그래요", "그래 도저히 못 참겠어요", "응 급해요", "예, 민감해졌어요"])
+def test_spaced_yes_word_is_yes(answer: str) -> None:
+    assert _first("가슴이 답답해요", answer) == "yes"
+
+
+@pytest.mark.parametrize("answer", ["예전에도 가끔 그랬어요", "응급실 가야 하나요?", "그래도 좀 걱정돼요", "예약하고 싶어요", "네?"])
+def test_unspaced_lookalikes_still_not_yes(answer: str) -> None:
+    assert _first("가슴이 답답해요", answer) != "yes"

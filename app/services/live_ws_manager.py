@@ -7,6 +7,8 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from app.core.config import get_settings
+
 _LOG = logging.getLogger(__name__)
 
 
@@ -17,6 +19,20 @@ class LiveWebSocketManager:
         self._lock = asyncio.Lock()
         # 동기 엔드포인트(스레드풀)에서 방송할 때 넘겨줄 이벤트 루프. 앱 시작(lifespan)과 첫 접속 때 잡아 둔다.
         self._loop: asyncio.AbstractEventLoop | None = None
+        # 방송 작업 참조 - 쥐고 있지 않으면 실행 중에 GC 로 사라질 수 있다(A-5). 끝나면 스스로 뺀다.
+        self._tasks: set[Any] = set()
+
+    @staticmethod
+    def _send_timeout() -> float:
+        try:
+            value = float(getattr(get_settings(), "live_ws_send_timeout_sec", 5.0))
+        except Exception:  # noqa: BLE001
+            value = 5.0
+        return value if value > 0 else 5.0
+
+    def _track(self, task: Any) -> None:
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -58,14 +74,24 @@ class LiveWebSocketManager:
         if not targets:
             return
 
-        stale: list[WebSocket] = []
-        for websocket in targets:
-            try:
-                await websocket.send_json(payload)
-            except Exception:
-                stale.append(websocket)
+        # 구독자마다 따로·동시에 보낸다 - 막힌 구독자 하나가 다른 구독자 전송을 밀지 않게. 시간 안에 못 보내면 구독에서 뺀다.
+        timeout = self._send_timeout()
+        outcomes = await asyncio.gather(
+            *(self._send_one(ws, payload, timeout) for ws in targets), return_exceptions=True,
+        )
+        stale = [ws for ws, ok in zip(targets, outcomes) if ok is not True]
         for ws in stale:
             await self.disconnect(ws)
+        if stale:
+            _LOG.warning("[WS-SUBSCRIBER-DROPPED] count=%d type=%s", len(stale), payload.get("type"))
+
+    @staticmethod
+    async def _send_one(websocket: WebSocket, payload: dict[str, Any], timeout: float) -> bool:
+        try:
+            await asyncio.wait_for(websocket.send_json(payload), timeout=timeout)
+            return True
+        except Exception:  # noqa: BLE001 - 시간 초과·전송 실패 모두 구독 해제 대상
+            return False
 
     def broadcast_nowait(self, payload: dict[str, Any], session_id: str | None = None) -> None:
         """기다리지 않고 방송한다. 이벤트 루프 안이든 스레드풀(동기 def 엔드포인트)이든 호출할 수 있다.
@@ -78,7 +104,7 @@ class LiveWebSocketManager:
         except RuntimeError:
             running = None
         if running is not None:
-            running.create_task(self.broadcast(payload, session_id=session_id))
+            self._track(running.create_task(self.broadcast(payload, session_id=session_id)))
             return
 
         loop = self._loop
@@ -87,7 +113,7 @@ class LiveWebSocketManager:
                 _LOG.warning("[WS-BROADCAST-DROPPED] 이벤트 루프 없음 - 방송 유실 type=%s", payload.get("type"))
             return  # 접속한 클라이언트가 없으면 보낼 곳도 없다
         try:
-            asyncio.run_coroutine_threadsafe(self.broadcast(payload, session_id=session_id), loop)
+            self._track(asyncio.run_coroutine_threadsafe(self.broadcast(payload, session_id=session_id), loop))
         except RuntimeError:  # 종료 중 루프
             _LOG.warning("[WS-BROADCAST-DROPPED] 이벤트 루프 종료 중 - 방송 유실 type=%s", payload.get("type"))
 

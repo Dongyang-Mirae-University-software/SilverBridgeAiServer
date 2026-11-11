@@ -8,6 +8,7 @@ from app.database.session import get_db
 from app.schemas.reservation_credential_schema import (
     ReservationCredentialUpsertRequest,
 )
+from app.services.reservation_key_cipher import CipherUnavailable
 from app.services.reservation_api_client import get_reservation_api_client
 from app.services.reservation_credential_service import get_reservation_credential_service, mark_purged
 
@@ -27,6 +28,11 @@ def upsert_reservation_credential(
             reservation_email=payload.reservationEmail,
             api_key=payload.apiKey,
         )
+    except CipherUnavailable as exc:  # 서버 비밀값 미설정 - 호출자 잘못이 아니다(ValueError 하위라 먼저 잡는다)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=error_response("예약 연동을 지금 사용할 수 없습니다.", "RESERVATION_CREDENTIAL_UNAVAILABLE", None),
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

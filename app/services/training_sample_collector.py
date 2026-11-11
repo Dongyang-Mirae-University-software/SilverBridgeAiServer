@@ -22,6 +22,7 @@ MIN_INTERVAL_SEC = 10.0
 QUEUE_MAX = 20
 _WARN_INTERVAL_SEC = 30.0
 _CLEANUP_INTERVAL_SEC = 3600.0
+_PURGE_LOOP_INTERVAL_SEC = 6 * 3600.0  # 하루 한 번 이상(A-1)
 _KST = timedelta(hours=9)
 _NON_DETECTION = {"normal", "unknown"}
 _UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
@@ -38,6 +39,11 @@ def _threshold_for(kind: str, settings: Settings) -> float | None:
         "knife": settings.knife_danger_threshold,
         "fall": settings.fall_danger_threshold,
     }.get(kind)
+
+
+def _covers_all_users(prefix: str) -> bool:
+    """접두어가 실사용 세션 ID 전체('ward_' 로 시작)를 포함하는가 - 빈 접두어이거나 'ward_' 의 앞부분이면 True."""
+    return "ward_".startswith(prefix)
 
 
 def _dir_size(path: Path) -> int:
@@ -83,6 +89,9 @@ class TrainingSampleCollector:
         self._exact: set[str] = set()
         self._prefixes: tuple[str, ...] = ()
         self._allow_all = False
+        self._broad_warned = False
+        self._purge_thread: threading.Thread | None = None
+        self._purge_stop = threading.Event()
         self._random_spec: str | None = None
         self._random_exact: frozenset[str] = frozenset()
         self._random_next: dict[str, float] = {}  # 세션 → 다음 무작위 장면 저장 시각(monotonic)
@@ -227,6 +236,9 @@ class TrainingSampleCollector:
                     exact.add(item)
             if allow_all:
                 _LOG.warning("[COLLECT] COLLECT_SESSION_IDS='*' - all sessions are collected")
+            elif any(_covers_all_users(p) for p in prefixes):
+                # 카메라 세션 ID 는 모두 ward_ 로 시작한다 - 접두어가 그것을 포함하면 사실상 전체 사용자다(값은 찍지 않는다).
+                _LOG.warning("[COLLECT] COLLECT_SESSION_IDS prefix covers all user sessions - all users are collected")
             self._spec, self._exact, self._prefixes, self._allow_all = spec, exact, tuple(prefixes), allow_all
         return self._allow_all or session_id in self._exact or session_id.startswith(self._prefixes)
 
@@ -307,6 +319,9 @@ class TrainingSampleCollector:
             # 무작위 장면은 근접·위험 장면과 하루 상한을 따로 센다(서로 몫을 먹지 않게).
             count_key = (f"{RANDOM_REASON}:{session_id}" if is_random else session_id, day)
             cap = s.collect_random_daily_max if is_random else s.collect_daily_max_per_session
+            if count_key not in self._counts:
+                # 재시작하면 메모리 카운터가 0 이라 상한이 풀린다 - 첫 저장 때 그날 폴더에 이미 있는 장수로 시작한다.
+                self._counts[count_key] = self._count_existing(root, day, safe_session, is_random)
             if self._counts.get(count_key, 0) >= cap:
                 self._warn(f"daily:{session_id}", f"[COLLECT] daily cap reached sessionId={safe_session}")
                 continue
@@ -349,6 +364,24 @@ class TrainingSampleCollector:
             )
 
     @staticmethod
+    def _count_existing(root: Path, day: str, safe_session: str, is_random: bool) -> int:
+        day_dir = root / day
+        if not day_dir.is_dir():
+            return 0
+        marker = f"_{safe_session}_"
+        count = 0
+        try:
+            for jpg in day_dir.rglob("*.jpg"):
+                name = jpg.name
+                if name.startswith("."):
+                    continue
+                if name.startswith("r_") == is_random and marker in name:
+                    count += 1
+        except OSError:
+            pass
+        return count
+
+    @staticmethod
     def _write_atomic(path: Path, data: bytes) -> None:
         tmp = path.with_name(f".{path.name}.tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -365,19 +398,64 @@ class TrainingSampleCollector:
         if self._last_cleanup is not None and now - self._last_cleanup < _CLEANUP_INTERVAL_SEC:
             return
         self._last_cleanup = now
+        self._purge_root(root, s)
+
+    def _purge_root(self, root: Path, s: Settings) -> int:
+        """보관 기한이 지난 날짜 폴더를 지운다. 지운 날짜 폴더 수를 돌려준다."""
+        if not root.is_dir():
+            return 0
         cutoff = ((self._now() + _KST) - timedelta(days=s.collect_retention_days)).strftime("%Y%m%d")
         removed = 0
         for entry in root.iterdir():
             if entry.is_dir() and _DATE_DIR.match(entry.name) and entry.name < cutoff:
                 size = _dir_size(entry)
                 shutil.rmtree(entry, ignore_errors=True)
-                self._total_bytes = max(0, (self._total_bytes or 0) - size)
+                with self._lock:
+                    if self._total_bytes is not None:
+                        self._total_bytes = max(0, self._total_bytes - size)
                 removed += 1
         # 지난 날짜의 장수 카운터도 정리
         today = (self._now() + _KST).strftime("%Y%m%d")
         self._counts = {k: v for k, v in self._counts.items() if k[1] == today}
         if removed:
             _LOG.info("[COLLECT] retention cleanup removedDays=%d", removed)
+        return removed
+
+    # --- 기동·주기 정리 (A-1) -------------------------------------------------------------------
+
+    def purge_expired(self, settings: Settings | None = None, *, start_loop: bool = False) -> int:
+        """보관 기한이 지난 날짜 폴더를 지운다. 수집이 꺼져 있어도 지운다(남아 있는 파일은 켜져 있던 때 것이다).
+
+        기동 때 한 번 부르고(main.py lifespan), start_loop=True 면 6시간마다 다시 도는 데몬 스레드도 시작한다.
+        예외는 올리지 않는다.
+        """
+        s = settings or get_settings()
+        removed = 0
+        try:
+            removed = self._purge_root(Path(s.collect_dir), s)
+            if s.collect_enabled:
+                self._session_allowed("", s.collect_session_ids)  # 허용 목록을 읽어 '전체 대상' 경고를 기동 때 한 번 남긴다
+        except Exception as exc:  # noqa: BLE001
+            _LOG.warning("[COLLECT] purge failed error=%s", type(exc).__name__)
+        if start_loop:
+            self._start_purge_loop(s)
+        return removed
+
+    def _start_purge_loop(self, s: Settings) -> None:
+        with self._lock:
+            if self._purge_thread is not None and self._purge_thread.is_alive():
+                return
+            self._purge_stop.clear()
+            thread = threading.Thread(target=self._purge_loop, args=(s,), name="collect-purge", daemon=True)
+            self._purge_thread = thread
+        thread.start()
+
+    def _purge_loop(self, s: Settings) -> None:
+        while not self._purge_stop.wait(_PURGE_LOOP_INTERVAL_SEC):
+            self.purge_expired(s)
+
+    def stop_purge_loop(self) -> None:
+        self._purge_stop.set()
 
     def _warn(self, key: str, message: str) -> None:
         now = self._mono()
@@ -387,6 +465,12 @@ class TrainingSampleCollector:
                 return
             self._last_warn[key] = now
         _LOG.warning(message)
+
+
+
+def purge_expired(settings: Settings | None = None, *, start_loop: bool = False) -> int:
+    """기동 때 부르는 공개 함수 - 보관 기한이 지난 수집 폴더를 지운다(수집이 꺼져 있어도)."""
+    return training_sample_collector.purge_expired(settings, start_loop=start_loop)
 
 
 training_sample_collector = TrainingSampleCollector()

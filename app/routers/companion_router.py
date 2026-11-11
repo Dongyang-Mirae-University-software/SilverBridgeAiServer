@@ -384,8 +384,11 @@ def _transcribe_with_slot(transcribe_pcm, audio: bytes, max_sec: float, wait_sec
     """
     if not _stt_slots.acquire(timeout=wait_sec):
         return None
+    started = False
 
     def work():
+        nonlocal started
+        started = True  # 이 순간부터 자리 해제는 work 의 finally 몫
         try:
             pcm = decode_to_pcm16k(audio)  # 읽을 수 없으면 ValueError
             seconds = pcm.size / TARGET_RATE
@@ -395,7 +398,14 @@ def _transcribe_with_slot(transcribe_pcm, audio: bytes, max_sec: float, wait_sec
         finally:
             _stt_slots.release()
 
-    return call_with_timeout(work, timeout_sec)
+    try:
+        return call_with_timeout(work, timeout_sec)
+    except BaseException as exc:
+        # work 가 시작되지 못했고 시간 초과도 아니면 submit 자체가 실패한 것(풀 종료 등) - 자리를 풀고 다시 던진다.
+        # 시간 초과는 작업이 대기열에 남아 나중에 work 가 풀므로 여기서 풀지 않는다(이중 해제 방지).
+        if not started and not isinstance(exc, TimeoutError):
+            _stt_slots.release()
+        raise
 
 
 async def _read_limited_body(request: Request, limit: int, too_large: CompanionError) -> bytes:

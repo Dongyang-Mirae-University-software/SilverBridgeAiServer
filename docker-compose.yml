@@ -25,6 +25,8 @@ services:
     build: .
     container_name: silverbridge-ai-server
     restart: unless-stopped
+    # 종료 때 진행 중 요청을 uvicorn 이 20초 기다린다(Dockerfile) - 그보다 여유 있게 (2차 점검 R-5)
+    stop_grace_period: 30s
     # 호스트 메모리가 바닥나면 커널이 이 서버보다 다른 프로세스를 먼저 정리하게 한다 (2026-11-10: 옆 일회용 컨테이너가
     # 메모리를 다 써서 커널이 이 서버를 죽였다). -1000(절대 안 죽임)은 이 서버가 새는 경우 호스트 전체가 위험해 쓰지 않는다
     oom_score_adj: -500

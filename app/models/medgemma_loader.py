@@ -185,6 +185,8 @@ class MedGemmaLoader:
         self._settings = settings
         self._enabled = settings.medgemma_enabled  # 관리자 스위치로 바꿀 수 있다 (재시작 없이)
         self._lock = threading.Lock()
+        # 마지막 적재 실패 시각(monotonic). 실패 뒤 이 간격 안에는 요청이 적재를 다시 시도하지 않는다(2026-11-10 2차 점검 I-1).
+        self._load_failed_at: float | None = None
         self._model: Any = None
         self._tokenizer: Any = None
         self._processor: Any = None
@@ -258,8 +260,11 @@ class MedGemmaLoader:
 
     def set_enabled(self, on: bool) -> None:
         """관리자 스위치. 컨테이너를 다시 만들지 않고 켜고 끈다. 끄면 바로 메모리에서 내린다 (unload 는 호출한 쪽이 한다)."""
-        with self._lock:
-            self._enabled = bool(on)
+        # 잠금을 잡지 않는다 - 적재 중(잠금을 쥔 from_pretrained, 몇 분)에 끄기를 누르면 호출 스레드가 그동안 멈춘다
+        # (2차 점검 I-1: 끄기 경로가 이벤트 루프에서 이 잠금을 기다려 서버 전체가 멈출 수 있었다). 불리언 대입은 원자적이다.
+        self._enabled = bool(on)
+        if on:
+            self._load_failed_at = None  # 다시 켜면 바로 적재를 시도한다
 
     def unload(self) -> None:
         """MedGemma 를 메모리(GPU 포함)에서 내린다. 다시 켜기 전까지 의료 대답은 모델 없는 경로로 간다."""
@@ -349,6 +354,7 @@ class MedGemmaLoader:
                     if gpu_ok and hasattr(self._model, "to") and self._quant == QUANT_NONE:
                         self._model = self._model.to("cuda:0")
                     self._state.loaded = True
+                    self._load_failed_at = None
                     self._state.load_error = None
                     self._state.model_name = model_id
                     _LOG.info("[MEDGEMMA-LOAD] model=%s quant=%s", model_id, self._quant if self._uses_processor else QUANT_NONE)
@@ -362,10 +368,34 @@ class MedGemmaLoader:
 
             self._state.load_error = " | ".join(errors) if errors else "모델 로드 실패"
             self._state.loaded = False
+            self._load_failed_at = time.monotonic()
+
+    # 적재 실패 뒤 요청이 다시 적재를 시도하기까지의 간격(초). 그 사이 요청은 바로 대체 응답으로 간다.
+    LOAD_RETRY_SEC = 120.0
+
+    def _generate_max_time(self) -> float:
+        try:
+            value = float(getattr(self._settings, "medgemma_generate_max_time_sec", 90.0))
+        except (TypeError, ValueError):
+            return 90.0
+        return value if value > 0 else 90.0
 
     def ensure_loaded(self) -> None:
-        if not self._state.loaded:
-            self.load()
+        """요청 경로에서 부른다. 올라가 있지 않으면 적재를 시도하되 **기다리지 않는다**(2026-11-10 2차 점검 I-1).
+
+        다른 스레드가 적재 중(잠금을 쥠)이거나 방금 실패했으면 그냥 돌아간다 - 뒤따르는 생성 함수가 미적재 RuntimeError 를 내고
+        chat_service 가 대체 응답(응급이면 119 안내)으로 답한다. 예전에는 여기서 잠금을 기다려, 켜는 중이거나 적재가 실패한
+        상태에서 응급 턴까지 몇 분씩 멈췄다(요청 마감·응급 3초 상한이 이 잠금 뒤에 있었다).
+        """
+        if self._state.loaded:
+            return
+        failed_at = self._load_failed_at
+        if failed_at is not None and time.monotonic() - failed_at < self.LOAD_RETRY_SEC:
+            return
+        if not self._lock.acquire(blocking=False):
+            return
+        self._lock.release()
+        self.load()
 
     # MedGemma 1.5는 답 앞에 "<unused94>thought ..." 내부 추론을 길게 쓰다 토큰 예산을 다 써버린다.
     # JSON 응답이 필요할 때는 어시스턴트 턴을 prefill("{")로 시작시키고 추론 시작 토큰을 금지한다.
@@ -432,6 +462,8 @@ class MedGemmaLoader:
             limit = self._settings.medgemma_json_max_tokens
             generate_kwargs: dict[str, Any] = {
                 "max_new_tokens": limit,
+                # 생성 한 번의 시간 상한(초) - 넘으면 그때까지 만든 토큰으로 끝낸다. 슬롯을 한 턴이 끝없이 쥐지 않게(2차 점검 R-3)
+                "max_time": self._generate_max_time(),
                 "do_sample": False,
                 **self._json_repetition_kwargs,
             }
@@ -478,6 +510,7 @@ class MedGemmaLoader:
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 max_new_tokens=self._settings.max_new_tokens,
+                max_time=self._generate_max_time(),
                 do_sample=self._settings.do_sample,
                 temperature=self._settings.temperature,
                 top_p=self._settings.top_p,
