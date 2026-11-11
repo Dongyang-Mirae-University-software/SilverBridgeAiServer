@@ -10,7 +10,7 @@ python-dotenv==1.2.2
 opencv-python-headless==5.0.0.93
 ultralytics==8.4.95
 transformers==5.13.1
-accelerate==1.15.0  # 1.14.0 이하의 나눠진 체크포인트 경로 조작 건(GHSA-4j2p-28q2-5m79) 해소
+accelerate==1.14.0
 bitsandbytes==0.50.2  # MEDGEMMA_QUANT=nf4 일 때만 import 한다(torch 2.6.0+cu124 위에서 설치·4비트 연산 확인)
 python-multipart==0.0.32
 pillow==13.0.0  # 약 봉투 OCR 이미지 정규화(직접 사용). 12.3.0 의 알려진 디코더 취약점(CRITICAL 5·HIGH 22) 때문에 13.0.0 으로 올림(2026-11-10 점검 H-1)
@@ -19,8 +19,6 @@ anthropic>=1.0
 
 # 말벗 음성 인식 (S3, D23): faster-whisper large-v3, CTranslate2 기반. 라이선스 MIT (SYSTRAN 저장소)
 faster-whisper==1.2.1
-# faster-whisper 가 판 범위만 정해 재빌드마다 바뀌었다(4.8.5 -> 4.9.0). 운영에서 쓰는 판으로 고정
-ctranslate2==4.9.0
 # faster-whisper 1.2.1 이 av.open(metadata_errors=...) 를 쓰는데 av 19 에서 제거됨 -> 16.x 로 고정 (S3-3)
 av==16.1.0
 # 말벗 표정 분류 (S4, D24): EmotiEffLib 의 HSEmotion enet_b0_8_best_afew (ONNX). 코드 Apache-2.0
