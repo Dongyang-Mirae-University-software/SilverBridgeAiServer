@@ -101,14 +101,22 @@ class _BlockLogLimiter:
         self._last: dict[str, float] = {}
         self._lock = threading.Lock()
 
-    def log_blocked(self, session_id: str, reason: str) -> None:
+    def _allow(self, session_id: str) -> bool:
         now = self._clock()
         with self._lock:
             last = self._last.get(session_id)
             if last is not None and now - last < self._interval:
-                return
+                return False
             self._last[session_id] = now
-        _LOG.info("[FRAME-QUALITY-BLOCKED] sessionId=%s reason=%s", session_id, reason)
+        return True
+
+    def log_blocked(self, session_id: str, reason: str) -> None:
+        if self._allow(session_id):
+            _LOG.info("[FRAME-QUALITY-BLOCKED] sessionId=%s reason=%s", session_id, reason)
+
+    def log_bypassed(self, session_id: str, reason: str, conf: float) -> None:
+        if self._allow(session_id):
+            _LOG.info("[FRAME-QUALITY-BYPASSED] sessionId=%s reason=%s conf=%.2f", session_id, reason, conf)
 
     def clear(self, session_id: str) -> None:
         with self._lock:
@@ -116,3 +124,25 @@ class _BlockLogLimiter:
 
 
 block_log_limiter = _BlockLogLimiter()
+# 우회 로그는 차단 로그와 따로 센다(한쪽이 다른 쪽 로그를 1분 동안 가리지 않게).
+bypass_log_limiter = _BlockLogLimiter()
+
+
+def log_config(settings: Any) -> None:
+    """기동 때 품질 검사 설정을 한 줄 남긴다. 우회 기준이 danger 임계보다 낮으면 경고한다(값은 그대로 쓴다)."""
+    _LOG.info(
+        "[FRAME-QUALITY-CONFIG] enabled=%s white=%s black=%s std=%s lap=%s blurStdMax=%s bypassConf=%s",
+        settings.frame_quality_gate_enabled,
+        settings.frame_quality_white_ratio,
+        settings.frame_quality_black_ratio,
+        settings.frame_quality_std_min,
+        settings.frame_quality_lap_max,
+        settings.frame_quality_blur_std_max,
+        settings.frame_quality_bypass_conf,
+    )
+    if settings.frame_quality_gate_enabled and settings.frame_quality_bypass_conf < settings.fire_smoke_danger_threshold:
+        _LOG.warning(
+            "[FRAME-QUALITY-CONFIG] bypassConf=%s 가 FIRE_SMOKE_DANGER_THRESHOLD=%s 보다 낮아 품질 검사가 화재 알림을 막지 못합니다",
+            settings.frame_quality_bypass_conf,
+            settings.fire_smoke_danger_threshold,
+        )

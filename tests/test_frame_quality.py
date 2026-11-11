@@ -151,7 +151,8 @@ class _Fake:
 
 @pytest.fixture
 def live(monkeypatch: pytest.MonkeyPatch):
-    fakes = {"fire": _Fake("fire", 0.9, True), "knife": _Fake("knife", 0.8, True), "fall": _Fake("fall", 0.7, False)}
+    # 화재 점수는 우회 기준(0.6) 미만 - 불량 화면이면 지워진다.
+    fakes = {"fire": _Fake("fire", 0.55, True), "knife": _Fake("knife", 0.8, True), "fall": _Fake("fall", 0.7, False)}
     monkeypatch.setattr(sss, "get_fire_smoke_detector", lambda: fakes["fire"])
     monkeypatch.setattr(sss, "get_knife_detector", lambda: fakes["knife"])
     monkeypatch.setattr(sss, "get_fall_detector", lambda: fakes["fall"])
@@ -270,3 +271,164 @@ def test_quality_time_is_absent_when_gate_is_off(live, monkeypatch: pytest.Monke
     fakes, make = live
     make(frame_quality_gate_enabled=False)._detect_and_store(_sid("fq_timing_off"), GOOD)
     assert "quality" not in recorded[-1]
+
+
+# --- 2026-11-11 완화: 확신도 우회 + 어둠 규칙 기본값 ---------------------------------------------
+
+
+DEFAULTS = fq.thresholds_from(Settings())
+
+
+def _textured(seed: int = 1) -> np.ndarray:
+    return np.random.default_rng(seed).integers(60, 200, (480, 640), dtype=np.uint8)
+
+
+def test_new_default_values() -> None:
+    s = Settings()
+    assert (s.frame_quality_white_ratio, s.frame_quality_black_ratio, s.frame_quality_std_min) == (0.5, 0.98, 5.0)
+    assert (s.frame_quality_lap_max, s.frame_quality_blur_std_max, s.frame_quality_bypass_conf) == (10.0, 0.0, 0.6)
+    assert s.frame_quality_gate_enabled is True
+
+
+@pytest.mark.parametrize(("black_ratio", "reason"), [(0.97, None), (0.99, "black")])
+def test_black_rule_boundary_is_098(black_ratio: float, reason: str | None) -> None:
+    img = _textured()
+    flat = img.reshape(-1)
+    flat[: int(flat.size * black_ratio)] = 0
+    v = fq.assess_gray(img, DEFAULTS)
+    assert v.reason == reason and v.ok is (reason is None)
+
+
+@pytest.mark.parametrize(("sigma", "reason"), [(4.0, "flat"), (6.5, None)])
+def test_std_rule_boundary_is_5(sigma: float, reason: str | None) -> None:
+    rng = np.random.default_rng(3)
+    img = np.clip(rng.normal(128, sigma, (480, 640)), 0, 255).astype(np.uint8)
+    std = float(cv2.meanStdDev(img)[1][0][0])
+    assert (std < 5) is (reason == "flat")
+    assert fq.assess_gray(img, DEFAULTS).reason == reason
+
+
+def test_blur_flat_is_off_by_default_and_can_be_reenabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.config import _as_float_in_range
+
+    img = np.tile(np.linspace(80, 150, 960, dtype=np.float32), (720, 1)).astype(np.uint8)  # test_blur_flat_is_bad 와 같은 화면
+    assert fq.assess_gray(img, DEFAULTS).ok is True
+    monkeypatch.setenv("FRAME_QUALITY_BLUR_STD_MAX", "30")
+    reenabled = _as_float_in_range("FRAME_QUALITY_BLUR_STD_MAX", 0.0, 0.0, 100.0)
+    assert reenabled == 30.0
+    t = fq.QualityThresholds(DEFAULTS.white_ratio, DEFAULTS.black_ratio, DEFAULTS.std_min, DEFAULTS.lap_max, reenabled)
+    assert fq.assess_gray(img, t).reason == "blur_flat"
+
+
+def test_bypass_conf_range(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.config import _as_float_in_range
+
+    for raw, expected in (("1.01", 1.01), ("0.7", 0.7), ("1.5", 0.6), ("-1", 0.6), ("x", 0.6)):
+        monkeypatch.setenv("FRAME_QUALITY_BYPASS_CONF", raw)
+        assert _as_float_in_range("FRAME_QUALITY_BYPASS_CONF", 0.6, 0.0, 1.01) == expected
+
+
+def _only_fire(fakes: dict[str, _Fake], conf: float, danger: bool = True) -> None:
+    fakes["fire"].r = ("fire", conf, danger)
+    fakes["knife"].r = ("normal", 0.0, False)
+    fakes["fall"].r = ("normal", 0.0, False)
+
+
+def test_high_confidence_fire_bypasses_bad_quality(live) -> None:
+    fakes, make = live
+    _only_fire(fakes, 0.6)
+    payload = make()._detect_and_store(_sid("fq_bypass"), WHITE)
+    assert payload["detectedType"] == "fire" and payload["danger"] is True
+    assert payload["confidence"] == 0.6 and len(payload["detections"]) == 1
+    assert payload["frameQuality"] == {"ok": False, "reason": "white"}  # 응답 계약 그대로, 불량 표시는 남는다
+
+
+def test_below_bypass_conf_is_still_cleared(live) -> None:
+    fakes, make = live
+    _only_fire(fakes, 0.59)
+    payload = make()._detect_and_store(_sid("fq_below"), WHITE)
+    assert payload["danger"] is False and payload["detections"] == []
+    assert payload["frameQuality"] == {"ok": False, "reason": "white"}
+
+
+def test_bypass_off_keeps_old_behavior(live) -> None:
+    fakes, make = live
+    _only_fire(fakes, 1.0)
+    payload = make(frame_quality_bypass_conf=1.01)._detect_and_store(_sid("fq_bypass_off"), WHITE)
+    assert payload["danger"] is False and payload["detections"] == []
+
+
+def test_unknown_and_undecodable_unchanged_with_bypass(live) -> None:
+    fakes, make = live
+    fakes["fire"].r = ("unknown", 0.9, False)
+    fakes["knife"].r = ("normal", 0.0, False)
+    fakes["fall"].r = ("normal", 0.0, False)
+    payload = make()._detect_and_store(_sid("fq_unknown_bp"), WHITE)
+    fire = next(r for r in payload["results"] if "frameQuality" in r)
+    assert fire["available"] is False
+    _only_fire(fakes, 0.3)
+    raw = make()._detect_and_store(_sid("fq_raw_bp"), b"jpeg")  # 판정 불가(None) - 막지도 우회 로그도 없다
+    assert raw["danger"] is True and "frameQuality" not in raw
+
+
+def test_bypassed_frame_reaches_training_collector_with_quality(live, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, Any] = {}
+
+    class Spy:
+        def offer(self, *a, **k):
+            seen.update(k)
+
+    monkeypatch.setattr(sss, "training_sample_collector", Spy())
+    fakes, make = live
+    _only_fire(fakes, 0.8)
+    make()._detect_and_store(_sid("fq_collect_bp"), WHITE)
+    assert seen["frame_quality"] == {"ok": False, "reason": "white"}
+
+
+def test_bypass_log_is_limited_and_separate_from_block_log(live, caplog: pytest.LogCaptureFixture) -> None:
+    fakes, make = live
+    svc = make()
+    sid = _sid("fq_bp_log")
+    fq.block_log_limiter.clear(sid)
+    fq.bypass_log_limiter.clear(sid)
+    with caplog.at_level("INFO", logger=fq.__name__):
+        _only_fire(fakes, 0.8)
+        svc._detect_and_store(sid, WHITE)
+        svc._detect_and_store(sid, WHITE)
+        _only_fire(fakes, 0.5)
+        svc._detect_and_store(sid, WHITE)  # 우회 로그가 차단 로그를 가리지 않는다
+        _only_fire(fakes, 0.7, danger=False)
+        svc._detect_and_store(_sid("fq_bp_log2"), WHITE)  # danger 가 아니면 우회 로그를 남기지 않는다
+    msgs = [r.getMessage() for r in caplog.records]
+    bypassed = [m for m in msgs if "[FRAME-QUALITY-BYPASSED]" in m]
+    blocked = [m for m in msgs if "[FRAME-QUALITY-BLOCKED]" in m]
+    assert bypassed == [f"[FRAME-QUALITY-BYPASSED] sessionId={sid} reason=white conf=0.80"]
+    assert blocked == [f"[FRAME-QUALITY-BLOCKED] sessionId={sid} reason=white"]
+
+
+def test_bypass_log_limiter_once_per_minute(caplog: pytest.LogCaptureFixture) -> None:
+    now = [0.0]
+    limiter = fq._BlockLogLimiter(60.0, clock=lambda: now[0])
+    with caplog.at_level("INFO", logger=fq.__name__):
+        limiter.log_bypassed("s1", "black", 0.712)
+        limiter.log_bypassed("s1", "black", 0.9)
+        now[0] += 61
+        limiter.log_bypassed("s1", "black", 0.65)
+    lines = [r.getMessage() for r in caplog.records if "BYPASSED" in r.getMessage()]
+    assert lines == ["[FRAME-QUALITY-BYPASSED] sessionId=s1 reason=black conf=0.71",
+                     "[FRAME-QUALITY-BYPASSED] sessionId=s1 reason=black conf=0.65"]
+
+
+def test_reason_codes_unchanged() -> None:
+    assert (fq.REASON_WHITE, fq.REASON_BLACK, fq.REASON_FLAT, fq.REASON_BLUR_FLAT) == ("white", "black", "flat", "blur_flat")
+
+
+def test_config_log_and_low_bypass_warning(caplog: pytest.LogCaptureFixture) -> None:
+    s = Settings()
+    with caplog.at_level("INFO", logger=fq.__name__):
+        fq.log_config(s.model_copy(update={"fire_smoke_danger_threshold": 0.45}))
+        fq.log_config(s.model_copy(update={"fire_smoke_danger_threshold": 0.45, "frame_quality_bypass_conf": 0.4}))
+    msgs = [r.getMessage() for r in caplog.records if "[FRAME-QUALITY-CONFIG]" in r.getMessage()]
+    assert msgs[0] == ("[FRAME-QUALITY-CONFIG] enabled=True white=0.5 black=0.98 std=5.0 lap=10.0 "
+                       "blurStdMax=0.0 bypassConf=0.6")
+    assert len(msgs) == 3 and "보다 낮아" in msgs[2]
