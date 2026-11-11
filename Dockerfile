@@ -13,12 +13,8 @@ RUN apt-get update \
 # cu121 인덱스는 2.5.1 이 상한이라, 무핀으로 두면 최신 transformers 와 충돌해 기동이 실패한다.
 # 2026-11-10 전체 점검 L-4: 2.6.0 의 알려진 취약점(체크포인트 로드 RCE 등, 2.10.0 에서 고침) 때문에 2.11.0 으로 올렸다.
 # cu124 인덱스는 2.6.0 이 상한이라 cu126 으로 옮겼다. 셋은 같은 판이어야 하고 torchaudio 는 cu126 에서 2.11.0 이 마지막이다.
-# 2026-11-11: 2.11.0 에 남은 torch.jit.script 메모리 손상 건(2.13.0 에서 고침) 때문에 torch 를 2.13.0 으로 올린다.
-# torchaudio 는 2.11.x 가 마지막 판이다. 2.11.1(PyPI)은 CUDA 13 용이라 이 서버 GPU 드라이버(535)에서 못 쓰고,
-# cu126 인덱스의 2.11.0 을 --no-deps 로 따로 깐다.
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu126 \
-    torch==2.13.0 torchvision==0.28.0 \
-    && pip install --no-cache-dir --no-deps --index-url https://download.pytorch.org/whl/cu126 torchaudio==2.11.0
+    torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
