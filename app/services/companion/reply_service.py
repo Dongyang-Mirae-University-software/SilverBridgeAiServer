@@ -18,11 +18,20 @@ DISEASE_TERMS = ("우울증", "치매", "불안증", "공황장애", "조현병"
 PAST_TERMS = ("지난", "어제", "예전", "옛날", "여행")
 
 # S6-3: 규칙을 통과하지 못하면 이 목록에서 고른다. 모든 문장이 규칙을 통과해야 한다 (시험으로 확인)
+# 11/11: 대체 문장은 어르신 말을 받아 주기만 하고 화제를 바꾸지 않는다 (식사·하루 일과 질문 금지).
+#   힘든 이야기에 "요즘 식사는 잘 챙겨 드시고 계세요?"가 나간 일이 있었다 - '대답과 무관'에 걸린 모델 대답이 이 문장으로 바뀌었다
 FALLBACK_FOLLOWUP = (
-    "그러셨군요. 오늘 하루는 어떻게 보내고 계세요?",
-    "말씀해 주셔서 고맙습니다. 요즘 식사는 잘 챙겨 드시고 계세요?",
-    "그랬군요. 조금 더 들려주실 수 있을까요?",
+    "그러셨군요. 조금 더 들려주실 수 있을까요?",
+    "말씀해 주셔서 고맙습니다. 그 이야기 조금 더 해 주실 수 있으세요?",
+    "그랬군요. 그때 마음은 어떠셨어요?",
 )
+# 그 턴의 글 기분이 부정(슬픔·화남·우울)이면 이 목록에서 고른다 (11/11)
+FALLBACK_EMPATHY = (
+    "그러셨군요. 마음이 많이 쓰이셨겠어요. 조금 더 이야기해 주실 수 있을까요?",
+    "많이 속상하셨겠어요. 어떤 점이 가장 마음에 걸리세요?",
+    "힘든 이야기 꺼내 주셔서 고맙습니다. 제가 더 들어 드려도 될까요?",
+)
+NEGATIVE_TURN_LABELS = ("슬픔", "화남", "우울")
 FALLBACK_LAST = (
     "오늘도 이야기 나눠 주셔서 고맙습니다. 편안한 하루 보내세요.",
 )
@@ -82,9 +91,25 @@ def build_reply_prompt(question: str, transcript: str, prev_signals: dict | None
             .replace("{{TRANSCRIPT}}", transcript))
 
 
-def _fallback(turn_no: int, is_last_turn: bool) -> str:
-    options = FALLBACK_LAST if is_last_turn else FALLBACK_FOLLOWUP
+def is_negative_mood(text_mood: dict | None) -> bool:
+    """글 기분(턴 응답의 textMood)이 쓸 수 있는 결과이고 부정(슬픔·화남·우울)인가."""
+    return bool(text_mood and text_mood.get("usable") and text_mood.get("turnLabel") in NEGATIVE_TURN_LABELS)
+
+
+def fallback_options(is_last_turn: bool, negative: bool = False) -> tuple[str, ...]:
+    """대체 문장 목록. 마지막 턴은 마무리 문장, 부정 기분 턴은 공감 문장, 그 밖은 받아 주는 문장."""
+    if is_last_turn:
+        return FALLBACK_LAST
+    return FALLBACK_EMPATHY if negative else FALLBACK_FOLLOWUP
+
+
+def fallback_text(turn_no: int, is_last_turn: bool, negative: bool = False) -> str:
+    options = fallback_options(is_last_turn, negative)
     return options[turn_no % len(options)]  # 턴마다 다른 문장이 나오도록 번갈아 쓴다
+
+
+def _fallback(turn_no: int, is_last_turn: bool) -> str:
+    return fallback_text(turn_no, is_last_turn)
 
 
 def _generate(llm: LlmClient, prompt: str, is_last_turn: bool) -> str:
