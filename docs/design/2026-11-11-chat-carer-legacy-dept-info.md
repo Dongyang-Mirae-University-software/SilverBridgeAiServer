@@ -23,3 +23,13 @@
 
 - pytest(gosky .venv 사본), 새 테스트 `tests/test_chat_carer_legacy_and_dept_info.py`, 결함 주입 7건 모두 실패 확인
 - replay_offline stub(`MEDGEMMA_ENABLED=false`, API 0회): eval v7 142·holdout v3 40 문항 main 대비 차이 0
+
+## 후속 (같은 날, ③ 고정 안내로 변경)
+
+- DGX 실제 MedGemma(int8·gen_ngram:10, 라우터 stub)로 재생하니 #233의 ③(general_chat 전환)은 답이 "네, 말씀해 주세요…"(빈 reply 기본 문장)였다.
+  4B 모델은 의도와 상관없이 상담 칸(공감·증상·권고)만 채우고 reply 를 비웠고, 상담 틀이면 앞 권고를 베끼거나 진료비 금액을 지어내 되풀이했다.
+- 그래서 진료과 정보 질문은 모델을 부르지 않고 규칙 안내로 답한다(`ChatService._department_info_reply`, `MedicalLlmService.department_info_response`).
+  종류: 비용 > 준비물 > 검사·문진(`chat_keywords.department_info_kind`). 금액·확정 진단은 말하지 않는다. 진료과를 알면 "가까운 ○○ 찾기" 버튼.
+  진료과 = 이 문장 → 직전 답 → 되묻기 처음 증상 순, 모르면 "병원". 대리 상담은 "어르신께"·"모시고 가실 때" 문장(`_SENTENCE_TABLE`).
+- 끼어들지 않는 때: 자해 낱말, 응급 직후 턴, 위기 대화 중(이력의 자해 신호), 위험 신호·응급(라우터 실패 판정·반응 없음 포함)·예약 낱말.
+- 검증: pytest 2908 passed, 결함 주입 7건 모두 실패 확인, DGX 실제 MedGemma 13문항(정보 질문 6·진료과 질문 1·보호자/피보호자 되묻기 6) 의도대로.
