@@ -1564,6 +1564,8 @@ class ChatService:
                     "message": log.message,
                     "contextJson": log.context_json,
                     "sessionId": context.get("sessionId"),
+                    # 보호자가 어느 피보호자를 대신한 상담인가(본인 상담은 None) - FE 상담 기록을 피보호자별로 나눈다(2026-11-11)
+                    "wardId": ChatService._row_ward_id(context) or None,
                     "engine": context.get("engine"),
                     "intent": context.get("conversationState", {}).get("intent") if isinstance(context.get("conversationState"), dict) else context.get("intent"),
                     "modelName": context.get("modelName"),
@@ -1604,6 +1606,7 @@ class ChatService:
             "message": log.message,
             "contextJson": context,
             "sessionId": context.get("sessionId"),
+            "wardId": ChatService._row_ward_id(context) or None,
             "engine": context.get("engine"),
             "intent": context.get("conversationState", {}).get("intent") if isinstance(context.get("conversationState"), dict) else context.get("intent"),
             "modelName": context.get("modelName"),
