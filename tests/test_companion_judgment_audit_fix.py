@@ -586,6 +586,7 @@ def test_warmup_starts_in_background_when_companion_enabled(settings, monkeypatc
     import app.main as main
     called = threading.Event()
     monkeypatch.setattr(lc.llm_client, "warm_up", called.set)
+    monkeypatch.setattr(main.settings, "companion_stt_warmup", False)  # 실제 turbo 를 올리지 않게
     monkeypatch.setattr(main.settings, "companion_api_key", "k")
     monkeypatch.setattr(main.settings, "companion_llm_warmup", True)
     main._start_companion_warmup()
@@ -596,6 +597,7 @@ def test_warmup_skipped_without_key_or_switch(settings, monkeypatch):
     import app.main as main
     called = threading.Event()
     monkeypatch.setattr(lc.llm_client, "warm_up", called.set)
+    monkeypatch.setattr(main.settings, "companion_stt_warmup", False)  # 실제 turbo 를 올리지 않게
     monkeypatch.setattr(main.settings, "companion_api_key", "")
     main._start_companion_warmup()
     monkeypatch.setattr(main.settings, "companion_api_key", "k")
