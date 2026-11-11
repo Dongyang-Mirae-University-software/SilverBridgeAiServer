@@ -404,8 +404,12 @@ class Settings(BaseModel):
     # 받아쓰기 엔진: turbo(Whisper large-v3-turbo GPU, 11/09 기본) | sensevoice(재희 버전 기본) | whisper(faster-whisper, 비교용)
     # 근거: 어르신 200문장 글자 오류 turbo 2.4% · SenseVoice 4.7% (노션 "AI 안부말벗·정서분석 모델 학습 기록")
     companion_stt_engine: str = _as_choice("COMPANION_STT_ENGINE", "turbo", ("turbo", "sensevoice", "whisper"))
-    # 챗봇 받아쓰기 API(/companion/stt) 엔진: sensevoice(기본, 지금 그대로) | turbo (2026-11-09 사용자 결정: 챗봇은 그대로 둔다)
-    companion_stt_api_engine: str = _as_choice("COMPANION_STT_API_ENGINE", "sensevoice", ("sensevoice", "turbo"))
+    # 챗봇 받아쓰기 API(/companion/stt) 엔진: turbo(기본, 2026-11-11) | sensevoice(되돌리기용)
+    # 11/09에는 챗봇을 그대로 두기로 했으나, 11/11 실기기에서 "테스트 테스트"를 "데 투 데 투"로 받아써 바꿨다.
+    # DGX 재현: 글자 오류 SenseVoice 4.6% · turbo 2.4%, 웅성거림 10dB 15.4% · 9.5%
+    companion_stt_api_engine: str = _as_choice("COMPANION_STT_API_ENGINE", "turbo", ("sensevoice", "turbo"))
+    # 받아쓰기 엔진 중 하나라도 turbo 면 기동 때 백그라운드에서 미리 올린다 (첫 호출이 모델 올리기로 20초 제한을 넘지 않게)
+    companion_stt_warmup: bool = _as_bool("COMPANION_STT_WARMUP", True)
     companion_sensevoice_subdir: str = os.getenv("COMPANION_SENSEVOICE_SUBDIR", "companion/stt-sensevoice")
     companion_turbo_subdir: str = os.getenv("COMPANION_TURBO_SUBDIR", "companion/stt-turbo")  # openai/whisper-large-v3-turbo 폴더
     companion_turbo_device: str = os.getenv("COMPANION_TURBO_DEVICE", "cuda")  # cuda 는 fp16, cpu 는 fp32

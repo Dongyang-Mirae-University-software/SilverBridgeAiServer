@@ -1,7 +1,7 @@
 """챗봇 받아쓰기 API(/companion/stt)의 엔진 스위치 COMPANION_STT_API_ENGINE 을 HTTP 로 확인한다.
 
 turbo: Silero 말소리 감지 → turbo → 반복 정리·자막 환각 제거 (무음에서 "감사합니다"를 지어내지 않는다).
-sensevoice(기본): 지금과 같은 SenseVoice 경로 그대로.
+sensevoice(되돌리기용, 2026-11-11까지 기본): 예전 SenseVoice 경로 그대로. 기본은 turbo.
 모델은 가짜로 바꿔 끼운다 (실제 모델·API 키를 쓰지 않는다). 상한(30초·10MB·동시 2)과 응답 형식은 그대로다.
 """
 
