@@ -30,7 +30,7 @@ def _ok(**kw: Any) -> bool:
     {"intent": "hospital_reservation"},
     {"meta": {"selfHarm": True}},
     {"meta": {"crisisFollowup": True}},
-    {"meta": {"emergencyFollowup": True}},
+    # emergencyFollowup(응급 다음 턴 한 줄)은 표시만으로 막지 않는다(2026-11-11) - test_chat_ward_care_dept_edit_followup 이 줄 기준으로 본다.
     {"meta": {"followupAsked": True}},
     {"meta": {"generationFailed": True}},
     {"ui": {"kind": "select", "field": "date"}},

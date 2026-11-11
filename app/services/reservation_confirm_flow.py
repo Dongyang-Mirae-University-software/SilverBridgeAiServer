@@ -138,6 +138,8 @@ def _status(row: dict[str, Any]) -> str:
 
 
 DEPARTMENT_NOT_OFFERED_FLAG = "_departmentNotOffered"  # 빈 시간 조회가 그 병원에 없는 진료과라고 답한 턴의 표시 - 같은 턴 안에서 꺼낸다
+# 확인 카드 [고치기 → 진료과] 턴 표시 - 병원 진료과 목록을 못 받으면 병원도 비워 전체 진료과 목록으로 내려간다(같은 턴 안에서 꺼낸다).
+DEPARTMENT_EDIT_FALLBACK_FLAG = "_departmentEditFallback"
 
 _DUPLICATE_PREFIX = "같은 시간대에 이미 예약이 있어요. 다른 시간을 골라 주세요."
 # 예약 서비스가 이 코드로 거절하면 시간을 다시 고르게 한다(PAST_TIME = 오늘 이미 지난 시간, 예약 서비스 #4).
@@ -720,7 +722,13 @@ class ReservationFlowMixin:
             if item == "hospital":
                 draft.hospital_name = draft.hospital_id = None
             elif item == "department":
-                draft.department = draft.hospital_name = draft.hospital_id = None
+                # 같은 병원 안에서 진료과만 바꾼다(2026-11-11) - 병원·날짜는 두고 _advance 가 그 병원의 진료과 목록을 낸다
+                # (끝에 [다른 병원에서 찾기]). 목록을 못 받으면 병원도 비워 전체 진료과 목록으로 간다(DEPARTMENT_EDIT_FALLBACK_FLAG).
+                draft.department = None
+                if draft.hospital_id is None:
+                    draft.hospital_name = None
+                else:
+                    meta[DEPARTMENT_EDIT_FALLBACK_FLAG] = True
             elif item == "date":
                 draft.reservation_date = None
             _trace(meta, "reservation_edit", item=item)

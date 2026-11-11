@@ -206,6 +206,17 @@ _COMPACT_DROP = re.compile(r"[\s.,!?~…]+")
 # 사용자가 직접 소아청소년과·소아과를 말했으면 그대로 둔다.
 _PEDIATRICS = "소아청소년과"
 _PEDIATRICS_ASKED = re.compile(r"소아청소년과|소아과")
+# 증상이 있을 때 먹을 것·할 일을 묻는 질문(2026-11-11 ②). 약·영양제·술 질문은 규칙 4(약 질문)·약 + 술 규칙이 맡아 제외한다.
+_CARE_QUESTION = re.compile(
+    r"(뭘|뭐를?|무엇을?|무슨\s*음식|어떤\s*음식).{0,8}(먹|드시|드셔|마시)"
+    r"|(먹|드시|드셔|마시)(으면|면|어도|셔도|는\s*게|는\s*것이?|어야|셔야).{0,6}(좋|도움|나아|괜찮)"
+    r"|(좋은|피해야\s*할|피할)\s*음식"
+    r"|(어떻게|어찌)\s*(하면|해야|할까|하나요|해요)"
+    r"|(집에서|혼자|스스로).{0,10}(할\s*수\s*있|하면\s*좋|방법|관리)"
+)
+_CARE_EXCLUDE = re.compile(r"약(?!간|속|하)|영양제|술|소주|맥주|막걸리|와인|해야\s*할지\s*모르|어쩔\s*줄")
+# 관리 질문 답에서 빼는 모델 문장(2026-11-11 DGX 재생): 굶기·금식(어르신 탈수), 술·담금주, 민간요법. 고정 문장은 건드리지 않는다.
+_UNSAFE_CARE_SENTENCE = re.compile(r"굶|금식|끼니를?\s*거르|식사를?\s*거르|담금주|약주|인삼주|매실주|과실주|율무주|술(을|이)?\s*(조금|한\s*잔|드시면|마시면|드셔|마셔)|민간\s*요법")
 # 이미 약을 더·여러 번 먹었다는 말(과다 복용) - 이때는 119 문장을 남긴다(프롬프트 규칙 4 "이미 더 드셨다고 하면 119").
 _OVERDOSE_TOLD = re.compile(
     r"(더|또|두 ?번|두 ?알|여러 ?번|여러 ?알|많이|한꺼번에|두 ?배)[^.!?。]{0,10}(먹었|드셨|복용했|먹어 ?버렸)|과다 ?복용|잘못 (먹|드)"
@@ -701,6 +712,15 @@ class MedicalLlmService:
         }
 
     @staticmethod
+    def is_care_question(message: str, intent: str, emergency_hint: bool) -> bool:
+        """증상 상담(medical_advice)에서 먹을 것·할 일을 묻는 질문인가. 응급·약·영양제·술 질문은 아니다."""
+        text = message or ""
+        return (
+            intent == "medical_advice" and not emergency_hint
+            and bool(_CARE_QUESTION.search(text)) and not _CARE_EXCLUDE.search(text)
+        )
+
+    @staticmethod
     def drug_alcohol_rules(message: str) -> list[_DrugAlcoholRule]:
         """약 + 술을 함께 묻는 문장이면 해당 약 규칙들(여러 개일 수 있다). 술이 없으면 빈 목록."""
         text = message or ""
@@ -762,6 +782,24 @@ class MedicalLlmService:
                 out = f"{out}\n{rule.sentence.pick(proxy)}"
                 added.append(rule.name)
         return out, dropped, added
+
+    @staticmethod
+    def drop_unsafe_care_sentences(reply: str) -> tuple[str, int]:
+        """관리 질문 답에서 굶기·금식·술·민간요법을 권하는 문장을 뺀다(증상·특징 줄은 그대로). (고친 답, 뺀 문장 수).
+        빠져서 병원 권유가 사라지면 뒤의 진료 권유 보장이 채운다."""
+        removed = 0
+        lines: list[str] = []
+        for line in (reply or "").split("\n"):
+            if line.lstrip().startswith("·"):
+                lines.append(line)
+                continue
+            sentences = _SENTENCE_SPLIT.split(line)
+            kept = [x for x in sentences if not _UNSAFE_CARE_SENTENCE.search(x + " ")]
+            removed += len(sentences) - len(kept)
+            new_line = " ".join(kept).strip()
+            if new_line:
+                lines.append(new_line)
+        return "\n".join(lines), removed
 
     @staticmethod
     def drop_unknown_department_sentences(reply: str) -> tuple[str, int]:
@@ -1360,6 +1398,11 @@ class MedicalLlmService:
 
         # 예약 흐름과 같은 증상→진료과 규칙을 힌트로 준다. 상담에서 권한 과와 예약에서 찾는 과가 어긋나지 않게.
         department_hint = _symptom_department(message or "")
+        # 증상 상담에서 먹을 것·할 일을 물으면 advice 에 그 답을 먼저 쓰게 한 줄 더한다(응급·약·술 질문은 제외, 2026-11-11 ②).
+        # 위기 대화(이력의 자해 신호) 중이면 붙이지 않는다 - 위기 뒤 "어떻게 해야…"가 상담 틀로 바뀌어 119 줄이 빠졌다(DGX 재생 cf.08).
+        care_question = self.is_care_question(message, intent, emergency_hint) and not self.self_harm_in_history(history)
+        if care_question:
+            _LOG.info("[CHAT-QUALITY] care_question=true")
         user_prompt = build_user_prompt(
             message=message,
             user_context=user_context,
@@ -1369,6 +1412,7 @@ class MedicalLlmService:
             processed_symptom=processed_symptom,
             department_hint=department_hint,
             concise=concise,
+            **({"care_question": True} if care_question else {}),
         )
 
         if not self._settings.chat_enable_llm:
@@ -1424,6 +1468,10 @@ class MedicalLlmService:
             if dropped or added:
                 # 상담 내용은 남기지 않는다 - 규칙 이름·뺀 문장 수만.
                 _LOG.info("[CHAT-SAFETY] drug_alcohol dropped=%s added=%s", dropped or {}, ",".join(added) or "-")
+            if care_question:
+                reply, unsafe_care = self.drop_unsafe_care_sentences(reply)
+                if unsafe_care:
+                    _LOG.info("[CHAT-SAFETY] unsafe_care_dropped=%s", unsafe_care)
             reply, unknown_dept = self.drop_unknown_department_sentences(reply)
             if unknown_dept:
                 _LOG.info("[CHAT-SAFETY] unknown_department_dropped=%s", unknown_dept)
