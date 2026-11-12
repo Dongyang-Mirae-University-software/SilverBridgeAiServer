@@ -34,10 +34,32 @@ ADVICE = (
     "자기 전에 따뜻한 물로 샤워를 해 보세요. 괜찮으세요?",
     "낮에 산책을 하시면 좋을 것 같아요. 괜찮으세요?",
     "따님께 연락해 보시는 건 어떠세요?",
+    "가벼운 산책 어떠세요?",
+    "음악을 들어 보시면 어떨까요?",
+    "병원에 가 보시는 건 어떨까요?",
+    "자주 물을 드시는 건 어떠세요?",
+    "산책하시는 건 어떠세요?",
+    "명상 한번 어떠세요?",
+    # DGX 대조(11/12)에서 좁힌 첫 정규식이 놓친 실제 권유 대답
+    "허리가 아프셔서 운동이 어려우시군요. 집에서 할 수 있는 가벼운 스트레칭은 어떠신가요?",
+    "혹시 가까운 이웃이나 친구분께 연락해 보는 건 어떨까요?",
 )
 NOT_ADVICE = (
     "손주와 함께 하는 시간은 어떠신가요?",
     "못 주무셨다니 마음이 쓰이네요. 요즘 기분은 어떠세요?",
+    # 11/12 점검 M-1: 권유 낱말이 있어도 어르신 이야기를 이어 가는 물음은 통과해야 한다
+    "요즘 운동은 어떠세요?",
+    "산책 다녀오시니 기분은 어떠세요?",
+    "음악 들으실 때 기분은 어떠신가요?",
+    "그 이야기 조금 더 말씀해 보세요?",
+    "약은 잘 드셔 보시니 어떠세요?",
+    "그렇게 하시면 좋을까요?",
+    "오늘 산책은 어떠셨나요?",
+    "따님께 연락해 보셨어요?",
+    "명상 같은 걸 해 보신 적 있으세요?",
+    "천천히 생각해 보시고 말씀해 주시겠어요?",
+    "운동하시고 나면 몸은 좀 어떠세요?",
+    "요즘 주무시는 건 어떠세요?",
 )
 
 
@@ -155,6 +177,36 @@ def test_pipeline_calm_turn_keeps_model_answer(monkeypatch):
     out = _run("CALM", _FixedLlm(UNRELATED_OK))
     assert out["textMood"]["turnLabel"] == "평온"
     assert (out["replySource"], out["reply"]["text"]) == ("LLM", UNRELATED_OK)
+
+
+def test_pipeline_joy_turn_keeps_model_answer(monkeypatch):
+    _stub_others(monkeypatch)
+    out = _run("JOY", _FixedLlm(UNRELATED_OK))
+    assert out["textMood"]["turnLabel"] == "기쁨"
+    assert (out["replySource"], out["reply"]["text"]) == ("LLM", UNRELATED_OK)
+
+
+def test_pipeline_angry_turn_falls_back_to_empathy(monkeypatch):
+    # 원래 6감정 '분노'는 턴 라벨 '화남' (부정) - 전 규칙으로 탈락하고 공감 문장
+    _stub_others(monkeypatch)
+    out = _run("분노", _FixedLlm(UNRELATED_OK))
+    assert out["textMood"]["turnLabel"] == "화남"
+    assert out["replySource"] == "FALLBACK" and out["reply"]["text"] in FALLBACK_EMPATHY
+
+
+def test_fallback_log_has_rule_names_only(caplog):
+    # 11/12 점검 L-2: 대체 이유는 규칙 이름만 남기고, 대답·어르신 말 본문은 남기지 않는다
+    with caplog.at_level("INFO", logger="app.services.companion.reply_service"):
+        generate_reply(_FixedLlm(ADVICE[0]), "잘 주무셨어요?", TRANSCRIPT, None, False, 1, text_mood=CALM)
+    lines = [r.getMessage() for r in caplog.records if "[COMPANION-REPLY-FALLBACK]" in r.getMessage()]
+    assert lines == ["[COMPANION-REPLY-FALLBACK] failures=권유 relaxed=True last=False"]
+    assert TRANSCRIPT not in lines[0] and ADVICE[0] not in lines[0]
+
+
+def test_model_answer_is_not_logged_as_fallback(caplog):
+    with caplog.at_level("INFO", logger="app.services.companion.reply_service"):
+        generate_reply(_FixedLlm(UNRELATED_OK), "잘 주무셨어요?", TRANSCRIPT, None, False, 1, text_mood=CALM)
+    assert not any("[COMPANION-REPLY-FALLBACK]" in r.getMessage() for r in caplog.records)
 
 
 def test_pipeline_depressed_turn_still_falls_back_to_empathy(monkeypatch):

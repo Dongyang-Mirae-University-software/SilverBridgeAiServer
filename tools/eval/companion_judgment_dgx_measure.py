@@ -8,7 +8,7 @@ import torch
 from app.core.config import get_settings
 from app.services.companion.llm_client import llm_client, MOOD_ADAPTER
 from app.services.companion.mood_service import MoodService, MOOD_CODES, _PROMPT as MOOD_PROMPT
-from app.services.companion import risk as rk, reply_service as rs, fusion as fu
+from app.services.companion import risk as rk, reply_service as rs, fusion as fu, pipeline as pl
 S = get_settings(); PARTS = sys.argv[1:] or ["mood", "risk", "reply", "fuse", "face"]
 def out(*a): print(*a, flush=True)
 NEG = {"WORRY", "DEPRESSED"}
@@ -71,7 +71,8 @@ if "reply" in PARTS:
     for key, lora in (("대답어댑터", True), ("기본모델(재희)", False)):
         S.companion_reply_lora = lora; fb = 0; lat = []; random.seed(1110); torch.manual_seed(1110)
         for r in rows:
-            rr, dt = timed(rs.generate_reply, llm_client, r["q"], r["text"], None, False, 1); lat.append(dt); fb += rr.source == "FALLBACK"; r[key] = rr.text
+            tm = {}; pl.analyze_turn_result(r["text"], {"label": None, "usable": False}, mood_prob, text_out=tm)  # 운영처럼 글 기분을 넘긴다 (11/12 L-1)
+            rr, dt = timed(rs.generate_reply, llm_client, r["q"], r["text"], None, False, 1, text_mood=tm if S.companion_risk_first else None); lat.append(dt); fb += rr.source == "FALLBACK"; r[key] = rr.text
         out("RESULT reply", key, "대체비율", round(fb / len(rows), 3), f"({fb}/{len(rows)})", "지연 중간", pct(lat, .5), "느린5%", pct(lat, .95))
     S.companion_reply_lora = True
     for r in rows[:5]: out("SAMPLE reply", r["text"][:30], "→", r["대답어댑터"][:60])

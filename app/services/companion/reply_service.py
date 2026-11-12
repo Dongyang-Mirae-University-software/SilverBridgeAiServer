@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.config import get_settings
 from app.services.companion.llm_client import REPLY_ADAPTER, LlmClient, LlmUnavailable
+
+logger = logging.getLogger(__name__)
 
 REPLY_PROMPT_VERSION = "reply-v2"  # 응답 프롬프트 파일을 고치면 올린다 (v2: 대답 속 낱말을 이어 가는 꼬리질문)
 # 대답과 관계없는 문장을 거를 때 기준으로 삼지 않는 흔한 낱말의 앞 두 글자 (조사가 붙은 말도 걸리도록 앞 글자로 본다)
@@ -36,11 +39,19 @@ NEGATIVE_TURN_LABELS = ("슬픔", "화남", "우울")
 #   DGX 측정(CareCall 200): '대답과 무관'만으로 대체된 62개 중 약 50개가 멀쩡한 대답이었다.
 #   힘든 이야기(93)는 풀면 살아난 대답의 절반이 질문 주제에 끌려간 오해라 부정 기분 턴은 그대로 둔다
 RELAX_TURN_LABELS = ("평온", "기쁨")
-# '권유' 규칙: 꼬리질문 대신 무엇을 하라고 권하는 문장을 거른다 (11/12, 측정에 쓴 정규식 그대로).
-#   "함께 하는 시간은 어떠신가요"처럼 권유 낱말 없이 '어떠신가요'만 있는 물음은 통과한다
+# '권유' 규칙: 꼬리질문 대신 무엇을 하라고 권하는 문장을 거른다 (11/12).
+#   11/12 점검 M-1: 처음 정규식("산책·운동·음악 … 어떠세요")은 주제를 이어 가는 물음("요즘 운동은 어떠세요?",
+#   "산책 다녀오시니 기분은 어떠세요?", "말씀해 보세요?")까지 걸러서, 권하는 꼴만 보도록 좁혔다:
+#   ① 해·드셔·들어·가 … + 보시는/보시면/보세요/보는 건 (단 '말씀해 보세요'는 이야기를 청하는 말이라 뺀다)
+#   ② 권유 낱말 바로 뒤 어떠세요 ("가벼운 산책 어떠세요?" - 조사 '은·는'이 붙은 물음은 통과)
+#      스트레칭·명상, '가벼운·간단한 …'은 어르신이 먼저 꺼내는 주제가 드물어 예전처럼 넓게 본다 (DGX 대조 11/12)
+#   ③ 하시는·드시는 건 어떠세요  ④ 하시면 좋아요·좋겠·좋을 것 ("하시면 좋을까요?"는 물음이라 통과)
 ADVICE_PATTERN = re.compile(
-    r"((스트레칭|산책|걷기|운동|드셔|맞아\s?보|연락해\s?보|시작해\s?보|해\s?보시|명상|음악)[^.?!]*(어떠신가요|어떨까요|어떠세요)"
-    r"|해\s?보세요|보시는\s?건\s?어떨까요|하시면\s?좋)"
+    r"(?:(?<!말씀)해|드셔|들어|맞아|걸어|나가|가|연락해|시작해)\s?보(?:시는|시면|시길|세요|시죠|실래요|는\s?건|는\s?거)"
+    r"|(?:스트레칭|산책|걷기|운동|명상|음악)\s?(?:한\s?번\s?)?(?:어떠신가요|어떨까요|어떠세요)"
+    r"|(?:스트레칭|명상|가벼운|간단한)[^.?!]*(?:어떠신가요|어떨까요|어떠세요)"
+    r"|(?:하|드)시는\s?건\s?(?:어떠신가요|어떨까요|어떠세요)"
+    r"|하시면\s?좋(?:아요|습니다|겠|을\s?것|을\s?거)"
 )
 # 어르신이 아무 말도 하지 않은 턴(무응답)의 문장 (11/12 점검 H-1). 말을 들은 것처럼 받지 않고, 편하게 다시 말을 건넨다.
 # 무응답 턴에는 대화를 다시 여는 질문이 화제 전환이 아니다
@@ -175,7 +186,7 @@ def generate_reply(
 ) -> ReplyResult:
     """응답 문장을 만든다. (S6-3, D20)
 
-    LLM 실패(연결 불가·시간 초과)와 규칙 위반을 모두 한 번씩 더 시도한다 (retry 설정, 기본 1회).
+    LLM 실패(연결 불가·시간 초과)와 규칙 위반을 COMPANION_LLM_RETRY 번 더 시도한다 (기본 0회 - 11/09 결정, 바로 대체 문장).
     그래도 안 되면 미리 정한 문장을 쓴다. 대화는 끊기지 않는다.
     text_mood 는 규칙 검사에 넘긴다 (평온·기쁨 턴 완화, 11/12). 없으면 전 규칙.
     """
@@ -192,6 +203,9 @@ def generate_reply(
         failures = check_reply(text, is_last_turn, transcript, text_mood)
         if not failures:
             return ReplyResult(text=text, isFollowUp=not is_last_turn, source="LLM", failures=[])
+    # 11/12 점검 L-2: 대체된 이유(규칙 이름)만 남긴다 - 대답·어르신 말 본문은 남기지 않는다
+    logger.info("[COMPANION-REPLY-FALLBACK] failures=%s relaxed=%s last=%s",
+                ",".join(failures), is_relaxed_mood(text_mood), is_last_turn)
     return ReplyResult(text=_fallback(turn_no, is_last_turn), isFollowUp=not is_last_turn,
                        source="FALLBACK", failures=failures)
 
