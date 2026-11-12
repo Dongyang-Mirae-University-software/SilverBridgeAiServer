@@ -14,7 +14,7 @@ import pytest
 from app.core.config import get_settings
 from app.services.companion import pipeline, stt_engine, vad
 from app.services.companion.pipeline import LOW_CONFIDENCE_REPLY
-from app.services.companion.reply_service import SAFETY_REPLY
+from app.services.companion.reply_service import BODY_SAFETY_REPLY, SAFETY_REPLY
 from app.services.companion.repetition import clean_transcript, collapse_repeats, strip_hallucination
 from app.services.companion.sensevoice_service import sensevoice_service
 from app.services.companion.stt_service import SttResult
@@ -233,8 +233,8 @@ def test_low_confidence_turn_still_runs_risk_model(settings):
     r = _turn("요즘 그냥 다 귀찮아요", -0.8, llm)
     assert llm.prob_calls == 1
     assert r["riskFlag"] is True and r["reply"]["text"] == SAFETY_REPLY and r["replySource"] == "SAFETY"
-    r = _turn("숨이 안 쉬어져서 쓰러졌어요", -0.8, ProbLlm(0.0))  # 낱말 규칙
-    assert r["riskFlag"] is True and r["reply"]["text"] == SAFETY_REPLY
+    r = _turn("숨이 안 쉬어져서 쓰러졌어요", -0.8, ProbLlm(0.0))  # 낱말 규칙 (몸 응급만 - 몸 응급용 안내, 11/12 Q-1)
+    assert r["riskFlag"] is True and r["reply"]["text"] == BODY_SAFETY_REPLY
     r = _turn("국수를 먹었어요", -0.8, ProbLlm(0.1))
     assert r["riskFlag"] is False and r["reply"]["text"] == LOW_CONFIDENCE_REPLY
 

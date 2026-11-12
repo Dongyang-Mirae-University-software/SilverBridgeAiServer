@@ -153,10 +153,15 @@ def _bound_hit(text: str, word: str) -> bool:
     return False
 
 
-def _keyword_risk_kw4(transcript: str) -> bool:
+# 몸 응급 낱말 (11/12 영향 범위 점검 Q-1): 이 낱말만 걸린 턴은 마음 위주 안내 대신 몸 응급용 문장으로 답한다.
+#   "119"는 자해 안내에도 나오는 말이라 넣지 않는다 (몸·마음을 가리지 않는 기존 안내 그대로)
+BODY_EMERGENCY_KEYWORDS = ("숨이 안 쉬", "숨이 안쉬", "숨을 못", "가슴이 너무 아", "쓰러졌", "꼼짝을 못", "꼼짝 못") + STROKE_KEYWORDS
+
+
+def _keyword_risk_kw4(transcript: str, keywords: tuple[str, ...] | None = None) -> bool:
     text = IDIOM.sub("", _PUNCT.sub("", transcript))
     flat = text.replace(" ", "")
-    for k in dict.fromkeys(RISK_KEYWORDS + KW4_EXTRA + STROKE_KEYWORDS):
+    for k in dict.fromkeys(keywords if keywords is not None else RISK_KEYWORDS + KW4_EXTRA + STROKE_KEYWORDS):
         kk = k.replace(" ", "")
         if kk in BOUND_KEYWORDS:
             if _bound_hit(text, kk):
@@ -164,6 +169,17 @@ def _keyword_risk_kw4(transcript: str) -> bool:
         elif kk in flat:
             return True
     return False
+
+
+def body_emergency_only(transcript: str) -> bool:
+    """몸 응급 낱말(숨·가슴·쓰러짐·뇌졸중 징후)이 걸렸고, 자해·죽음 같은 다른 위험 낱말은 없는가 (kw4 규칙 기준).
+
+    둘 다 있으면 False - 마음 위주 안내(119 포함)를 그대로 쓴다. 재희 규칙(jaehee)에서는 늘 False(전과 같음).
+    """
+    if get_settings().companion_risk_keyword_rule == "jaehee":
+        return False
+    others = tuple(k for k in RISK_KEYWORDS + KW4_EXTRA if k not in BODY_EMERGENCY_KEYWORDS)
+    return _keyword_risk_kw4(transcript, BODY_EMERGENCY_KEYWORDS) and not _keyword_risk_kw4(transcript, others)
 
 
 def keyword_risk(transcript: str) -> bool:

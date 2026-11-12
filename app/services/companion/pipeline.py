@@ -19,8 +19,8 @@ from app.services.companion.fusion import (
 )
 from app.services.companion.llm_client import LlmClient
 from app.services.companion.reply_service import (
-    SAFETY_REPLY,
     ReplyResult,
+    safety_reply,
     avoid_reply,
     fallback_text,
     generate_reply,
@@ -155,7 +155,7 @@ def _low_confidence_turn(transcript: str, llm: LlmClient) -> dict:
     risk_flag = keyword_risk(transcript) or is_risk(risk_prob)
     return {
         "turnResult": {"label": UNDECIDED, "source": "TEXT"},
-        "reply": {"text": SAFETY_REPLY if risk_flag else LOW_CONFIDENCE_REPLY, "isFollowUp": True},
+        "reply": {"text": safety_reply(transcript) if risk_flag else LOW_CONFIDENCE_REPLY, "isFollowUp": True},
         "signals": None,
         "replySource": "SAFETY" if risk_flag else "CONFIRM",
         "summary": None,
@@ -176,7 +176,7 @@ def _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_s
             # 11/10 점검 H-3: 확인 턴에서도 위험 모델을 돌리고, 위험이면 되묻는 대신 안전 안내로 답한다 (확신도 낮은 턴과 같은 규칙)
             risk_prob = _risk_prob_capped(llm, transcript)
             risk_flag = keyword_risk(transcript) or is_risk(risk_prob)
-            reply_text, source = (SAFETY_REPLY, "SAFETY") if risk_flag else (confirm_reply(check), "CONFIRM")
+            reply_text, source = (safety_reply(transcript), "SAFETY") if risk_flag else (confirm_reply(check), "CONFIRM")
         else:
             risk_flag, reply_text, source = keyword_risk(transcript), confirm_reply(check), "CONFIRM"  # 낱말 규칙만 (#206)
             risk_prob = None  # 모델을 돌리지 않았다
@@ -211,7 +211,7 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
         risk_prob = _risk_prob_capped(llm, transcript)
         turn_result = analyze_turn_result(transcript, face, classify_text, text_out=text_mood)
     # 11/12: 말을 피하는 대답이면 모델 대답을 만들지 않고 물러나는 문장으로 답한다 (캐묻지 않는다).
-    #   위험 턴이면 아래에서 SAFETY_REPLY 로 덮어쓴다 - 위험 판정이 항상 우선이다
+    #   위험 턴이면 아래에서 안전 안내(safety_reply)로 덮어쓴다 - 위험 판정이 항상 우선이다
     avoided = get_settings().companion_avoid_reply and is_avoidance(transcript)
     pool = ThreadPoolExecutor(max_workers=4)
     try:
@@ -255,7 +255,8 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
                             source=reply.source, failures=reply.failures)
     if risk_flag:
         # 위험 신호가 켜지면 평소 대답 대신 안내 문장으로 답한다 (식사 질문 등으로 넘기지 않는다)
-        reply = ReplyResult(text=SAFETY_REPLY, isFollowUp=reply.isFollowUp, source="SAFETY", failures=reply.failures)
+        reply = ReplyResult(text=safety_reply(transcript), isFollowUp=reply.isFollowUp, source="SAFETY",
+                            failures=reply.failures)
     if signals is not None:
         signals = {**signals, "riskFlag": risk_flag}
     return {

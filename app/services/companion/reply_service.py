@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.core.config import get_settings
 from app.services.companion.llm_client import REPLY_ADAPTER, LlmClient, LlmUnavailable
+from app.services.companion.risk import body_emergency_only
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,19 @@ SAFETY_REPLY = (
     "많이 힘드셨겠어요. 지금 마음이 많이 무거우신 것 같아요. 혼자 견디지 마시고 가까운 가족이나 "
     "주변 분께 바로 연락해 주세요. 급하시면 119에 전화하실 수 있어요."
 )
+
+# 몸 응급 낱말(숨·가슴·쓰러짐·뇌졸중 징후)만 걸린 위험 턴의 안내 (11/12 영향 범위 점검 Q-1, COMPANION_BODY_SAFETY_REPLY).
+#   SAFETY_REPLY("마음이 많이 무거우신 것 같아요")는 "혀가 굳어서 말을 못 하겠어" 같은 몸 응급에 맞지 않았다
+BODY_SAFETY_REPLY = (
+    "많이 놀라셨겠어요. 몸이 많이 불편하시거나 위급한 상황이면 바로 119에 전화하시고, 가까운 가족에게도 알려 주세요."
+)
+
+
+def safety_reply(transcript: str) -> str:
+    """위험 턴의 안내 문장. 몸 응급 낱말만 걸렸으면 몸 응급용, 아니면 기존 안내 (스위치를 끄면 늘 기존 안내)."""
+    if get_settings().companion_body_safety_reply and body_emergency_only(transcript):
+        return BODY_SAFETY_REPLY
+    return SAFETY_REPLY
 
 
 @dataclass

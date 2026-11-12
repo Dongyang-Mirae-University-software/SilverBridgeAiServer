@@ -119,7 +119,7 @@ LLM 실패는 오류로 나가지 않는다. 재시도는 하지 않고(`COMPANI
 | `questionId` | 백엔드가 준 질문 ID (그대로 되돌려 줌) |
 | `slot` | 시간대 (09:00·12:00·15:00·18:00·21:00) |
 | `endedAt` | 끝난 시각 |
-| `endReason` | 종료 사유 (영문 코드: `MAX_TURNS`·`NO_RESPONSE`·`USER_STOP`, 백엔드 결정 D 2026-11-03) |
+| `endReason` | 종료 사유 (영문 코드: `MAX_TURNS`·`NO_RESPONSE`·`USER_STOP`·`AVOIDED`, 백엔드 결정 D 2026-11-03). `AVOIDED`(2026-11-12) = 한 대화에서 두 번 말을 피해 말벗이 마무리(`COMPANION_AVOID_END_COUNT`), 끝내기를 누른 `USER_STOP`과 구별 - 백엔드 V72가 받음 |
 | `turnCount` | 전체 턴 수 (무응답 포함) |
 | `noResponseCount` | 무응답 턴 수 |
 | `answeredCount` | 답한 턴 수 (무응답 제외, 판단 보류는 포함). 응답률 = answeredCount ÷ 질문 수 |
