@@ -7,6 +7,7 @@ from typing import Callable
 
 from app.core.config import get_settings
 from app.services.companion.answer_summary import summarize_answer
+from app.services.companion.avoidance import is_avoidance
 from app.services.companion.fusion import (
     HSEMOTION_TO_TURN,
     MOOD_CODES,
@@ -20,6 +21,7 @@ from app.services.companion.llm_client import LlmClient
 from app.services.companion.reply_service import (
     SAFETY_REPLY,
     ReplyResult,
+    avoid_reply,
     fallback_text,
     generate_reply,
     is_negative_mood,
@@ -208,22 +210,29 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
         # 함께 보내면 어댑터 문에서 대답 생성 뒤에 줄을 서 시간 제한에 걸리고, 위험이 낱말 규칙으로만 판정됐다.
         risk_prob = _risk_prob_capped(llm, transcript)
         turn_result = analyze_turn_result(transcript, face, classify_text, text_out=text_mood)
+    # 11/12: 말을 피하는 대답이면 모델 대답을 만들지 않고 물러나는 문장으로 답한다 (캐묻지 않는다).
+    #   위험 턴이면 아래에서 SAFETY_REPLY 로 덮어쓴다 - 위험 판정이 항상 우선이다
+    avoided = get_settings().companion_avoid_reply and is_avoidance(transcript)
     pool = ThreadPoolExecutor(max_workers=4)
     try:
         signal_future = pool.submit(extract_signals, transcript, llm, get_settings().companion_llm_retry)
         # 글 기분은 risk_first 일 때만 생성 전에 있다. 꺼져 있으면 None 으로 넘겨 전 규칙으로 검사한다 (11/12)
-        reply_future = pool.submit(generate_reply, llm, question, transcript, prev_signals, is_last_turn, turn_no,
-                                   text_mood if risk_first else None)
+        reply_future = None if avoided else pool.submit(
+            generate_reply, llm, question, transcript, prev_signals, is_last_turn, turn_no,
+            text_mood if risk_first else None)
         summary_future = pool.submit(summarize_answer, llm, transcript)
         risk_future = None if risk_first else pool.submit(risk_probability, llm, transcript)
         try:
             signals = signal_future.result(timeout=left())
         except FutureTimeout:
             signals = None
-        try:
-            reply = reply_future.result(timeout=left())
-        except FutureTimeout:
-            reply = timeout_reply(turn_no, is_last_turn)  # 시간 상한: 미리 정한 문장으로 답한다 (말은 있으므로 받아 주는 문장)
+        if reply_future is None:
+            reply = avoid_reply(turn_no, is_last_turn)
+        else:
+            try:
+                reply = reply_future.result(timeout=left())
+            except FutureTimeout:
+                reply = timeout_reply(turn_no, is_last_turn)  # 시간 상한: 미리 정한 문장으로 답한다 (말은 있으므로 받아 주는 문장)
         try:
             summary = summary_future.result(timeout=left())
         except FutureTimeout:
@@ -259,6 +268,8 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
         "riskFlag": risk_flag,  # 대화 한 번의 위험 여부 (낱말 규칙 또는 모델. 신호 추출이 실패해도 판정한다)
         # 모델 위험 확률만 (낱말 규칙·signals 대체 판정은 섞지 않는다). 계산 못 했거나 시간 초과면 None. 저장·로그 없음
         "riskProbability": risk_prob,
+        # 말을 피한 턴인가 (11/12). 위험 턴이면 안전 안내가 나가도 감지 여부는 그대로 남긴다. 원문은 싣지 않는다
+        "avoided": avoided,
     }
 
 

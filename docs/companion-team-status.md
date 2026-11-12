@@ -184,6 +184,8 @@ Written for: 팀원 전체 (BE·FE·관리자 화면·AI 담당). 노션 요구�
 | `COMPANION_SUMMARY_STRIP_PREFIX` | true | 한 줄 요약 앞 "요약:"·"기록:" 머리말 지움 |
 | `COMPANION_RISK_FIRST` | true | 위험·기분 확률(각 0.1초 안팎)을 생성(신호·요약·대답)보다 먼저 계산 (11/10 점검 H-1). false 면 넷을 함께 보냄 |
 | `COMPANION_REPLY_RELAX_CALM` | true | 글 기분이 평온·기쁨인 턴은 '대답과 무관'(대답 낱말 이어 받기) 검사를 빼고, 권유 문장("~해 보세요"·"산책 어떠세요" 등)을 거르는 '권유' 검사를 꼬리질문 턴 전체에 더함 (11/12). 걱정·우울·판단 불가·기분 없음 턴과 `COMPANION_RISK_FIRST=false` 는 전 규칙. false 면 전과 같음 |
+| `COMPANION_AVOID_REPLY` | true | 말을 피하는 대답("말하기 싫어"·"묻지 마"·"할 말 없어" 등, `avoidance.py`)이면 모델 대답을 만들지 않고 물러나는 문장(`FALLBACK_AVOID`)으로 답함 (11/12). 위험 턴은 안전 안내가 우선, 숨·가슴·아파 등 몸 불편 말은 감지하지 않음. 턴 응답 `avoided`. false 면 전과 같음 |
+| `COMPANION_AVOID_END_COUNT` | 2 | 한 대화에서 이 횟수만큼 말을 피하면(위험 턴 제외) 마무리 문장으로 답하고 `endReason=USER_STOP` 으로 끝냄. 0이면 일찍 끝내지 않음 |
 | `COMPANION_CONFIRM_RISK_MODEL` | true | 단어 확인(되묻기) 턴에서도 위험 모델을 돌리고 위험이면 안전 안내 (H-3). false 면 낱말 규칙만 |
 | `COMPANION_LLM_GEN_CONCURRENCY` | 2 | 말벗 생성 동시 실행 상한(0 = 없음). 위험·기분 확률은 상한 밖. 마감 시각을 넘긴 작업은 계산하지 않음 (H-5, GPU) |
 | `COMPANION_LLM_WARMUP` | true | 말벗 키가 있으면 서버 시작 때 EXAONE·어댑터를 백그라운드로 미리 올림 (M-1, 기동 직후 GPU 약 +2.9GB) |
