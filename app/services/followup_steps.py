@@ -56,6 +56,7 @@ _NEG = re.compile(
     r"않|아니|아뇨|없|(?<![불미편])안(?:아|나|해|심|그|저|메|빠|차|조|답답|가빠|가쁘|숨차|힘들|어지|부었|붓|쑤|결|막|뻐근|떨)|"
     r"편안|편해|괜찮|ㄴㄴ|^no$", re.I)
 _NO = re.compile(r"^(아니|아뇨|아녀|아닙|안그|없어|없습|없대|없으|없네|안나|안해|안심|별로|전혀|그렇지않|그런건아니|ㄴㄴ|ㄴ$|no$|노$)", re.I)
+_SUBSIDED = re.compile(r"(붓기|부기|부은|부어|부었|붓던)[^.!?]{0,6}?(빠졌|빠지|가라앉|덜|줄었|줄어|내렸|없어졌|사라)")
 _UNKNOWN = re.compile(r"^(모르|몰라|몰러|글쎄|잘모르|기억이안|기억안|기억이잘|기억못|기억이없)")
 _ONSET = re.compile(r"오늘|아까|방금|조금전|아침|점심|저녁|밤|새벽|어제|그제|그저께|며칠|사흘|이틀|나흘|닷새|일주|주일|주째|달|개월|년|오래|요즘|최근|한참|\d+(일|주|시간)|부터|째|됐")
 _NOT_LETTER = re.compile(r"[^가-힣ㄱ-ㅎA-Za-z0-9]")
@@ -141,7 +142,8 @@ _GROUPS: tuple[Group, ...] = (
         "갑자기 아주 심하게 아파하시거나 말씀이 어눌해지시면 바로 119에 전화하세요.",
     ),
     Group(
-        "belly", re.compile(r"배|속|구토|토할|설사|변비|소화"),
+        # "속"은 "계속"의 속이 아니다(2026-11-12 점검 H-4 - "기침이 계속 나요"·"무릎이 계속 아파요"가 배 묶음으로 갔다).
+        "belly", re.compile(r"배|(?<!계)속|구토|토할|설사|변비|소화"),
         _yn("참기 힘들 만큼 아프세요?", "참기 힘들 만큼 아파하세요?", "", "참을 만해요", mild="no", yes_words=r"뒹굴|데굴|못참|참기힘"), "119",
         _yn("설사도 하세요?", "설사도 하신대요?", "설사도 해요", "설사는 안 해요"),
         "내과", "참기 힘들 만큼 아프거나 피를 토하면 바로 119에 전화하세요.",
@@ -269,6 +271,9 @@ def interpret(state: dict[str, Any], message: str) -> tuple[str, str | None]:
             return "unclear", None
         if _OKAY.fullmatch(c):
             return "no", q.no_phrase
+        # 부기가 줄었다는 말("붓기 빠졌어요"·"부기가 가라앉았어요")은 "많이 부었어요?"의 '아니요'다(2026-11-12 점검 H-1).
+        if q.yes_words is not None and _SUBSIDED.search(c):
+            return ("no" if len(c) <= _SHORT_ANSWER_MAX else "describe"), q.no_phrase
         negated = bool(_NO.match(c) or _NEG.search(c))
         about_this = bool(q.yes_words and q.yes_words.search(c))  # 이 질문이 묻는 증상을 부정("가슴은 괜찮아요")
         if negated and not about_this and not _NO.match(c) and (_ONSET.search(c) or chat_keywords.FOLLOWUP_SYMPTOM_NOUN.search(c)):
@@ -315,7 +320,8 @@ def is_okay_answer(state: dict[str, Any], message: str) -> bool:
 
 # ── 진행 중 새 증상·위험 신호(2026-11-11) ─────────────────────────────────────────────────────────────
 # 앞 증상이 나아졌다는 말("무릎은 괜찮아졌고 기침이 나요") - 그 뒤가 지금 말하는 증상이다.
-_RELIEF_SPLIT = re.compile(r"^(?P<before>.*?)(괜찮|나았|나아졌|좋아졌|안 ?아프|덜 ?아프|가라앉)\S*[\s,.~]*(?P<rest>.*)$")
+# "괜찮을까요?·괜찮겠죠?"는 나아졌다는 말이 아니라 걱정이다(2026-11-12 점검 H-2 - "무릎이 아픈데 괜찮을까요? 기침도 나요"가 무릎을 버렸다).
+_RELIEF_SPLIT = re.compile(r"^(?P<before>.*?)(괜찮(?!을까|겠|을지|은가|은지|나)|나았|나아졌|좋아졌|안 ?아프|덜 ?아프|가라앉)\S*[\s,.~]*(?P<rest>.*)$")
 
 
 # 증상이 계속된다는 말 - 부정 낱말("안"·"않"·"괜찮")이 들어 있지만 위험 신호를 부정하지 않는다(2026-11-11 기능 점검 F-1:
