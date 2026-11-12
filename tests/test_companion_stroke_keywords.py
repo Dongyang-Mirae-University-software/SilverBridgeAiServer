@@ -10,7 +10,7 @@ import pytest
 from app.core.config import get_settings
 from app.services.companion import pipeline
 from app.services.companion.avoidance import is_avoidance
-from app.services.companion.reply_service import SAFETY_REPLY, ReplyResult
+from app.services.companion.reply_service import BODY_SAFETY_REPLY, ReplyResult
 from app.services.companion.risk import STROKE_KEYWORDS, keyword_risk
 from app.services.companion.text_emotion_service import TextEmotionResult
 
@@ -71,5 +71,5 @@ def test_stroke_turn_gets_safety_reply_not_avoid_reply(monkeypatch):
                                 lambda t: TextEmotionResult("우울", 0.9, True, {}),
                                 llm=None, question="잘 주무셨어요?", prev_signals=None, is_last_turn=False, turn_no=2)
     assert r["riskFlag"] is True
-    assert r["reply"]["text"] == SAFETY_REPLY
+    assert r["reply"]["text"] == BODY_SAFETY_REPLY  # 몸 응급용 안내 (11/12 Q-1)
     assert r["avoided"] is False

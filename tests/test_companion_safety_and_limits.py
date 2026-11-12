@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app.core.config import get_settings
 from app.routers.companion_router import FRAME_MAX_BYTES, get_text_classifier, get_transcriber
 from app.services.companion import pipeline
-from app.services.companion.reply_service import SAFETY_REPLY
+from app.services.companion.reply_service import BODY_SAFETY_REPLY, SAFETY_REPLY
 from app.services.companion.llm_client import LlmUnavailable
 from app.services.companion.stt_service import SttResult
 from app.services.companion.text_emotion_service import TextEmotionResult
@@ -38,12 +38,13 @@ def _run(llm, transcript):
 def test_risk_turn_gets_safety_reply_even_when_model_is_off():
     result = _run(OffLlm(), "숨이 안 쉬어져서 쓰러졌어요")
     assert result["riskFlag"] is True
-    assert result["reply"]["text"] == SAFETY_REPLY
+    assert result["reply"]["text"] == BODY_SAFETY_REPLY  # 몸 응급 낱말만 걸린 턴은 몸 응급용 안내 (11/12 Q-1)
     assert result["replySource"] == "SAFETY"
 
 
 def test_safety_reply_does_not_ask_about_meals():
-    assert "식사" not in SAFETY_REPLY and "?" not in SAFETY_REPLY
+    for text in (SAFETY_REPLY, BODY_SAFETY_REPLY):
+        assert "식사" not in text and "?" not in text
 
 
 def test_normal_turn_keeps_normal_reply():

@@ -60,7 +60,7 @@ BE가 보낸 질문 1~6에 대해 AI 쪽이 구현한 내용을 기준으로 답
   "wardId": "…",
   "slot": "09:00",
   "endedAt": "2026-11-02T09:04:00+09:00",
-  "endReason": "최대 턴 수 | 연속 무응답 | USER_STOP",
+  "endReason": "MAX_TURNS | NO_RESPONSE | USER_STOP | AVOIDED",
   "turnCount": 8,
   "noResponseCount": 1,
   "mood": "기쁨 | 평온 | 걱정 | 우울 | null",
