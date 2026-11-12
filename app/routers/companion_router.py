@@ -137,8 +137,9 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
 def _apply_avoid_end(d: Dialogue, result: dict, is_last_turn: bool) -> None:
     """말을 피한 턴을 세고, 한 대화에서 COMPANION_AVOID_END_COUNT 번째면 마무리 문장으로 답하고 끝낸다 (11/12).
 
-    위험 턴은 세지 않는다 (안전 안내가 우선이고, 대화를 일찍 끝내지 않는다). 종료 이유는 USER_STOP:
-    어르신이 그만 말하고 싶어 한 것이라 사용자 중단과 뜻이 같고, 백엔드가 이미 아는 값이다 (새 값은 백엔드가 USER_STOP 으로 바꾼다).
+    위험 턴은 세지 않는다 (안전 안내가 우선이고, 대화를 일찍 끝내지 않는다).
+    종료 이유는 AVOIDED (11/12 사용자 결정): 끝내기를 누른 USER_STOP 과 나눠 기록한다. 백엔드 V72 가 이 값을 받는다
+    (백엔드를 먼저 배포한다 - 모르는 값은 백엔드가 USER_STOP 으로 바꿔 저장한다).
     """
     if not result.get("avoided") or result.get("riskFlag"):
         return
@@ -147,7 +148,7 @@ def _apply_avoid_end(d: Dialogue, result: dict, is_last_turn: bool) -> None:
     end = bool(limit) and count >= limit and not is_last_turn  # 마지막 턴은 원래대로 MAX_TURNS 로 끝난다
     if end:
         result["reply"] = {"text": reply_service.FALLBACK_LAST[0], "isFollowUp": False}
-        result["endReason"] = "USER_STOP"
+        result["endReason"] = "AVOIDED"
     logger.info("[COMPANION-AVOID] count=%d end=%s last=%s", count, end, is_last_turn)  # 어르신 말 원문은 남기지 않는다
 
 
