@@ -237,3 +237,65 @@ def test_chest_injury_answer_stays_119(flow) -> None:
     _send(flow, "무릎이 아파요", session="ci")
     out = _send(flow, "넘어져서 가슴을 부딪혔어요", session="ci")
     assert out["riskLevel"] == "high"
+
+
+# ---- 남긴 3건 (2026-11-12) ------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text", ["붓기도 있어요", "부기가 좀 있어요"])
+def test_swelling_answer_is_yes_to_joint_red_flag(flow, text: str) -> None:
+    # ① "다치셨거나 많이 부었어요?"에 붓기·부기로 답하면 '네' - 오늘 진료 안내(MedGemma 0회).
+    session = f"sw{abs(hash(text))}"
+    _send(flow, "무릎이 아파요", session=session)
+    out = _send(flow, text, session=session)
+    assert not flow.llm.calls
+    assert "오늘 바로 정형외과 진료를 받아 보세요." in out["reply"]
+
+
+def test_no_swelling_is_still_no(flow) -> None:
+    _send(flow, "무릎이 아파요", session="sw0")
+    out = _send(flow, "붓기는 없어요", session="sw0")
+    assert out["layout"]["questions"] == ["언제부터 그러셨어요?"]
+
+
+@pytest.mark.parametrize("text", ["무릎은 괜찮아졌고 기침이 나요", "무릎은 괜찮은데 기침이 나요"])
+def test_first_turn_relief_starts_steps_for_new_symptom(flow, text: str) -> None:
+    # ② 첫 마디 전환 문장 - 뒤 증상(기침)으로 되묻기, 결과 문장에 무릎 없음.
+    session = f"fr{abs(hash(text))}"
+    out = _send(flow, text, session=session)
+    assert out["layout"]["questions"] == ["숨쉬기 힘드세요?"]
+    for answer in ("아니요", "오늘부터요", "아니요"):
+        _send(flow, answer, session=session)
+    assert flow.llm.calls[-1]["message"].startswith("기침이 나요")
+    assert "무릎" not in flow.llm.calls[-1]["message"]
+
+
+def test_first_turn_relief_with_detail_generates_new_symptom_only(flow) -> None:
+    _send(flow, "무릎은 괜찮은데 어제부터 기침이 나요", session="fr2")
+    assert flow.llm.calls[-1]["message"] == "어제부터 기침이 나요"
+
+
+def test_guardian_first_turn_relief(flow) -> None:
+    out = _guardian(flow, "무릎은 괜찮아졌는데 기침을 하신대요", session="g4")
+    assert not flow.llm.calls
+    assert "내과" in out["reply"] and "정형외과" not in out["reply"]
+
+
+def test_first_turn_without_relief_unchanged(flow) -> None:
+    # 전환이 아닌 말("어제는 괜찮았는데 오늘 머리가 아파요" - 앞에 증상 낱말 없음)은 그대로.
+    out = _send(flow, "어제는 괜찮았는데 오늘 머리가 아파요", session="fr3")
+    assert flow.llm.calls and flow.llm.calls[-1]["message"] == "어제는 괜찮았는데 오늘 머리가 아파요" or out["layout"]["questions"]
+
+
+@pytest.mark.parametrize("text,group,question", [
+    ("손가락에서 피가 조금 나요", "joint", "다치셨거나 많이 부었어요?"),
+    ("코피가 나요", "default", "갑자기 아주 심해졌어요?"),
+    ("숨이 좀 차요", "chest", "숨이 차거나 가슴이 조이세요?"),
+    ("가슴이 답답하고 피가 나요", "chest", "숨이 차거나 가슴이 조이세요?"),
+])
+def test_bleeding_first_turn_picks_body_part_group(flow, text: str, group: str, question: str) -> None:
+    # ③ 출혈 낱말만으로는 가슴 묶음으로 가지 않는다 - 119 기준 한 줄은 그대로.
+    assert fs.group_for(text).name == group
+    out = _send(flow, text, session=f"bl{abs(hash(text))}")
+    assert out["layout"]["questions"] == [question]
+    assert "119" in out["reply"]

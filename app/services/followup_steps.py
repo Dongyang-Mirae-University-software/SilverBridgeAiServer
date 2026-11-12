@@ -153,7 +153,7 @@ _GROUPS: tuple[Group, ...] = (
         re.compile(r"무릎|허리|어깨|관절|뼈|손목|발목|다리|팔|손가락|발가락|손이아|발이아|손이쑤|발이쑤|목이뻐근|목뻐근|목이결|목결"),
         # 다쳤다고 단정하지 않는다(2026-11-11 "다치신 뒤로 많이 부었대요?" 지적) - 다침 또는 심한 부기 둘 다 오늘 진료 기준.
         _yn("다치셨거나 많이 부었어요?", "다치셨거나 많이 부으셨대요?", "", "다치거나 붓지는 않았어요",
-            yes_words=r"넘어|다쳤|다친|다쳐|삐었|삐끗|접질|부딪|부었|부어|부으|붓고|퉁퉁"), "visit",
+            yes_words=r"넘어|다쳤|다친|다쳐|삐었|삐끗|접질|부딪|부었|부어|부으|붓고|붓기|부기|퉁퉁"), "visit",
         _yn("걸을 때 더 아프세요?", "걸으실 때 더 아프시대요?", "걸을 때 더 아파요", "걸을 때 더 아프지는 않아요"),
         "정형외과", "", "",
     ),
@@ -173,10 +173,17 @@ _GROUPS: tuple[Group, ...] = (
 _BY_NAME = {g.name: g for g in _GROUPS}
 
 
+# 묶음을 고를 때 빼는 출혈 낱말(2026-11-12 사용자 결정): "손가락에서 피가 조금 나요"·"코피가 나요"가 위험 신호 낱말 "피가" 때문에
+# 가슴 묶음("숨이 차거나 가슴이 조이세요?")으로 갔다 - 부위로 고른다(코피는 "코" 때문에 기침 묶음으로 가지 않게 통째로 뺀다 → 기본 묶음).
+# 첫 턴의 119 기준 한 줄은 원문(has_red_flag)으로 그대로 붙는다.
+_BLEED_FOR_GROUP = re.compile(r"코피가?|피가|출혈")
+
+
 def group_for(message: str) -> Group:
-    if chat_keywords.has_red_flag(message):
+    text = _BLEED_FOR_GROUP.sub(" ", message or "")
+    if chat_keywords.has_red_flag(text):
         return _BY_NAME["chest"]
-    compact = re.sub(r"\s+", "", message or "")
+    compact = re.sub(r"\s+", "", text)
     return next(g for g in _GROUPS[1:] if g.pattern.search(compact))
 
 

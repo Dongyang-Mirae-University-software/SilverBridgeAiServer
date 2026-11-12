@@ -254,6 +254,13 @@ class ChatService:
             _LOG.info("[CHAT-QUALITY] followup_new_symptom=true steps=%s", step_state is not None)
             turn_text = switched
             step_state, step_symptom, after_followup = None, "", False
+        elif not after_followup and message and not ui_selection:
+            # 첫 마디 전환 문장(2026-11-12 - "무릎은 괜찮아졌고 기침이 나요"가 증상 둘로 잡혀 되묻기 없이 정형외과로 답했다):
+            # 뒤 증상 부분을 이 턴의 증상 문장으로(되묻기 판단·묶음·생성 문장). 라우터·응급·자해 판정은 원문 그대로.
+            rest = followup_steps.relief_rest(message)
+            if rest:
+                _LOG.info("[CHAT-QUALITY] relief_first_turn=true")
+                turn_text = rest
         # 단계 되묻기 답이 질문 낱말을 부정으로 되받아("숨쉬기 힘들지 않아요") 키워드 응급 강제를 건너뛴 턴인가(I-5).
         step_negated = False
         step: tuple[str, Any] | None = None
