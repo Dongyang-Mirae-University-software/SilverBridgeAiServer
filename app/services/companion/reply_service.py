@@ -32,6 +32,16 @@ FALLBACK_EMPATHY = (
     "힘든 이야기 꺼내 주셔서 고맙습니다. 제가 더 들어 드려도 될까요?",
 )
 NEGATIVE_TURN_LABELS = ("슬픔", "화남", "우울")
+# 이 글 기분의 턴은 '대답과 무관' 검사를 하지 않는다 (11/12, COMPANION_REPLY_RELAX_CALM).
+#   DGX 측정(CareCall 200): '대답과 무관'만으로 대체된 62개 중 약 50개가 멀쩡한 대답이었다.
+#   힘든 이야기(93)는 풀면 살아난 대답의 절반이 질문 주제에 끌려간 오해라 부정 기분 턴은 그대로 둔다
+RELAX_TURN_LABELS = ("평온", "기쁨")
+# '권유' 규칙: 꼬리질문 대신 무엇을 하라고 권하는 문장을 거른다 (11/12, 측정에 쓴 정규식 그대로).
+#   "함께 하는 시간은 어떠신가요"처럼 권유 낱말 없이 '어떠신가요'만 있는 물음은 통과한다
+ADVICE_PATTERN = re.compile(
+    r"((스트레칭|산책|걷기|운동|드셔|맞아\s?보|연락해\s?보|시작해\s?보|해\s?보시|명상|음악)[^.?!]*(어떠신가요|어떨까요|어떠세요)"
+    r"|해\s?보세요|보시는\s?건\s?어떨까요|하시면\s?좋)"
+)
 # 어르신이 아무 말도 하지 않은 턴(무응답)의 문장 (11/12 점검 H-1). 말을 들은 것처럼 받지 않고, 편하게 다시 말을 건넨다.
 # 무응답 턴에는 대화를 다시 여는 질문이 화제 전환이 아니다
 FALLBACK_NO_RESPONSE = (
@@ -63,8 +73,19 @@ def _content_words(text: str) -> list[str]:
     return [w for w in re.findall(r"[가-힣]+", text) if len(w) >= 2 and w[:2] not in COMMON_STEMS]
 
 
-def check_reply(text: str, is_last_turn: bool, transcript: str = "") -> list[str]:
-    """규칙을 하나씩 본다. 걸린 항목 이름 목록을 돌려준다. 빈 목록이면 통과."""
+def is_relaxed_mood(text_mood: dict | None) -> bool:
+    """글 기분이 쓸 수 있는 결과이고 평온·기쁨인가 ('대답과 무관' 검사를 빼는 턴)."""
+    return bool(text_mood and text_mood.get("usable") and text_mood.get("turnLabel") in RELAX_TURN_LABELS)
+
+
+def check_reply(text: str, is_last_turn: bool, transcript: str = "", text_mood: dict | None = None) -> list[str]:
+    """규칙을 하나씩 본다. 걸린 항목 이름 목록을 돌려준다. 빈 목록이면 통과.
+
+    text_mood: 그 턴의 글 기분 (pipeline 의 textMood). COMPANION_REPLY_RELAX_CALM 이 켜져 있으면
+    평온·기쁨 턴은 '대답과 무관'을 보지 않고, 꼬리질문 턴 전체에 '권유'를 본다 (11/12).
+    없거나 부정·판단 불가면 '대답과 무관'은 전과 같다.
+    """
+    relax = get_settings().companion_reply_relax_calm
     failures: list[str] = []
     body = text.strip()
     if not body:
@@ -78,10 +99,12 @@ def check_reply(text: str, is_last_turn: bool, transcript: str = "") -> list[str
     if not is_last_turn and not body.endswith("?"):
         failures.append("물음으로 끝나지 않음")
     # 꼬리질문은 어르신 대답에 나온 낱말 가운데 하나를 이어 받아야 한다 (2글자 앞부분으로 비교: 토스트 ↔ 토스트를)
-    if not is_last_turn and transcript:
+    if not is_last_turn and transcript and not (relax and is_relaxed_mood(text_mood)):
         words = _content_words(transcript)
         if words and not any(w[:2] in body for w in words):
             failures.append("대답과 무관")
+    if relax and not is_last_turn and ADVICE_PATTERN.search(body):
+        failures.append("권유")
     return failures
 
 
@@ -148,11 +171,13 @@ def generate_reply(
     prev_signals: dict | None,
     is_last_turn: bool,
     turn_no: int,
+    text_mood: dict | None = None,
 ) -> ReplyResult:
     """응답 문장을 만든다. (S6-3, D20)
 
     LLM 실패(연결 불가·시간 초과)와 규칙 위반을 모두 한 번씩 더 시도한다 (retry 설정, 기본 1회).
     그래도 안 되면 미리 정한 문장을 쓴다. 대화는 끊기지 않는다.
+    text_mood 는 규칙 검사에 넘긴다 (평온·기쁨 턴 완화, 11/12). 없으면 전 규칙.
     """
     s = get_settings()
     prompt = build_reply_prompt(question, transcript, prev_signals, is_last_turn)
@@ -164,7 +189,7 @@ def generate_reply(
             failures = ["LLM 실패"]
             continue
         text = re.sub(r"\s+", " ", raw).strip()
-        failures = check_reply(text, is_last_turn, transcript)
+        failures = check_reply(text, is_last_turn, transcript, text_mood)
         if not failures:
             return ReplyResult(text=text, isFollowUp=not is_last_turn, source="LLM", failures=[])
     return ReplyResult(text=_fallback(turn_no, is_last_turn), isFollowUp=not is_last_turn,
