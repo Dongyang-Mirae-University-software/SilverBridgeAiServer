@@ -64,3 +64,28 @@ def test_department_hint_reads_apeul(message: str, department: str) -> None:
 def test_emergency_answer_gets_no_rule_line() -> None:
     reply = _gen("가슴이 조이고 숨이 차요 찜질해도 돼요?", intent="emergency_guidance")["reply"]
     assert PACK not in reply
+
+
+# ---- #264·#265 기능 점검 반영 (2026-11-12) -------------------------------------------------------------
+
+
+@pytest.mark.parametrize("message", ["화상에 찜질해도 돼요?", "뜨거운 물에 데었는데 찜질해요?", "배에 찜질해도 돼요?", "다래끼에 온찜질 해요?",
+                                     "머리 부딪혔는데 찜질해요?", "가슴이 아픈데 찜질해도 돼요?", "눈에 냉찜질 해도 돼요?"])
+def test_pack_line_not_for_burn_belly_eye_chest_head(message: str) -> None:
+    # S-1·H-3: 다친 관절·근육 기준 고정 줄이 화상(온찜질 금지)·배·눈·가슴·머리에 붙지 않는다.
+    assert "hot_cold_pack" not in dict(M.drug_direct_sentences(message, ""))
+
+
+def test_burn_is_not_care_question() -> None:
+    assert not M.is_care_question("화상에 찜질해도 돼요?", "medical_advice", False)
+    assert M.is_care_question("무릎에 냉찜질이 좋아요?", "medical_advice", False)
+
+
+@pytest.mark.parametrize("message", ["약을 언제까지 먹어요?", "약 먹고 언제 밥 먹어요?", "혈압약 깜빡했는데 언제 먹어요?"])
+def test_med_timing_not_for_duration_meal_or_missed_dose(message: str) -> None:
+    # M-1: 기간·식사·놓친 약 질문에는 복용 시간 줄을 붙이지 않는다(놓친 약은 놓친 약 규칙).
+    assert "med_timing" not in dict(M.drug_direct_sentences(message, ""))
+
+
+def test_missed_dose_still_gets_missed_dose_line() -> None:
+    assert "missed_dose_timing" in dict(M.drug_direct_sentences("혈압약 깜빡했는데 언제 먹어요?", ""))

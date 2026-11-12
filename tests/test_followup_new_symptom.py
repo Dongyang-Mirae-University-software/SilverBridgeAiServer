@@ -299,3 +299,44 @@ def test_bleeding_first_turn_picks_body_part_group(flow, text: str, group: str, 
     out = _send(flow, text, session=f"bl{abs(hash(text))}")
     assert out["layout"]["questions"] == [question]
     assert "119" in out["reply"]
+
+
+# ---- #264·#265 기능 점검 반영 (2026-11-12) -------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text,verdict", [("붓기 빠졌어요", "no"), ("부기가 가라앉았어요", "describe"), ("붓기는 좀 덜해요", "no"),
+                                          ("붓기도 있어요", "yes")])
+def test_subsided_swelling_is_not_yes(text: str, verdict: str) -> None:
+    # H-1: 부기가 줄었다는 말은 "많이 부었어요?"의 '네'가 아니다.
+    assert fs.interpret(_at("joint", 0), text)[0] == verdict
+
+
+def test_subsided_swelling_does_not_send_to_clinic_today(flow) -> None:
+    _send(flow, "무릎이 아파요", session="ss")
+    out = _send(flow, "붓기 빠졌어요", session="ss")
+    assert out["layout"]["questions"] == ["언제부터 그러셨어요?"]
+
+
+@pytest.mark.parametrize("text", ["무릎이 아픈데 괜찮을까요? 기침도 나요", "머리는 괜찮겠죠? 배가 아파요"])
+def test_worry_is_not_relief(text: str) -> None:
+    # H-2: "괜찮을까요?·괜찮겠죠?"는 나아졌다는 말이 아니다 - 앞 증상을 버리지 않는다.
+    assert fs.relief_rest(text) is None
+
+
+def test_worry_first_turn_keeps_both_symptoms(flow) -> None:
+    _send(flow, "무릎이 아픈데 괜찮을까요? 기침도 나요", session="wy")
+    assert "무릎" in flow.llm.calls[-1]["message"]
+
+
+@pytest.mark.parametrize("text,group", [("기침이 계속 나요", "cough"), ("무릎이 계속 아파요", "joint"), ("속이 안 좋아요", "belly"),
+                                        ("속쓰려요", "belly")])
+def test_gyesok_is_not_belly(text: str, group: str) -> None:
+    # H-4: "계속"의 "속"은 배 묶음 낱말이 아니다(단계 표·보호자 옛 칩 표 모두).
+    from app.services import followup_answer_chips as fac
+    assert fs.group_for(text).name == group
+    assert fac.legacy_group_name(text) == group
+
+
+def test_gyesok_mid_flow_is_not_belly_switch() -> None:
+    assert fs.switch_text(_at("joint", 0), "기침이 계속 나요") == "기침이 계속 나요"
+    assert fs.switch_text(_at("cough", 1), "기침이 계속 나요") is None
