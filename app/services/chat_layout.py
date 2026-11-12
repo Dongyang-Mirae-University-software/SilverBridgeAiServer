@@ -410,4 +410,12 @@ def apply(
             result["meta"]["wardConcise"] = {"kind": kind, "dropped": ward_dropped if ward_dropped is not None else max(0, before - after)}
     result["layout"] = layout
     result["reply"] = flatten(layout)
+    if kind in ("emergency", "crisis") and result.get("emergencyWarning"):
+        # FE 는 경고 박스(emergencyWarning)를 목록으로 그린 뒤 본문(layout.body)을 그린다 - 경고 박스와 같은 문장만 본문에서 뺀다
+        # (2026-11-12 화면 확인: 단계 되묻기 119 규칙 답·생성 실패 대체 답은 본문이 경고 박스 문장 그 자체라 두 번 보였다).
+        # 표시 전용 - reply 를 layout 에서 만든 뒤에 빼므로 reply(기록·이력·판정)·emergencyWarning·핵심 줄(긴급 표시 근거)은 그대로다.
+        shown = {s.strip() for s in result["emergencyWarning"] if isinstance(s, str)}
+        layout["body"] = [line for line in layout.get("body") or []
+                          if not (_sentences(_without_emoji(line))
+                                  and all(s.strip() in shown for s in _sentences(_without_emoji(line))))]
     return result
