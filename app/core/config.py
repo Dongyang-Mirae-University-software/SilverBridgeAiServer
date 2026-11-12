@@ -467,6 +467,9 @@ class Settings(BaseModel):
     # 11/10 판단 단계 점검(AI #209) 반영 - 끄면 #206 동작
     # 위험·기분 확률(각 0.1초 안팎)을 생성(신호·요약·대답)보다 먼저 계산한다. 끄면 넷을 함께 보낸다 (H-1)
     companion_risk_first: bool = _as_bool("COMPANION_RISK_FIRST", True)
+    # 글 기분이 평온·기쁨인 턴은 '대답과 무관' 검사를 빼고, 권유 문장 검사(모든 꼬리질문 턴)를 더한다 (11/12).
+    # 끄면 전과 같다. 기분은 risk_first 가 켜져 있을 때만 생성 전에 있다 (꺼져 있으면 전 규칙)
+    companion_reply_relax_calm: bool = _as_bool("COMPANION_REPLY_RELAX_CALM", True)
     # 단어 확인(되묻기) 턴에서도 위험 모델을 돌리고, 위험이면 안전 안내 문장으로 답한다 (H-3). 끄면 낱말 규칙만
     companion_confirm_risk_model: bool = _as_bool("COMPANION_CONFIRM_RISK_MODEL", True)
     # 말벗 생성(신호·요약·대답) 동시 실행 상한. 0이면 상한 없음. 위험·기분 확률 계산은 상한 밖 (H-5, GPU 자원)

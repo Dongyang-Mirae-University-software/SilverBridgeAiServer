@@ -211,7 +211,9 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
     pool = ThreadPoolExecutor(max_workers=4)
     try:
         signal_future = pool.submit(extract_signals, transcript, llm, get_settings().companion_llm_retry)
-        reply_future = pool.submit(generate_reply, llm, question, transcript, prev_signals, is_last_turn, turn_no)
+        # 글 기분은 risk_first 일 때만 생성 전에 있다. 꺼져 있으면 None 으로 넘겨 전 규칙으로 검사한다 (11/12)
+        reply_future = pool.submit(generate_reply, llm, question, transcript, prev_signals, is_last_turn, turn_no,
+                                   text_mood if risk_first else None)
         summary_future = pool.submit(summarize_answer, llm, transcript)
         risk_future = None if risk_first else pool.submit(risk_probability, llm, transcript)
         try:
