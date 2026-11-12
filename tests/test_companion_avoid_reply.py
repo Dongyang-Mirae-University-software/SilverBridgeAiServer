@@ -37,6 +37,13 @@ AVOIDING = [
     "나중에 얘기할게",
     "그냥 넘어가자",
     "냅둬",
+    # 11/12 점검 L-1
+    "그만 물어봐",
+    "대답하기 싫어",
+    "몰라 묻지 마요",
+    "할 얘기 없어",
+    # 11/11 실기기 원문 전체 (DGX 피하는 말 40에 있음)
+    "말하지 않고 있어 너무 말하면 신경 쓸 일 것 같아서 그냥 가만히 있어",
 ]
 NOT_AVOIDING = [
     "말도 마 손주가 와서 좋았어",
@@ -45,13 +52,34 @@ NOT_AVOIDING = [
     "잘 잤어요. 아침에 산책도 했어",
     "아들이랑 얘기를 많이 했어",
     "소용없어 그 약은",
+    # 11/12 점검 M-1: 남 이야기 (가족 주어·전해 들은 말투)
+    "손주가 말하지 않고 있어서 걱정이야",
+    "아들이 아무 말도 안 하고 가버렸어",
+    "영감이 말하기 싫다고 방에 들어갔어",
+    "딸이 그 얘기는 하기 싫대",
+    "며느리가 묻지 마.",
+    "몰라 내가 혼구녕을 내줄라다가 우리 딸이 참으라고 그래서 아무 말도 안 했어요.",  # CareCall 오탐
 ]
 # 몸이 불편해 말을 못 하는 말 - 응급일 수 있어 피하는 말로 보지 않는다 (평소 경로·위험 판정)
 BODY = [
     "숨이 차서 말을 못하겠네",
     "가슴이 답답해서 말을 못 하겠어",
     "머리가 아파서 말하기 싫어",
+    # 11/12 점검 H-1: 뇌졸중 말하기 장애·쓰러짐·기력 저하 (낱말 위험 규칙에 안 걸림)
+    "혀가 굳어서 말을 못 하겠어",
+    "입이 안 돌아가서 말을 못 하겠네",
+    "쓰러질 것 같아서 말을 못 하겠어",
+    "기운이 없어서 말을 못 하겠어",
+    "힘이 없어서 얘기 못 하겠어",
+    "정신이 없어서 얘기 못 하겠어",
+    "몸이 너무 안 좋아서 말하기 싫어",
+    "손이 저려서 말하기도 힘들어",
 ]
+
+
+def test_go_away_is_not_body_word():
+    # '저리 가'는 몸 증상(저리다)이 아니다 - CareCall "난 너랑 얘기하기 싫으니까 저리 가!" (DGX 대조 11/12)
+    assert is_avoidance("난 너랑 얘기하기 싫으니까 저리 가!")
 
 
 @pytest.fixture
@@ -158,6 +186,24 @@ def test_risk_turn_gets_safety_reply_even_when_avoiding(monkeypatch):
 
 def test_model_risk_turn_gets_safety_reply_even_when_avoiding(monkeypatch):
     _stub(monkeypatch, risk_prob=0.99)  # 낱말 규칙에는 안 걸리고 v9 확률로 위험
+    r = _turn("말하기 싫어")
+    assert r["riskFlag"] is True
+    assert r["reply"]["text"] == SAFETY_REPLY
+
+
+def test_avoid_turn_without_risk_first_still_gets_safety_reply(monkeypatch, settings):
+    # 11/12 점검 L-3: 위험 확률을 생성과 함께 계산하는 설정에서도 위험 턴은 안전 안내
+    settings(companion_risk_first=False)
+    _stub(monkeypatch, risk_prob=0.99)
+    r = _turn("말하기 싫어")
+    assert r["avoided"] is True and r["riskFlag"] is True
+    assert r["reply"]["text"] == SAFETY_REPLY
+
+
+def test_avoid_turn_with_risk_timeout_uses_signal_risk_flag(monkeypatch):
+    # 11/12 점검 L-3: 위험 확률을 못 구하면(None) 신호 추출의 riskFlag 로 판정한다 - 말 피함 턴에도 신호 추출은 돈다
+    _stub(monkeypatch, risk_prob=None)
+    monkeypatch.setattr(pipeline, "extract_signals", lambda *a, **k: {"riskFlag": True})
     r = _turn("말하기 싫어")
     assert r["riskFlag"] is True
     assert r["reply"]["text"] == SAFETY_REPLY
