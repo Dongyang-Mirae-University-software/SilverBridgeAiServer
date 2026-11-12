@@ -121,6 +121,14 @@ JA_WORDS = frozenset({"혼자", "손자", "여자", "남자", "부자", "왕자"
                       "원자", "전자", "양자", "유자", "가자", "하자", "주자", "타자", "아자"})
 # kw4 에만 더하는 낱말 (재희 목록 RISK_KEYWORDS 는 그대로) - 두 규칙 모두 놓치던 말 (M-4)
 KW4_EXTRA = ("죽어버리", "죽고 시퍼", "죽고시퍼", "죽어 버리")
+# 뇌졸중 징후 (11/12): 말하기 장애·얼굴 처짐·한쪽 마비. DGX v9가 "혀가 굳어서 말을 못 하겠어" 0.75 ·
+#   "입이 안 돌아가서 말을 못 하겠네" 0.91로 위험(0.99) 아래였고 낱말 규칙에도 없어 어느 위험 경로에도 안 걸렸다.
+#   오탐 측정(DGX, 낱말만): 징후 문장 10/10 · CareCall 어르신 대답 24,248 중 0 · 웰니스 32,570 중 3("말이 어눌해졌어").
+#   '마비됐'(감정이 마비됐어)·'발음이 이상'(말하기 걱정)·'발음이 안 돼'(틀니)·'한쪽 팔'(어깨 통증)은 넣지 않았다
+STROKE_KEYWORDS = ("혀가 굳", "혀가 꼬", "혀가 안 돌아", "입이 안 돌아", "입이 돌아갔", "입이 비뚤", "입이 한쪽으로",
+                   "말이 어눌", "발음이 꼬", "한쪽 팔에 힘", "한쪽 다리에 힘", "한쪽 팔다리", "몸 한쪽",
+                   "얼굴 한쪽이 처", "한쪽 얼굴이 처", "얼굴이 한쪽으로", "얼굴이 비뚤", "반쪽이 마비", "마비가 왔",
+                   "갑자기 말이 안 나와")
 # 낱말 사이에 끼어 비교를 막는 문장부호 ("자.살", "자-해") - 지우고 비교한다 (M-4)
 _PUNCT = re.compile(r"[.\-,·~!?'\"…_/]")
 
@@ -148,7 +156,7 @@ def _bound_hit(text: str, word: str) -> bool:
 def _keyword_risk_kw4(transcript: str) -> bool:
     text = IDIOM.sub("", _PUNCT.sub("", transcript))
     flat = text.replace(" ", "")
-    for k in dict.fromkeys(RISK_KEYWORDS + KW4_EXTRA):
+    for k in dict.fromkeys(RISK_KEYWORDS + KW4_EXTRA + STROKE_KEYWORDS):
         kk = k.replace(" ", "")
         if kk in BOUND_KEYWORDS:
             if _bound_hit(text, kk):

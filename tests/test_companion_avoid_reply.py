@@ -264,7 +264,7 @@ def test_second_avoid_ends_dialogue_with_closing_sentence(monkeypatch):
     _turn_api(d, monkeypatch, avoided=False)  # 사이에 평범한 턴이 있어도 대화 안 횟수로 센다
     second = _turn_api(d, monkeypatch, avoided=True)
     assert second["ended"] is True
-    assert second["endReason"] == "USER_STOP"
+    assert second["endReason"] == "AVOIDED"  # 끝내기를 누른 USER_STOP 과 나눈다 (11/12, BE V72)
     assert second["reply"] == {"text": FALLBACK_LAST[0], "isFollowUp": False}
 
 
