@@ -60,8 +60,14 @@ FALLBACK_NO_RESPONSE = (
     "제 말이 잘 들리셨을까요? 편하실 때 한 번 더 말씀해 주시겠어요?",
     "괜찮으시면 지금 기분이 어떠신지 들려주시겠어요?",
 )
+# 어르신이 말을 피하는 턴의 문장 (11/12, avoidance.is_avoidance). 캐묻지 않고 물러나되, 대화는 이어 가도록 물음으로 끝낸다.
+#   "조금 더 들려주실 수 있을까요?"(받아 주는 대체 문장)·"특별히 걱정되는 일이 있으신가요?"(cc7)는 더 말하라고 캐묻게 됐다
+FALLBACK_AVOID = (
+    "괜찮아요, 말씀하고 싶지 않으시면 안 하셔도 돼요. 지금 마음은 좀 편안하세요?",
+    "네, 알겠어요. 편하실 때 말씀해 주세요. 오늘 몸은 괜찮으세요?",
+)
 # 검수 목록에 남는 대체 문장 버전. 대체 문장 목록을 고치면 올린다 (v2: 11/11~12 화제 전환 제거·공감·무응답 목록)
-FALLBACK_VERSION = "fallback-v2"
+FALLBACK_VERSION = "fallback-v3"  # v3: 말을 피하는 턴 문장 (11/12)
 FALLBACK_LAST = (
     "오늘도 이야기 나눠 주셔서 고맙습니다. 편안한 하루 보내세요.",
 )
@@ -139,18 +145,22 @@ def is_negative_mood(text_mood: dict | None) -> bool:
     return bool(text_mood and text_mood.get("usable") and text_mood.get("turnLabel") in NEGATIVE_TURN_LABELS)
 
 
-def fallback_options(is_last_turn: bool, negative: bool = False, no_response: bool = False) -> tuple[str, ...]:
+def fallback_options(is_last_turn: bool, negative: bool = False, no_response: bool = False,
+                     avoid: bool = False) -> tuple[str, ...]:
     """대체 문장 목록. 마지막 턴은 마무리 문장, 무응답 턴은 다시 말을 건네는 문장,
-    부정 기분 턴은 공감 문장, 그 밖은 받아 주는 문장."""
+    말을 피하는 턴은 물러나는 문장, 부정 기분 턴은 공감 문장, 그 밖은 받아 주는 문장."""
     if is_last_turn:
         return FALLBACK_LAST
     if no_response:
         return FALLBACK_NO_RESPONSE
+    if avoid:
+        return FALLBACK_AVOID
     return FALLBACK_EMPATHY if negative else FALLBACK_FOLLOWUP
 
 
-def fallback_text(turn_no: int, is_last_turn: bool, negative: bool = False, no_response: bool = False) -> str:
-    options = fallback_options(is_last_turn, negative, no_response)
+def fallback_text(turn_no: int, is_last_turn: bool, negative: bool = False, no_response: bool = False,
+                  avoid: bool = False) -> str:
+    options = fallback_options(is_last_turn, negative, no_response, avoid)
     return options[turn_no % len(options)]  # 턴마다 다른 문장이 나오도록 번갈아 쓴다
 
 
@@ -223,3 +233,11 @@ def timeout_reply(turn_no: int, is_last_turn: bool) -> ReplyResult:
     """
     return ReplyResult(text=fallback_text(turn_no, is_last_turn), isFollowUp=not is_last_turn,
                        source="FALLBACK", failures=["무응답"])
+
+
+def avoid_reply(turn_no: int, is_last_turn: bool) -> ReplyResult:
+    """어르신이 말을 피한 턴의 응답. LLM을 부르지 않고 물러나는 문장을 쓴다 (마지막 턴은 마무리 문장, 11/12).
+
+    위험 턴이면 pipeline 이 SAFETY_REPLY 로 덮어쓴다 (위험 판정이 우선)."""
+    return ReplyResult(text=fallback_text(turn_no, is_last_turn, avoid=True), isFollowUp=not is_last_turn,
+                       source="AVOID", failures=["말 피함"])

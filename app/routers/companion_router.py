@@ -33,6 +33,8 @@ from app.services.companion.text_emotion_service import text_emotion_service
 from app.services.companion.timeouts import call_with_timeout
 from app.services.companion.turn_record import build_dialogue_result
 
+logger = logging.getLogger(__name__)
+
 # 말벗 라우터. 모든 경로는 말벗 전용 키로 보호한다 (D4).
 # 경로는 명세 9-1절 기준 (D3 결정): /companion/dialogues 계열.
 router = APIRouter(
@@ -126,9 +128,27 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
         # 이번 턴으로 대화가 끝나므로 다시 말해 달라고 하지 않고 마무리 문장으로 답한다
         result["reply"] = {"text": reply_service.FALLBACK_LAST[0], "isFollowUp": False}
         result["replySource"] = "FALLBACK"
+    _apply_avoid_end(d, result, is_last_turn)
     result = _avoid_repeat(d, result, is_last_turn)
     _queue_for_review(d, result)
     return result
+
+
+def _apply_avoid_end(d: Dialogue, result: dict, is_last_turn: bool) -> None:
+    """말을 피한 턴을 세고, 한 대화에서 COMPANION_AVOID_END_COUNT 번째면 마무리 문장으로 답하고 끝낸다 (11/12).
+
+    위험 턴은 세지 않는다 (안전 안내가 우선이고, 대화를 일찍 끝내지 않는다). 종료 이유는 USER_STOP:
+    어르신이 그만 말하고 싶어 한 것이라 사용자 중단과 뜻이 같고, 백엔드가 이미 아는 값이다 (새 값은 백엔드가 USER_STOP 으로 바꾼다).
+    """
+    if not result.get("avoided") or result.get("riskFlag"):
+        return
+    count = store.mark_avoid(d.dialogueId)
+    limit = get_settings().companion_avoid_end_count
+    end = bool(limit) and count >= limit and not is_last_turn  # 마지막 턴은 원래대로 MAX_TURNS 로 끝난다
+    if end:
+        result["reply"] = {"text": reply_service.FALLBACK_LAST[0], "isFollowUp": False}
+        result["endReason"] = "USER_STOP"
+    logger.info("[COMPANION-AVOID] count=%d end=%s last=%s", count, end, is_last_turn)  # 어르신 말 원문은 남기지 않는다
 
 
 def _avoid_repeat(d: Dialogue, result: dict, is_last_turn: bool) -> dict:
@@ -143,8 +163,11 @@ def _avoid_repeat(d: Dialogue, result: dict, is_last_turn: bool) -> dict:
         # 부정 기분 턴이면 공감 문장 가운데서 바꾼다 (11/11, 화제를 바꾸는 문장으로 되돌아가지 않게)
         # 무응답 턴은 무응답 문장 가운데서 바꾼다 (11/12 H-1, 침묵에 "말씀해 주셔서…"로 답하지 않게)
         no_response = (result.get("turnResult") or {}).get("source") == "NO_RESPONSE"
+        # 말을 피한 턴은 물러나는 문장 가운데서 바꾼다 (11/12, 받아 주는 문장으로 캐묻지 않게). 마무리된 턴은 마무리 문장
+        avoid = result.get("replySource") == "AVOID" and not result.get("endReason")
         candidates = reply_service.fallback_options(
-            is_last_turn, reply_service.is_negative_mood(result.get("textMood")), no_response=no_response)
+            is_last_turn or bool(result.get("endReason")), reply_service.is_negative_mood(result.get("textMood")),
+            no_response=no_response, avoid=avoid)
         unused = [c for c in candidates if c not in d.replies]
         if unused:
             result["reply"] = {"text": unused[0], "isFollowUp": not is_last_turn}
@@ -239,7 +262,8 @@ def _turn_response(d: Dialogue, result: dict, transcript: str | None = None, fac
                              get_settings().companion_no_response_limit, face=face_label,
                              summary=result.get("summary"), needs_check=bool(result.get("needsCheck")),
                              low_confidence=bool(result.get("lowConfidence")),
-                             low_confidence_limit=get_settings().companion_confirm_streak_limit)
+                             low_confidence_limit=get_settings().companion_confirm_streak_limit,
+                             end_reason=result.get("endReason"))
     body = {
         "dialogueId": d.dialogueId,
         "turnNo": updated.turnNo,
@@ -252,6 +276,7 @@ def _turn_response(d: Dialogue, result: dict, transcript: str | None = None, fac
         "riskFlag": bool(result.get("riskFlag")),  # 신호가 null 이어도 위험 여부는 항상 채운다 (백엔드 요청)
         # v9 위험 확률 (백엔드 여러 날 위험 누적용, 2026-11-11). 계산 안 했거나 시간 초과·v9 아님이면 null. 저장·로그 없음
         "riskProbability": _risk_probability_out(result.get("riskProbability")),
+        "avoided": bool(result.get("avoided")),  # 말을 피한 턴인가 (11/12). 원문·이유는 싣지 않는다
         "ended": updated.ended,
         "endReason": updated.endReason,
     }

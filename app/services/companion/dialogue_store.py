@@ -39,6 +39,7 @@ class Dialogue:
     lastSignals: dict | None = None  # 직전 턴의 7개 신호. 다음 턴 응답 프롬프트에 쓴다 (S7-1)
     noResponseStreak: int = 0  # 연속 무응답 횟수 (D15). 무응답 턴이 아니면 0으로 돌아간다
     lowConfidenceStreak: int = 0  # 확신도가 낮아 되물은 턴의 연속 횟수 (11/09 점검 M-2). 다른 턴이면 0으로 돌아간다
+    avoidCount: int = 0  # 이 대화에서 말을 피한 턴 수 (위험 턴 제외, 11/12). COMPANION_AVOID_END_COUNT 에 닿으면 마무리한다
     replies: list[str] = field(default_factory=list)  # 이 대화에서 AI가 낸 문장 (질문 포함). 같은 문장 반복을 막는다
 
     @property
@@ -83,7 +84,9 @@ class DialogueStore:
 
     def add_turn(self, dialogue_id: str, label: str | None, source: str, no_response_limit: int,
                  face: str | None = None, summary: str | None = None, needs_check: bool = False,
-                 low_confidence: bool = False, low_confidence_limit: int = 0) -> Dialogue | None:
+                 low_confidence: bool = False, low_confidence_limit: int = 0,
+                 end_reason: str | None = None) -> Dialogue | None:
+        """턴을 더하고 종료 규칙을 본다. end_reason: 다른 종료 규칙에 걸리지 않았을 때 이 이유로 끝낸다 (말 피함 마무리, 11/12)."""
         with self._lock:
             d = self._items.get(dialogue_id)
             if d is None or d.ended:
@@ -97,6 +100,8 @@ class DialogueStore:
                 d.ended, d.endReason = True, "NO_RESPONSE"  # D15 (백엔드 요청 결정 D: 영문 코드)
             elif d.turnNo >= d.maxTurns:
                 d.ended, d.endReason = True, "MAX_TURNS"
+            elif end_reason:
+                d.ended, d.endReason = True, end_reason
             if d.ended:
                 d.endedAt = _now_iso()
             return d
@@ -107,6 +112,16 @@ class DialogueStore:
             if d is not None:
                 d.riskSeen = True
                 d.last_active = time.monotonic()
+
+    def mark_avoid(self, dialogue_id: str) -> int:
+        """말을 피한 턴을 하나 센다. 센 뒤의 횟수를 돌려준다 (대화가 없으면 0)."""
+        with self._lock:
+            d = self._items.get(dialogue_id)
+            if d is None:
+                return 0
+            d.avoidCount += 1
+            d.last_active = time.monotonic()
+            return d.avoidCount
 
     def set_last_signals(self, dialogue_id: str, signals: dict | None) -> None:
         with self._lock:

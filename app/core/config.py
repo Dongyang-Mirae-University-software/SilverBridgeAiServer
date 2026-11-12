@@ -470,6 +470,10 @@ class Settings(BaseModel):
     # 글 기분이 평온·기쁨인 턴은 '대답과 무관' 검사를 빼고, 권유 문장 검사(모든 꼬리질문 턴)를 더한다 (11/12).
     # 끄면 전과 같다. 기분은 risk_first 가 켜져 있을 때만 생성 전에 있다 (꺼져 있으면 전 규칙)
     companion_reply_relax_calm: bool = _as_bool("COMPANION_REPLY_RELAX_CALM", True)
+    # 말을 피하는 대답("말하기 싫어", "묻지 마")에는 모델 대답 대신 물러나는 문장으로 답한다 (11/12). 끄면 전과 같다
+    companion_avoid_reply: bool = _as_bool("COMPANION_AVOID_REPLY", True)
+    # 한 대화에서 이 횟수만큼 말을 피하면 마무리 문장으로 끝낸다 (endReason USER_STOP). 0이면 일찍 끝내지 않는다
+    companion_avoid_end_count: int = _as_int("COMPANION_AVOID_END_COUNT", 2)
     # 단어 확인(되묻기) 턴에서도 위험 모델을 돌리고, 위험이면 안전 안내 문장으로 답한다 (H-3). 끄면 낱말 규칙만
     companion_confirm_risk_model: bool = _as_bool("COMPANION_CONFIRM_RISK_MODEL", True)
     # 말벗 생성(신호·요약·대답) 동시 실행 상한. 0이면 상한 없음. 위험·기분 확률 계산은 상한 밖 (H-5, GPU 자원)
