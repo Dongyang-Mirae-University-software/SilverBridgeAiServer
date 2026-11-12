@@ -5,7 +5,7 @@ import json
 import re
 import logging
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 from uuid import uuid4
@@ -62,6 +62,14 @@ _LOG = logging.getLogger(__name__)
 
 def _elapsed_ms(since: float) -> int:
     return int((time.perf_counter() - since) * 1000)
+
+
+def _utc_iso(value: datetime) -> str:
+    """상담 기록 시각을 UTC 표시("Z")가 붙은 ISO 문자열로. created_at 은 datetime.utcnow()(시간대 없는 UTC)로
+    저장되는데 isoformat() 그대로 내보내면 받는 쪽이 현지 시각으로 읽어 한국에서 9시간 이르게 보였다(FE 실측 2026-11-12).
+    저장 값은 바꾸지 않고 내보낼 때만 붙인다. 시간대가 있는 값이면 UTC로 바꿔 같은 형식으로."""
+    aware = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+    return aware.isoformat().replace("+00:00", "Z")
 
 
 def _origin(exc: BaseException) -> str:
@@ -788,6 +796,9 @@ class ChatService:
             "visitHospitalIf": result.get("visitHospitalIf") or [],
             "emergencyWarning": result.get("emergencyWarning") or [],
             "layout": result.get("layout"),
+            # 응답 의도(hospital_reservation·medical_advice 등) - 기록 목록·상세의 intent 로 나간다. 전에는 저장하지 않아
+            # 기록의 intent 가 늘 비어 FE 상담 기록에 "예약" 꼬리표를 붙일 수 없었다(2026-11-12). 옛 행은 비어 있는 그대로.
+            "intent": result.get("intent"),
             "decisionTrace": result.get("decisionTrace") or [],
             "upstreamMeta": _persistable_meta(result.get("meta")),
         }
@@ -1826,7 +1837,7 @@ class ChatService:
                     "layout": context.get("layout"),
                     "decisionTrace": context.get("decisionTrace") or [],
                     "upstreamMeta": context.get("upstreamMeta") or {},
-                    "createdAt": log.created_at.isoformat(),
+                    "createdAt": _utc_iso(log.created_at),
                 },
             )
         return items
@@ -1866,5 +1877,5 @@ class ChatService:
             "layout": context.get("layout"),
             "decisionTrace": context.get("decisionTrace") or [],
             "upstreamMeta": context.get("upstreamMeta") or {},
-            "createdAt": log.created_at.isoformat(),
+            "createdAt": _utc_iso(log.created_at),
         }
