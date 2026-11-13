@@ -75,9 +75,11 @@ class _PromptLoader(_Loader):
     def __init__(self, **fields: str) -> None:
         super().__init__(**fields)
         self.prompts: list[str] = []
+        self.systems: list[str] = []
 
     def generate_structured_text(self, system_prompt: str, user_prompt: str, prefill: str = "", **kwargs) -> str:
         self.prompts.append(user_prompt)
+        self.systems.append(system_prompt)
         return super().generate_structured_text(system_prompt, user_prompt, prefill, **kwargs)
 
 
@@ -408,3 +410,20 @@ def test_router_failure_how_crisis_gets_crisis_reply(env, monkeypatch, role: str
     out = env.svc.process_message(env.db, ChatRequest(userId="u1", message=HOW_CRISIS[1], sessionId=f"s-f3-{role}",
                                                       context=ChatContext(role=role)))
     assert "109" in out["reply"] and out["suggestedQuestions"] == []
+
+
+def test_care_system_prompt_drops_example_1_only() -> None:
+    # 2026-11-14: 보호자 관리 질문은 예시 1(진료과 권유 + 진료 기준 꼴)을 뺀 시스템 프롬프트 - 규칙은 글자 그대로
+    from app.prompts.medical_chat_prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_CARE
+    assert "허리" not in SYSTEM_PROMPT_CARE and "예시 1" not in SYSTEM_PROMPT_CARE and "관절약" in SYSTEM_PROMPT_CARE
+    assert SYSTEM_PROMPT_CARE.split("예시 (질문")[0] == SYSTEM_PROMPT.split("예시 1 (질문")[0]
+
+
+def test_generate_uses_care_system_prompt_only_for_guardian_care_question() -> None:
+    from app.prompts.medical_chat_prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_CARE
+    loader = _PromptLoader(**DIET)
+    svc = MedicalLlmService(Settings(), loader)
+    svc.generate("설사할 때 뭘 먹으면 좋아요?", {}, [], intent="medical_advice")  # 보호자 관리 질문
+    svc.generate("설사할 때 뭘 먹으면 좋아요?", {}, [], intent="medical_advice", concise=True)  # 피보호자 관리 질문 - 그대로
+    svc.generate("설사를 해요", {}, [], intent="medical_advice")  # 관리 질문 아님 - 그대로
+    assert loader.systems == [SYSTEM_PROMPT_CARE, SYSTEM_PROMPT, SYSTEM_PROMPT]

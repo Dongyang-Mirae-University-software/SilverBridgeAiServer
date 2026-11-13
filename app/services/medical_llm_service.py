@@ -7,7 +7,7 @@ from typing import Any, NamedTuple
 
 from app.core.config import Settings, get_settings
 from app.models.medgemma_loader import MedGemmaLoader
-from app.prompts.medical_chat_prompts import SYSTEM_PROMPT, build_user_prompt
+from app.prompts.medical_chat_prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_CARE, build_user_prompt
 from app.services.chat_deadline import call_timeout, gen_min_sec
 from app.services import chat_keywords, followup_steps
 from app.services.chat_keywords import symptom_department as _symptom_department
@@ -1466,7 +1466,9 @@ class MedicalLlmService:
         # 모자라면 ChatDeadlineExceeded -> chat_service가 고정 문구(응급이면 119 안내)로 답한다. 응급 3초 상한은 그대로다.
         wait_timeout_sec = call_timeout("medgemma_wait", float(wait_timeout_sec), reserve=gen_min_sec(), minimum=0.5)
         raw = self._loader.generate_structured_text(
-            SYSTEM_PROMPT, user_prompt, prefill="{", wait_timeout_sec=wait_timeout_sec
+            # 보호자 관리 질문만 예시 1(진료 문장 꼴)을 뺀 프롬프트 - 피보호자(concise)는 그대로(2026-11-14)
+            SYSTEM_PROMPT_CARE if care_question and not concise else SYSTEM_PROMPT,
+            user_prompt, prefill="{", wait_timeout_sec=wait_timeout_sec
         )
         parsed = extract_json_object(raw)
         if parsed is None:
