@@ -152,17 +152,26 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
 def _flat_topic_switch(d: Dialogue, transcript: str, result: dict, is_last_turn: bool) -> None:
     """별 내용 없는 짧은 대답이 COMPANION_FLAT_TOPIC_SWITCH 번 이어지면 아직 묻지 않은 일상 화제 질문으로 답한다 (11/13).
 
-    위험·안전 안내·말 피함·되묻기 턴, 확신도 낮은 턴, 글 기분이 부정인 턴, 마지막 턴은 그대로 둔다.
+    위험·안전 안내·말 피함·되묻기 턴, 확신도 낮은 턴, 기분이 부정인 턴, 마지막 턴은 그대로 둔다.
+    횟수 (11/14 점검 M-3·L-2): 위험·안전 안내 턴은 0으로 돌린다(안내 직후 가벼운 화제로 넘어가지 않게).
+    무응답·되묻기·확신도 낮은 턴은 세지도 0으로 돌리지도 않는다(받아쓰기가 틀렸을 수 있고, 침묵도 무심한 대답과 같은 흐름이다).
     로그에는 횟수만 남긴다 (어르신 말 원문 없음).
     """
+    if result.get("riskFlag") or result.get("replySource") == "SAFETY":
+        d.flatStreak = 0
+        return
+    if not transcript.strip() or result.get("lowConfidence") or result.get("replySource") == "CONFIRM":
+        return
     limit = get_settings().companion_flat_topic_switch
     flat = reply_service.is_flat_answer(transcript)
     d.flatStreak = d.flatStreak + 1 if flat else 0
     if not limit or not flat or d.flatStreak < limit or is_last_turn:
         return
-    if result.get("riskFlag") or result.get("lowConfidence") or result.get("replySource") in ("SAFETY", "AVOID", "CONFIRM"):
+    if result.get("replySource") == "AVOID":
         return
-    if reply_service.is_negative_mood(result.get("textMood")):
+    # 11/14 점검 L-1: 글 기분이 부정이거나, 표정까지 합친 턴 판정이 부정이면 바꾸지 않는다 (11/11: 힘든 이야기에는 화제를 바꾸지 않는다)
+    if reply_service.is_negative_mood(result.get("textMood")) or \
+            (result.get("turnResult") or {}).get("label") in reply_service.NEGATIVE_TURN_LABELS:
         return
     text = reply_service.topic_switch_reply(d.replies)
     if text is None:
@@ -590,6 +599,22 @@ async def speech_to_text(request: Request, settings: Settings = Depends(get_sett
     # 로그에는 길이·처리 시간·상태만. 글자 내용은 남기지 않는다.
     stt_logger.info("stt status=200 seconds=%.1f elapsed_ms=%d", seconds, int((time.monotonic() - started) * 1000))
     return success_response("음성을 글자로 바꿨습니다.", {"text": result.text})
+
+
+@router.get(
+    "/dialogues/{dialogue_id}",
+    summary="대화 상태 (이어 가기용)",
+    description="이어 가는 대화에서 기기가 다시 보여 줄 문장을 준다 (11/14). `lastQuestion` = 말벗이 마지막으로 한 말 "
+                "(어르신이 지금 대답할 문장 - 다음 턴 대답 프롬프트의 '질문'과 같다. 아직 턴이 없으면 여는 질문). "
+                "어르신 대답 원문은 없다. 오류: 404 DIALOGUE_NOT_FOUND.",
+)
+def get_dialogue(dialogue_id: str) -> dict:
+    d = store.get(dialogue_id)
+    if d is None:
+        raise CompanionError(404, "DIALOGUE_NOT_FOUND", "대화를 찾을 수 없습니다.")
+    return success_response("대화 상태", {"dialogueId": d.dialogueId, "question": d.question,
+                                        "lastQuestion": d.lastQuestion or d.question, "turnNo": d.turnNo,
+                                        "ended": d.ended})
 
 
 @router.post(

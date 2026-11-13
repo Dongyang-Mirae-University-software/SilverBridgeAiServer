@@ -201,21 +201,32 @@ def build_reply_prompt(question: str, transcript: str, prev_signals: dict | None
 
 # 11/13: 별 내용 없는 짧은 대답("그냥 그래"·"몰라"·"계획 없어")이 이어지면 꼬리질문 모델이 "좋아하시는 활동"을 되풀이했다
 #   (실기기 sessionId=212, DGX 재생 cc7 30턴 중 15턴 · 재학습 cc8 도 기준 미달). 이런 턴이 이어지면 아직 묻지 않은 일상 화제로 넘어간다.
+# pipeline.SHORT_ANSWER_WORDS(받아쓰기 확신도가 낮아도 되묻지 않는 짧은 부정 대답)와 목적이 달라 따로 둔다 - 한쪽에 낱말을 더하면 다른 쪽도 볼 것
 FLAT_ANSWER_WORDS = frozenset({
     "그냥", "그래", "그래요", "그렇지", "그렇죠", "그저", "몰라", "몰라요", "모르겠어", "모르겠어요", "없어", "없어요", "없다",
     "없다니까", "없다고", "없는데", "없지", "없잖아", "별로", "별일", "별거", "글쎄", "글쎄요", "뭐", "됐어", "됐다", "괜찮아",
     "괜찮아요", "아니", "아니요", "아뇨", "할", "거", "알", "계획", "있지", "있어", "지내", "쉬어", "그런", "말", "딱히",
 })
 FLAT_ANSWER_MAX_CHARS = 14
-# (이미 물었는지 볼 낱말, 화제 전환 질문). 앞에서부터 아직 묻지 않은 것을 쓴다. 모든 문장이 규칙(물음·질병명·과거 가정·권유)을 통과해야 한다
+# (이미 물었는지 볼 정규식, 화제 전환 질문). 앞에서부터 아직 묻지 않은 것을 쓴다. 모든 문장이 규칙(물음·질병명·과거 가정·권유)을 통과해야 한다.
+# 11/14 점검 M-2: 말벗의 물음 문장만 본다(안전 안내 "가까운 가족…"은 물음이 아니다). 오탐을 막는다 - "힘드셨"(식사 아님)·"잠깐/잠시"(잠 아님)·
+#   "저녁노을"(식사 아님)·"마음이 불편"(몸 아님)
 TOPIC_SWITCH = (
-    (r"식사|밥|점심|저녁|아침 식사|반찬|드셨", "그러셨군요. 오늘 식사는 잘 챙겨 드셨어요?"),
-    (r"잠|주무", "네, 알겠어요. 요즘 밤에 잠은 잘 주무세요?"),
-    (r"몸|아프|불편|컨디션|건강", "그러시군요. 요즘 몸은 좀 어떠세요?"),
+    (r"식사|밥|끼니|반찬|점심|아침 식사|저녁(?!노을)|(?<!힘)드셨|잡수", "그러셨군요. 오늘 식사는 잘 챙겨 드셨어요?"),
+    (r"잠(?!깐|시)|주무", "네, 알겠어요. 요즘 밤에 잠은 잘 주무세요?"),
+    (r"몸|아프|컨디션|건강|불편하신 (곳|데)", "그러시군요. 요즘 몸은 좀 어떠세요?"),
     (r"가족|자녀|아드님|따님|손주|자제분", "그러셨군요. 요즘 가족분들과는 자주 연락하세요?"),
     (r"이웃|친구|동네", "네, 그러시군요. 요즘 이웃분들과는 이야기 나누고 지내세요?"),
-    (r"바깥|산책|나가|나가셨", "그러셨군요. 오늘 바깥에 잠깐이라도 나가셨어요?"),
+    (r"바깥|산책|밖에|나가셨|나가시", "그러셨군요. 오늘 바깥에 잠깐이라도 나가셨어요?"),
 )
+
+
+def _asked_sentences(said) -> str:
+    """말벗 문장들에서 물음 문장만 이어 붙인다 (화제 판정용)."""
+    out = []
+    for t in said or ():
+        out += [x for x in re.split(r"(?<=[.?!])\s+", (t or "").strip()) if x.strip().endswith("?")]
+    return " ".join(out)
 
 
 def is_flat_answer(transcript: str) -> bool:
@@ -227,7 +238,7 @@ def is_flat_answer(transcript: str) -> bool:
 
 def topic_switch_reply(said) -> str | None:
     """이 대화에서 말벗이 한 말(said)에 아직 나오지 않은 화제의 전환 질문. 다 썼으면 None."""
-    text = " ".join(said or ())
+    text = _asked_sentences(said)
     for pattern, sentence in TOPIC_SWITCH:
         if not re.search(pattern, text):
             return sentence
@@ -320,6 +331,7 @@ def generate_reply(
     s = get_settings()
     prompt = build_reply_prompt(question, transcript, prev_signals, is_last_turn)
     failures: list[str] = []
+    redone = False
     llm_code = "-"  # LLM 실패 원인 코드 (TIMEOUT·ERROR·LOAD·ADAPTER, 11/14 점검 L-3). 메시지는 남기지 않는다
     for _ in range(1 + s.companion_llm_retry):
         try:
@@ -331,6 +343,10 @@ def generate_reply(
         text = re.sub(r"\s+", " ", raw).strip()
         failures = check_reply(text, is_last_turn, transcript, text_mood)
         if not failures and is_similar_to_past(text, past_replies):
+            if redone:  # 11/14 점검 L-4: 다시 생성은 한 대답에 한 번만 (재시도 설정과 곱해지지 않게)
+                failures = ["반복"]
+                continue
+            redone = True
             text, failures = _redo_once(llm, prompt, is_last_turn, transcript, text_mood, past_replies)
         if not failures:
             return ReplyResult(text=text, isFollowUp=not is_last_turn, source="LLM", failures=[])
