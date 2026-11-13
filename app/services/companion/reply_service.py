@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from app.core.config import get_settings
@@ -182,14 +183,34 @@ def _fallback(turn_no: int, is_last_turn: bool) -> str:
     return fallback_text(turn_no, is_last_turn)
 
 
-def _generate(llm: LlmClient, prompt: str, is_last_turn: bool) -> str:
+def _normalized(text: str) -> str:
+    return "".join(ch for ch in text if ch.isalnum())
+
+
+def reply_similarity(a: str, b: str) -> float:
+    """두 문장이 얼마나 비슷한가 (0~1, 공백·문장부호를 뺀 글자 비교). 11/13 세션 203: 2번↔5번 대답 0.76, 다른 대답끼리 0.47 이하."""
+    na, nb = _normalized(a), _normalized(b)
+    if not na or not nb:
+        return 0.0
+    return SequenceMatcher(None, na, nb).ratio()
+
+
+def is_similar_to_past(text: str, past_replies) -> bool:
+    """이 대화의 지난 말벗 문장(여는 질문 포함) 가운데 COMPANION_REPLY_SIMILAR_RATIO 이상 비슷한 것이 있는가. 0이면 보지 않는다."""
+    ratio = get_settings().companion_reply_similar_ratio
+    if ratio <= 0:
+        return False
+    return any(reply_similarity(text, p) >= ratio for p in past_replies or ())
+
+
+def _generate(llm: LlmClient, prompt: str, is_last_turn: bool, temperature: float | None = None) -> str:
     """꼬리질문 턴은 대답 어댑터(cc5)로 만든다 (11/10, COMPANION_REPLY_LORA). 프롬프트는 reply-v2 그대로다.
 
     어댑터는 꼬리질문 프롬프트로만 학습돼서 마지막 인사 턴은 기본 모델로 만든다.
     어댑터가 없으면(파일 없음, 어댑터 기능이 없는 LLM) 기본 모델로 만든다 (재희 동작).
     """
     s = get_settings()
-    kwargs = {"temperature": s.companion_llm_temperature, "num_predict": s.companion_llm_num_predict,
+    kwargs = {"temperature": s.companion_llm_temperature if temperature is None else temperature, "num_predict": s.companion_llm_num_predict,
               "timeout": s.companion_llm_timeout_sec}
     if s.companion_reply_lora and not is_last_turn:
         gen = getattr(llm, "generate_adapter", None)
@@ -207,12 +228,15 @@ def generate_reply(
     is_last_turn: bool,
     turn_no: int,
     text_mood: dict | None = None,
+    past_replies=(),
 ) -> ReplyResult:
     """응답 문장을 만든다. (S6-3, D20)
 
     LLM 실패(연결 불가·시간 초과)와 규칙 위반을 COMPANION_LLM_RETRY 번 더 시도한다 (기본 0회 - 11/09 결정, 바로 대체 문장).
     그래도 안 되면 미리 정한 문장을 쓴다. 대화는 끊기지 않는다.
     text_mood 는 규칙 검사에 넘긴다 (평온·기쁨 턴 완화, 11/12). 없으면 전 규칙.
+    past_replies: 이 대화에서 말벗이 이미 한 문장 (11/13). 규칙을 통과한 대답이 그 가운데 하나와 매우 비슷하면
+    COMPANION_REPLY_REDO_TEMPERATURE 로 한 번 다시 만들고, 그래도 비슷하거나 규칙에 걸리면 대체 문장을 쓴다 (실패 이름 "반복").
     """
     s = get_settings()
     prompt = build_reply_prompt(question, transcript, prev_signals, is_last_turn)
@@ -225,6 +249,8 @@ def generate_reply(
             continue
         text = re.sub(r"\s+", " ", raw).strip()
         failures = check_reply(text, is_last_turn, transcript, text_mood)
+        if not failures and is_similar_to_past(text, past_replies):
+            text, failures = _redo_once(llm, prompt, is_last_turn, transcript, text_mood, past_replies)
         if not failures:
             return ReplyResult(text=text, isFollowUp=not is_last_turn, source="LLM", failures=[])
     # 11/12 점검 L-2: 대체된 이유(규칙 이름)만 남긴다 - 대답·어르신 말 본문은 남기지 않는다
@@ -232,6 +258,21 @@ def generate_reply(
                 ",".join(failures), is_relaxed_mood(text_mood), is_last_turn)
     return ReplyResult(text=_fallback(turn_no, is_last_turn), isFollowUp=not is_last_turn,
                        source="FALLBACK", failures=failures)
+
+
+def _redo_once(llm: LlmClient, prompt: str, is_last_turn: bool, transcript: str, text_mood: dict | None,
+               past_replies) -> tuple[str, list[str]]:
+    """지난 문장과 비슷한 대답을 한 번 다시 만든다 (같은 프롬프트, 온도만 올림). 반환: (문장, 실패 이름 목록)."""
+    try:
+        raw = _generate(llm, prompt, is_last_turn, temperature=get_settings().companion_reply_redo_temperature)
+    except LlmUnavailable:
+        return "", ["반복"]
+    text = re.sub(r"\s+", " ", raw).strip()
+    failures = check_reply(text, is_last_turn, transcript, text_mood)
+    if not failures and is_similar_to_past(text, past_replies):
+        failures = ["반복"]
+    logger.info("[COMPANION-REPLY-REDO] ok=%s", not failures)  # 대답 본문은 남기지 않는다
+    return text, failures
 
 
 def no_response_reply(turn_no: int, is_last_turn: bool) -> ReplyResult:

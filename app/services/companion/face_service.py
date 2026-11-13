@@ -25,6 +25,17 @@ VGAF_MODEL = "enet_b0_8_best_vgaf"
 VGAF_FILE = VGAF_MODEL + ".onnx"
 HEAD3_FILE = "head3_yunet.pt"
 HEAD3_LABELS = ("Happiness", "Neutral", "Sadness")  # 웃음·평온·부정. 계약의 face.label 어휘(HSEmotion 이름)로 낸다
+# 표정 라벨의 한국어 이름 (11/13, 어르신·보호자 화면용 face.labelKo·dominantFaceKo). 한국인 표정 층도 같은 이름을 쓴다.
+# 영어 라벨(face.label)은 그대로 둔다. 여기 없는 값은 None
+FACE_LABEL_KO = {
+    "Neutral": "무표정", "Happiness": "기쁨", "Sadness": "슬픔", "Anger": "화남",
+    "Fear": "두려움", "Surprise": "놀람", "Disgust": "싫어함", "Contempt": "못마땅함",
+}
+
+
+def face_label_ko(label: str | None) -> str | None:
+    """표정 라벨의 한국어 이름. 얼굴이 없거나 모르는 값이면 None ("무표정"으로 채우지 않는다)."""
+    return FACE_LABEL_KO.get(label) if label else None
 HEAD3_MAX_SIDE = 640
 HEAD3_SIZE = 224
 HEAD3_DETECT_SCORE = 0.7

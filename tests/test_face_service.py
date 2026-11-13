@@ -91,7 +91,7 @@ def test_no_frames_gives_face_unusable(client):
     r = client.post(f"/companion/dialogues/{did}/reply/audio", content=body, headers={**HDR, "content-type": ctype})
     assert r.status_code == 200
     face = r.json()["data"]["face"]
-    assert face == {"label": None, "confidence": 0.0, "frameCount": 0, "usable": False, "totalFrames": 0, "facesFound": 0}
+    assert face == {"label": None, "labelKo": None, "confidence": 0.0, "frameCount": 0, "usable": False, "totalFrames": 0, "facesFound": 0}
 
 
 def test_frames_without_a_face_are_unusable(client):
@@ -129,7 +129,7 @@ def test_face_result_is_passed_through(client):
     body, ctype = _multipart(_wav(), [_jpeg_noise(i) for i in range(3)])
     r = client.post(f"/companion/dialogues/{did}/reply/audio", content=body, headers={**HDR, "content-type": ctype})
     assert seen["n"] == 3
-    assert r.json()["data"]["face"] == {"label": "happiness", "confidence": 0.8, "frameCount": 3, "usable": True, "totalFrames": 3, "facesFound": 3}
+    assert r.json()["data"]["face"] == {"label": "happiness", "labelKo": None, "confidence": 0.8, "frameCount": 3, "usable": True, "totalFrames": 3, "facesFound": 3}
 
 
 def test_more_than_five_frames_is_413(client):

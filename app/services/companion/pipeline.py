@@ -37,6 +37,20 @@ from app.services.companion.timeouts import call_with_timeout
 # 확신도가 낮을 때 되묻는 문장 (11/09). 후보 낱말을 넣지 않는다
 LOW_CONFIDENCE_REPLY = "잘 알아듣지 못했어요. 한 번 더 말씀해 주시겠어요?"
 
+# 받아쓰기 확신도가 낮아도 되묻지 않는 짧은 부정 대답의 낱말 (11/13, 세션 203 3번 "아니 없어"가 되묻기로 빠졌다).
+# 짧은 말은 토큰이 적어 평균 로그확률이 낮게 나오기 쉽다. "네·응·어"는 소음에서 잘못 받아 적히기 쉬워 넣지 않는다
+SHORT_ANSWER_WORDS = frozenset({
+    "아니", "아니요", "아뇨", "아니야", "없어", "없어요", "없다", "없다고", "없다니까", "없는데",
+    "별로", "그냥", "몰라", "몰라요", "괜찮아", "괜찮아요",
+})
+SHORT_ANSWER_MAX_CHARS = 12
+
+
+def is_short_plain_answer(transcript: str) -> bool:
+    """문장부호를 뺀 낱말이 모두 SHORT_ANSWER_WORDS 에 있고 공백 뺀 길이가 12자 이하인가."""
+    words = "".join(ch if ch.isalnum() else " " for ch in transcript).split()
+    return bool(words) and len("".join(words)) <= SHORT_ANSWER_MAX_CHARS and all(w in SHORT_ANSWER_WORDS for w in words)
+
 
 def min_text_chars() -> int:
     """말을 기분 판단에 쓰는 최소 글자 수. 설정이 없으면 엔진에 맞춘다 (e900 2자 · ggara02 10자)."""
@@ -120,20 +134,27 @@ def run_turn(
     is_last_turn: bool,
     turn_no: int,
     stt_logprob: float | None = None,
+    past_replies=(),
 ) -> dict:
     """한 턴을 처리한다 (S6-4, S7-7). 신호 추출과 응답 생성은 같은 시점에 함께 돌린다.
 
     응답은 직전 턴 신호만 쓰므로 이번 턴 신호를 기다리지 않는다 (아키텍처 6번 단계).
     stt_logprob: turbo 받아쓰기의 토큰 평균 로그확률 (글 대답·확률을 내지 않는 엔진은 None).
+    question: 어르신이 지금 대답하는 말벗 문장 (직전 대답, 첫 턴은 여는 질문 - 11/13).
+    past_replies: 이 대화에서 말벗이 이미 한 문장. 비슷한 대답을 다시 만들 때 쓴다 (11/13).
     """
     s = get_settings()
     if s.companion_confirm_mode == "logprob" and stt_logprob is not None:
         # 11/09: 받아쓰기 확신도가 낮으면 되묻는다. 후보 낱말은 내지 않는다 (틀린 후보를 말하면 더 헷갈린다)
-        if stt_logprob < s.companion_confirm_logprob:
+        # 11/13: 짧은 부정 대답("아니 없어")은 확신도가 낮아도 되묻지 않는다 (위험 판정은 일반 턴에서 그대로 돈다)
+        short_ok = s.companion_short_answer_pass and is_short_plain_answer(transcript)
+        if stt_logprob < s.companion_confirm_logprob and not short_ok:
             return _low_confidence_turn(transcript, llm)
     else:
-        return _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no)
-    return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no)
+        return _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
+                                     past_replies)
+    return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
+                          past_replies)
 
 
 def _risk_prob_capped(llm: LlmClient, transcript: str) -> float | None:
@@ -167,7 +188,8 @@ def _low_confidence_turn(transcript: str, llm: LlmClient) -> dict:
     }
 
 
-def _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no) -> dict:
+def _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
+                          past_replies=()) -> dict:
     """재희 버전 되묻기: 형태소·어휘 목록 규칙으로 실제 단어가 아닐 수 있는 말을 찾는다."""
     check = check_transcript(transcript)
     if check.suspicious:
@@ -190,10 +212,12 @@ def _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_s
             "riskFlag": risk_flag,
             "riskProbability": risk_prob,
         }
-    return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no)
+    return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
+                          past_replies)
 
 
-def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no) -> dict:
+def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
+                   past_replies=()) -> dict:
     """감정·신호·대답·요약·위험을 함께 만드는 일반 턴."""
     # 한 턴 전체 상한 (백엔드 요청 60초). 넘게 걸리는 작업은 기다리지 않고, 그 결과는 쓰지 않는다
     cap = get_settings().companion_turn_cap_sec
@@ -219,7 +243,7 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
         # 글 기분은 risk_first 일 때만 생성 전에 있다. 꺼져 있으면 None 으로 넘겨 전 규칙으로 검사한다 (11/12)
         reply_future = None if avoided else pool.submit(
             generate_reply, llm, question, transcript, prev_signals, is_last_turn, turn_no,
-            text_mood if risk_first else None)
+            text_mood if risk_first else None, tuple(past_replies))
         summary_future = pool.submit(summarize_answer, llm, transcript)
         risk_future = None if risk_first else pool.submit(risk_probability, llm, transcript)
         try:

@@ -41,6 +41,9 @@ class Dialogue:
     lowConfidenceStreak: int = 0  # 확신도가 낮아 되물은 턴의 연속 횟수 (11/09 점검 M-2). 다른 턴이면 0으로 돌아간다
     avoidCount: int = 0  # 이 대화에서 말을 피한 턴 수 (위험 턴 제외, 11/12). COMPANION_AVOID_END_COUNT 에 닿으면 마무리한다
     replies: list[str] = field(default_factory=list)  # 이 대화에서 AI가 낸 문장 (질문 포함). 같은 문장 반복을 막는다
+    # 어르신이 지금 대답하는 말벗 문장 (11/13). 대답 프롬프트의 "질문:"에 넣는다. 처음은 여는 질문, 턴마다 나간 대답으로 바뀐다
+    # (되묻기 턴은 바꾸지 않는다 - 다시 말한 대답은 그 전 질문에 대한 것이다). None 이면 여는 질문을 쓴다
+    lastQuestion: str | None = None
 
     @property
     def turnNo(self) -> int:
