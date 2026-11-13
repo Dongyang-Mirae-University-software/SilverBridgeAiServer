@@ -87,7 +87,7 @@ FALLBACK_AVOID = (
     "네, 알겠어요. 편하실 때 말씀해 주세요. 오늘 몸은 괜찮으세요?",
 )
 # 검수 목록에 남는 대체 문장 버전. 대체 문장 목록을 고치면 올린다 (v2: 11/11~12 화제 전환 제거·공감·무응답 목록)
-FALLBACK_VERSION = "fallback-v3"  # v3: 말을 피하는 턴 문장 (11/12)
+FALLBACK_VERSION = "fallback-v4"  # v3: 말을 피하는 턴 문장 (11/12) · v4: 짧은 대답이 이어질 때 화제 전환 질문 (11/13)
 FALLBACK_LAST = (
     "오늘도 이야기 나눠 주셔서 고맙습니다. 편안한 하루 보내세요.",
 )
@@ -190,6 +190,41 @@ def build_reply_prompt(question: str, transcript: str, prev_signals: dict | None
             .replace("{{PREV_SIGNALS}}", _signal_line(prev_signals))
             .replace("{{QUESTION}}", question)
             .replace("{{TRANSCRIPT}}", transcript))
+
+
+# 11/13: 별 내용 없는 짧은 대답("그냥 그래"·"몰라"·"계획 없어")이 이어지면 꼬리질문 모델이 "좋아하시는 활동"을 되풀이했다
+#   (실기기 sessionId=212, DGX 재생 cc7 30턴 중 15턴 · 재학습 cc8 도 기준 미달). 이런 턴이 이어지면 아직 묻지 않은 일상 화제로 넘어간다.
+FLAT_ANSWER_WORDS = frozenset({
+    "그냥", "그래", "그래요", "그렇지", "그렇죠", "그저", "몰라", "몰라요", "모르겠어", "모르겠어요", "없어", "없어요", "없다",
+    "없다니까", "없다고", "없는데", "없지", "없잖아", "별로", "별일", "별거", "글쎄", "글쎄요", "뭐", "됐어", "됐다", "괜찮아",
+    "괜찮아요", "아니", "아니요", "아뇨", "할", "거", "알", "계획", "있지", "있어", "지내", "쉬어", "그런", "말", "딱히",
+})
+FLAT_ANSWER_MAX_CHARS = 14
+# (이미 물었는지 볼 낱말, 화제 전환 질문). 앞에서부터 아직 묻지 않은 것을 쓴다. 모든 문장이 규칙(물음·질병명·과거 가정·권유)을 통과해야 한다
+TOPIC_SWITCH = (
+    (r"식사|밥|점심|저녁|아침 식사|반찬|드셨", "그러셨군요. 오늘 식사는 잘 챙겨 드셨어요?"),
+    (r"잠|주무", "네, 알겠어요. 요즘 밤에 잠은 잘 주무세요?"),
+    (r"몸|아프|불편|컨디션|건강", "그러시군요. 요즘 몸은 좀 어떠세요?"),
+    (r"가족|자녀|아드님|따님|손주|자제분", "그러셨군요. 요즘 가족분들과는 자주 연락하세요?"),
+    (r"이웃|친구|동네", "네, 그러시군요. 요즘 이웃분들과는 이야기 나누고 지내세요?"),
+    (r"바깥|산책|나가|나가셨", "그러셨군요. 오늘 바깥에 잠깐이라도 나가셨어요?"),
+)
+
+
+def is_flat_answer(transcript: str) -> bool:
+    """별 내용 없는 짧은 대답인가: 문장부호를 뺀 낱말이 모두 FLAT_ANSWER_WORDS 이고 공백 뺀 길이가 14자 이하."""
+    words = "".join(ch if ch.isalnum() else " " for ch in transcript or "").split()
+    return (bool(words) and len("".join(words)) <= FLAT_ANSWER_MAX_CHARS
+            and all(w in FLAT_ANSWER_WORDS for w in words))
+
+
+def topic_switch_reply(said) -> str | None:
+    """이 대화에서 말벗이 한 말(said)에 아직 나오지 않은 화제의 전환 질문. 다 썼으면 None."""
+    text = " ".join(said or ())
+    for pattern, sentence in TOPIC_SWITCH:
+        if not re.search(pattern, text):
+            return sentence
+    return None
 
 
 def is_negative_mood(text_mood: dict | None) -> bool:

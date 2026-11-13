@@ -212,4 +212,4 @@ def test_avoid_repeat_keeps_empathy_sentence_when_all_empathy_used():
 
 
 def test_review_version_for_fallback_is_v3():
-    assert reply_service.FALLBACK_VERSION == "fallback-v3"
+    assert reply_service.FALLBACK_VERSION == "fallback-v4"
