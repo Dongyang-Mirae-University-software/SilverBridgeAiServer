@@ -1115,7 +1115,16 @@ class GameService:
       if (state.progress) renderUi();
     };
     probe.src = `${ART}card-back.png`;
-    const artImg = (name, cls = '') => `<img class="${cls}" src="${ART}${name}.png" alt="" onerror="this.remove()">`;
+    // 그림 한 장이 아직 없으면 그 자리만 그림 없는 화면의 모양(이모지)으로 돌린다
+    const ART_FALLBACK = {
+      walker: '<span class="dot">🙂</span>',
+      praise: '<div class="cheer-emoji" aria-hidden="true">🎉</div>',
+      cheer: '<div class="cheer-emoji" aria-hidden="true">🌱</div>',
+      done: '<div class="medal" aria-hidden="true">🏅</div>',
+      goal: '🏁',
+    };
+    function artFail(img) { img.outerHTML = ART_FALLBACK[img.dataset.fb] || ''; }
+    const artImg = (name, fb = '') => `<img src="${ART}${name}.png" alt="" data-fb="${fb}" onerror="artFail(this)">`;
 
     const state = {
       stage: null,
@@ -1187,7 +1196,7 @@ class GameService:
     let cheerTimer = null;
     function showCheer(correct, message) {
       const pic = hasArt
-        ? artImg(correct ? 'praise-bunny' : 'cheer-bunny')
+        ? artImg(correct ? 'praise-bunny' : 'cheer-bunny', correct ? 'praise' : 'cheer')
         : `<div class="cheer-emoji" aria-hidden="true">${correct ? '🎉' : '🌱'}</div>`;
       els.cheerBox.innerHTML = `${pic}<strong></strong><span></span>`;
       els.cheerBox.querySelector('strong').textContent = correct ? '참 잘하셨어요!' : '괜찮아요!';
@@ -1210,7 +1219,7 @@ class GameService:
 
       if (cleared) {
         els.stagePrompt.textContent = '오늘도 수고 많으셨어요';
-        const pic = hasArt ? artImg('done-bunny') : '<div class="medal" aria-hidden="true">🏅</div>';
+        const pic = hasArt ? artImg('done-bunny', 'done') : '<div class="medal" aria-hidden="true">🏅</div>';
         els.stageBody.innerHTML = `<div class="done">${pic}
           <strong>참 잘하셨어요!</strong><span>모든 문제를 다 풀었어요. 모은 점수는 ${state.progress.score}점이에요.</span></div>`;
         hideFeedback();
@@ -1254,7 +1263,7 @@ class GameService:
           <div class="maze-board" style="grid-template-columns: repeat(${grid[0].length}, auto)">
             ${grid.map((row, y) => row.map((cell, x) => {
               const cls = cell === '#' ? 'maze-wall' : cell === 'G' ? 'maze-goal' : 'maze-path';
-              const goal = cell === 'G' ? (hasArt ? artImg('goal-home') : '🏁') : '';
+              const goal = cell === 'G' ? (hasArt ? artImg('goal-home', 'goal') : '🏁') : '';
               return `<div class="maze-cell ${cls}" data-x="${x}" data-y="${y}">${goal}</div>`;
             }).join('')).join('')}
             <div class="walker" id="walker" aria-hidden="true"></div>
@@ -1315,7 +1324,7 @@ class GameService:
       walker.style.transform = `translate(${target.offsetLeft}px, ${target.offsetTop}px)`;
       if (!animate) { walker.offsetWidth; walker.style.transition = ''; }
       walker.innerHTML = hasArt
-        ? artImg(`bunny-${state.maze.dir}-${state.maze.frame}`)
+        ? artImg(`bunny-${state.maze.dir}-${state.maze.frame}`, 'walker')
         : '<span class="dot">🙂</span>';
     }
 
