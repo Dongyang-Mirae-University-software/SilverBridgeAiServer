@@ -32,7 +32,7 @@ kaldi-native-fbank==1.22.5
 kiwipiepy==0.24.1
 # 말벗 말소리 감지 (11/09): Silero VAD. MIT. 모델 파일이 패키지 안에 있어 따로 받지 않는다. 필수 의존성은 torch·packaging 뿐 (DGX 측정과 같은 판)
 silero-vad==6.2.3
-# 말벗 판단 단계 (11/10): EXAONE 한 개에 LoRA 어댑터 2개(기분 e900·대답 cc5)를 얹고 요청마다 바꾼다. Apache-2.0
+# 말벗 판단 단계 (11/10): EXAONE 한 개에 LoRA 어댑터 2개(기분 e900·대답 cc7 - 11/13 기본값, 이전 cc5)를 얹고 요청마다 바꾼다. Apache-2.0
 # DGX 시험과 같은 판 (int8 bitsandbytes 위에서 적재·전환 확인)
 peft==0.21.2
 # 예약 서비스 사용자별 키 저장용 암호화(Fernet, 전체 점검 M-5). 이미 다른 패키지가 끌어오던 판과 같게 고정
