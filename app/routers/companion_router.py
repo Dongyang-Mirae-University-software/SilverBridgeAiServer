@@ -19,7 +19,7 @@ from app.services.companion import pipeline
 from app.services.companion.image_format import detect_image_format
 from app.services.companion.audio_format import ALLOWED_FORMATS, detect_audio_format
 from app.services.companion.dialogue_store import Dialogue, store
-from app.services.companion.face_service import FaceResult, FaceUnavailable, face_service
+from app.services.companion.face_service import FaceResult, FaceUnavailable, face_label_ko, face_service
 from app.services.companion.llm_client import llm_client
 from app.services.companion.multipart_memory import read_file_part, read_file_parts
 from app.services.companion import reply_service
@@ -76,13 +76,15 @@ def get_llm():
 
 def _no_face() -> dict:
     """프레임이 없거나 표정을 쓸 수 없을 때의 표정 값 (대화는 계속된다)."""
-    return {"label": None, "confidence": 0.0, "frameCount": 0, "usable": False, "totalFrames": 0, "facesFound": 0}
+    return {"label": None, "labelKo": None, "confidence": 0.0, "frameCount": 0, "usable": False, "totalFrames": 0,
+            "facesFound": 0}
 
 
 def _face_dict(f: FaceResult) -> dict:
     # totalFrames·facesFound: 보낸 프레임 수와 얼굴이 잡힌 프레임 수 (표정이 안 나올 때 이유를 보이려고 넣었다)
-    return {"label": f.label, "confidence": f.confidence, "frameCount": f.frameCount, "usable": f.usable,
-            "totalFrames": f.totalFrames, "facesFound": f.facesFound}
+    # labelKo: 한국어 이름 (11/13). 표정을 쓸 수 없으면(얼굴 없음·프레임 부족) None - label 은 영어 그대로
+    return {"label": f.label, "labelKo": face_label_ko(f.label) if f.usable else None, "confidence": f.confidence,
+            "frameCount": f.frameCount, "usable": f.usable, "totalFrames": f.totalFrames, "facesFound": f.facesFound}
 
 
 class DialogueOpen(BaseModel):
@@ -113,11 +115,13 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
             face=face,
             classify_text=classify_text,
             llm=llm,
-            question=d.question,
+            # 11/13: 여는 질문이 아니라 어르신이 지금 대답하는 직전 말벗 문장을 넣는다 (세션 203 5번이 2번 질문을 되풀이했다)
+            question=d.lastQuestion or d.question,
             prev_signals=d.lastSignals,
             is_last_turn=is_last_turn,
             turn_no=turn_no,
             stt_logprob=stt_logprob,
+            past_replies=tuple(d.replies),
         )
         if result["signals"] is not None:  # 신호가 없는 턴(무응답·다시 확인)은 직전 신호를 그대로 둔다
             store.set_last_signals(d.dialogueId, result["signals"])
@@ -131,6 +135,9 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
     _apply_avoid_end(d, result, is_last_turn)
     result = _avoid_repeat(d, result, is_last_turn)
     _queue_for_review(d, result)
+    if result.get("replySource") != "CONFIRM":
+        # 되묻기 턴은 바꾸지 않는다: 다시 말해 주신 대답은 그 전 질문에 대한 것이다 (세션 203 4번 "없다고"는 2번 질문의 대답)
+        d.lastQuestion = result["reply"]["text"]
     return result
 
 

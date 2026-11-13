@@ -4,6 +4,7 @@ from collections import Counter
 
 from app.core.config import Settings
 from app.services.companion.dialogue_store import Dialogue
+from app.services.companion.face_service import face_label_ko
 from app.services.companion.reply_service import REPLY_PROMPT_VERSION
 from app.services.companion.signals import PROMPT_VERSION as SIGNALS_PROMPT_VERSION
 
@@ -37,6 +38,8 @@ def build_dialogue_result(d: Dialogue) -> dict:
         "dominantEmotion": decided_emotions.most_common(1)[0][0] if decided_emotions else None,
         "faceCounts": dict(face_counts),  # 표정 모델 라벨별 횟수 (예: {"Happiness": 2, "Neutral": 1})
         "dominantFace": face_counts.most_common(1)[0][0] if face_counts else None,
+        # 가장 많이 나온 표정의 한국어 이름 (11/13). 없거나 모르는 값이면 None. faceCounts 키는 영어 그대로
+        "dominantFaceKo": face_label_ko(face_counts.most_common(1)[0][0]) if face_counts else None,
         # 어르신이 답한 턴 수 (무응답 제외, 판단 보류는 답한 것으로 센다). 응답률 = answeredCount ÷ 질문 수 (노션 요청 1-3)
         "answeredCount": d.turnNo - no_response,
         "dialogueId": d.dialogueId,

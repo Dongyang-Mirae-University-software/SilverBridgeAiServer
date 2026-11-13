@@ -472,6 +472,12 @@ class Settings(BaseModel):
     companion_reply_relax_calm: bool = _as_bool("COMPANION_REPLY_RELAX_CALM", True)
     # 말을 피하는 대답("말하기 싫어", "묻지 마")에는 모델 대답 대신 물러나는 문장으로 답한다 (11/12). 끄면 전과 같다
     companion_avoid_reply: bool = _as_bool("COMPANION_AVOID_REPLY", True)
+    # 새 대답이 이 대화의 지난 말벗 문장과 이 비율 이상 비슷하면 한 번 다시 만든다 (11/13, 세션 203 2번↔5번 0.76). 0이면 끈다
+    companion_reply_similar_ratio: float = _as_float("COMPANION_REPLY_SIMILAR_RATIO", 0.65)
+    # 비슷해서 다시 만들 때의 온도. 평소 온도(0.1)로는 같은 문장이 다시 나온다 (11/13)
+    companion_reply_redo_temperature: float = _as_float("COMPANION_REPLY_REDO_TEMPERATURE", 0.7)
+    # 짧은 부정 대답("아니 없어"·"없어")은 받아쓰기 확신도가 낮아도 되묻지 않는다 (11/13). 끄면 전과 같다
+    companion_short_answer_pass: bool = _as_bool("COMPANION_SHORT_ANSWER_PASS", True)
     # 한 대화에서 이 횟수만큼 말을 피하면 마무리 문장으로 끝낸다 (endReason AVOIDED - BE V72, 끝내기 USER_STOP과 구별). 0이면 일찍 끝내지 않는다
     companion_avoid_end_count: int = _as_int("COMPANION_AVOID_END_COUNT", 2)
     # 몸 응급 낱말(숨·가슴·쓰러짐·뇌졸중 징후)만 걸린 위험 턴은 몸 응급용 안내 문장으로 답한다 (11/12). 끄면 전과 같다
