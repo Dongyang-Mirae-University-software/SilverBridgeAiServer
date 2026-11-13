@@ -50,13 +50,16 @@ KEEP = [
     ("감기몸살인가봐 온몸이 쑤시고 아프네",
      "몸이 예전같지 않으셔서 피곤하시겠네요. 요즘 특별히 무리하신 일이 있으셨나요?"),
 ]
-# 그대로 걸러야 하는 대답 (둘째 대답은 표에서 "…"로 줄인 부분을 채운 문장)
+# 그대로 걸러야 하는 대답
+# 11/14 점검 H-1: 둘째는 DGX 기록의 실제 대답과 실제 어르신 말 전체다. 어르신이 '예전'을 먼저 말해 '과거 가정'이 풀리므로
+#   '권유'로 걸러야 한다 (처음 시험은 표에 줄여 적힌 어르신 말을 써서 이 경로를 놓쳤다)
+ADVICE_REPLY = ("무릎이 아프셔서 활동이 제한되시니 많이 아쉬우시겠어요. 예전에 좋아하셨던 활동들을 떠올리시면서 "
+                "어떻게 하면 조금이라도 즐길 수 있을지 생각해 보셨나요?")
 DROP = [
     ("어 여기저기 쑤시고 아파서 못했지",
      "잠이 많이 중요하시겠네요. 오늘 하루 중 가장 편안했던 순간은 언제였나요?", "대답과 무관"),
-    ("무릎이 아파서 못하고 있어요",
-     "예전에 좋아하셨던 활동들을 떠올리시면서 어떻게 하면 무릎에 무리 없이 즐기실 수 있을지 생각해 보셨나요?",
-     "과거 가정"),
+    ("예전에는 등산이나 산책을 많이 했는데 지금은 무릎이 아파서 못하고 있어요.", ADVICE_REPLY, "권유"),
+    ("무릎이 아파서 못하고 있어요", ADVICE_REPLY, "과거 가정"),
 ]
 
 
@@ -88,6 +91,32 @@ def test_unrelated_rule_still_catches_off_topic_and_wrong_groups():
     assert "대답과 무관" in check_reply("잠은 잘 주무세요?", False, "손주가 다녀갔어", None)
     # '잘못'은 '못 함' 묶음이 아니다
     assert "대답과 무관" in check_reply("어떤 게 잘못됐을까요?", False, "아니 못 갔어", None)
+
+
+def test_audit_m1_only_present_state_idioms_are_allowed():
+    """11/14 M-1: '예전 같지 않·예전만 못'만 지금 상태 표현이다. '예전처럼'은 지난 일을 넘겨짚을 수 있다."""
+    assert "과거 가정" in check_reply("요즘도 예전처럼 자주 산책하세요?", False, "산책을 좋아해", None)
+    assert "과거 가정" in check_reply("예전만 해도 자주 나가셨죠?", False, "요즘은 집에 있어", None)
+    assert "과거 가정" not in check_reply("몸이 예전만 못하시다니 걱정되네요. 어디가 불편하세요?", False, "몸이 힘들어", None)
+    assert "과거 가정" not in check_reply("몸이 예전 같지 않으시군요. 어디가 불편하세요?", False, "몸이 힘들어", None)
+
+
+def test_audit_l1_elder_question_is_not_matched_by_meaning():
+    """11/14 L-1: 어르신이 되물은 말을 대답으로 받으면 안 된다 (묶음 비교를 쓰지 않는다)."""
+    reply = "아프신 곳은 없으시다니 다행이네요. 혹시 특별히 불편하신 점이 있으시다면 말씀해 주시겠어요?"
+    assert "대답과 무관" in check_reply(reply, False, "왜요? 어디 아픈곳이라도 있나요?", None)
+    # 물음이어도 어르신 낱말을 그대로 이어 받으면 앞 두 글자 비교로 통과한다
+    assert "대답과 무관" not in check_reply("무릎이 많이 아프세요?", False, "무릎이 왜 이러지?", None)
+
+
+@pytest.mark.parametrize("transcript,reply", [
+    ("잠깐 시장에 다녀왔어", "잠은 잘 주무셨어요?"),
+    ("잠시 쉬었다 왔어", "잠은 잘 주무셨어요?"),
+    ("연못에 오리 보러 갔어", "혹시 못 가신 곳이 있으세요?"),
+    ("우리 손주가 남자요", "잠은 잘 주무셨어요?"),
+])
+def test_audit_l4_lookalike_words_are_not_meaning_groups(transcript, reply):
+    assert "대답과 무관" in check_reply(reply, False, transcript, None)
 
 
 # ---------- ⑤ 글 대답은 되묻지 않는다 ----------
@@ -209,3 +238,36 @@ def test_timeout_is_logged_as_timeout(settings, caplog):
         r = _turn("점심에 국수를 먹었어요", kind="text", llm=SlowLlm())
     assert r["replySource"] == "FALLBACK"
     assert any("reason=TIMEOUT timeout=1" in m for m in caplog.messages)
+
+
+# ---------- 11/14 점검 L-2·L-3: 최종 출처 로그 · LLM 실패 원인 코드 ----------
+
+class CodedFailLlm(ProbLlm):
+    def generate(self, *_a, **_k):
+        raise LlmUnavailable("LLM reply 시간 초과 - 원문", code="TIMEOUT")
+
+
+def test_llm_failure_logs_cause_code_only(settings, caplog):
+    settings(companion_confirm_mode="logprob")
+    with caplog.at_level(logging.INFO, logger="app.services.companion.reply_service"):
+        _turn("점심에 국수를 먹었어요", kind="text", llm=CodedFailLlm())
+    lines = [m for m in caplog.messages if "[COMPANION-REPLY-FALLBACK]" in m]
+    assert len(lines) == 1 and lines[0].endswith("llm=TIMEOUT")
+    assert all("원문" not in m and "국수" not in m for m in caplog.messages)
+
+
+def test_llm_unavailable_default_code():
+    assert LlmUnavailable("x").code == "UNAVAILABLE"
+
+
+def test_final_source_is_logged_after_router_overrides(client, caplog):
+    body = {"wardId": "u-final-src", "sessionId": "s1", "slot": "09:00", "question": "요즘 어떻게 지내세요?", "questionId": "q"}
+    did = client.post("/companion/dialogues", json=body, headers=HDR).json()["data"]["dialogueId"]
+    with caplog.at_level(logging.INFO, logger="app.routers.companion_router"):
+        r = client.post(f"/companion/dialogues/{did}/reply", json={"text": TEXT_ANSWERS[0]}, headers=HDR)
+    src = r.json()["data"].get("replySource")
+    lines = [m for m in caplog.messages if "[COMPANION-REPLY-FINAL]" in m]
+    assert len(lines) == 1 and "input=text" in lines[0]
+    if src is not None:
+        assert f"source={src} " in lines[0]
+    assert all("아들" not in m for m in caplog.messages)

@@ -201,7 +201,8 @@ def test_fallback_log_has_rule_names_only(caplog):
     with caplog.at_level("INFO", logger="app.services.companion.reply_service"):
         generate_reply(_FixedLlm(ADVICE[0]), "잘 주무셨어요?", TRANSCRIPT, None, False, 1, text_mood=CALM)
     lines = [r.getMessage() for r in caplog.records if "[COMPANION-REPLY-FALLBACK]" in r.getMessage()]
-    assert lines == ["[COMPANION-REPLY-FALLBACK] failures=권유 relaxed=True last=False"]
+    # 11/14 점검 L-3: LLM 실패 원인 코드 칸(llm=)이 붙었다. 규칙 탈락이면 '-'
+    assert lines == ["[COMPANION-REPLY-FALLBACK] failures=권유 relaxed=True last=False llm=-"]
     assert TRANSCRIPT not in lines[0] and ADVICE[0] not in lines[0]
 
 
