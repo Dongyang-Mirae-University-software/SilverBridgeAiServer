@@ -135,6 +135,16 @@ def test_care_line_steers_away_from_fasting_and_unknown_department() -> None:
     assert "굶기" in _CARE_QUESTION_LINE and "가까운 병원" in _CARE_QUESTION_LINE
 
 
+def test_care_line_answers_what_is_asked_and_fits_period_to_symptom() -> None:
+    # 2026-11-12 기능 점검: 급한 증상에도 "2주"를 쓰던 답, 괄호 예시 낱말이 질문과 상관없이 첫 줄로 베껴지던 답
+    assert "진료과 권유나 진료 기준으로 시작하지 않는다" in _CARE_QUESTION_LINE
+    assert "짧게 써야 할 때도 이 첫 문장은 빼지 않" in _CARE_QUESTION_LINE
+    assert "2~3일" in _CARE_QUESTION_LINE and "1~2주" in _CARE_QUESTION_LINE
+    assert "119" not in _CARE_QUESTION_LINE
+    for copied in ("물·", "부드러운 음식", "설사", "감기", "목이나", "눈의"):
+        assert copied not in _CARE_QUESTION_LINE
+
+
 @pytest.mark.parametrize("bad", ["설사할 때는 가급적 굶고 물만 드세요.", "가장 먼저 식사를 거르거나 굶어보세요.",
                                  "율무주를 조금씩 드셔 보세요.", "따뜻한 술 한 잔이 도움이 돼요.", "민간요법으로 쑥을 달여 드세요."])
 def test_unsafe_care_sentence_dropped(bad: str) -> None:
