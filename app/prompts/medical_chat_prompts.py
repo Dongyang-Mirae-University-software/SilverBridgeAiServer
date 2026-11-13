@@ -50,6 +50,19 @@ SYSTEM_PROMPT = """너는 노인 돌봄 서비스의 의료 보조 AI다. 어르
 
 # 증상이 있을 때 무엇을 먹거나 어떻게 하면 좋은지 묻는 질문(2026-11-11 ②) - 규칙 8 이 advice 를 "진료과 + 진료 기준"으로 묶어
 # 묻는 내용(먹을 것·할 일)이 답에서 빠졌다. 그런 질문일 때만 이 한 줄을 더한다(다른 질문의 프롬프트는 글자 그대로).
+# 보호자 관리 질문용 시스템 프롬프트(2026-11-14): 예시 1(허리 - "진료과 권유 + 진료 기준" 두 문장)을 보호자 관리 질문에서도 따라 써서
+# 할 일 없이 진료 문장만 남았다(10/15). 보호자(대리) 관리 질문일 때만 예시 1을 빼고 예시 2(약 문의)만 둔다 -> 13/15.
+# 피보호자 관리 질문은 빼면 12 -> 10/15로 떨어져 그대로 SYSTEM_PROMPT. 다른 질문도 글자 그대로.
+# docs/eval-results/2026-11-14-care-action-recount.md
+_EXAMPLE_1_START = "예시 1 (질문: "
+_EXAMPLE_2_START = "예시 2 (질문: "
+assert SYSTEM_PROMPT.count(_EXAMPLE_1_START) == 1 and SYSTEM_PROMPT.count(_EXAMPLE_2_START) == 1
+SYSTEM_PROMPT_CARE = (
+    SYSTEM_PROMPT[: SYSTEM_PROMPT.index(_EXAMPLE_1_START)]
+    + SYSTEM_PROMPT[SYSTEM_PROMPT.index(_EXAMPLE_2_START):].replace(_EXAMPLE_2_START, "예시 (질문: ", 1)
+)
+
+
 # 2026-11-12 기능 점검 F-2·칩 must: 급한 증상에도 예시 1의 "2주 넘게"를 쓰고(6/18), 괄호 예시 "(물·부드러운 음식처럼 먹을 것…)"가
 # 피할 음식·운동 질문에도 첫 줄로 베껴졌다(칩 7문항). 구체 낱말 없이 "묻는 것에 바로 답하기"·기간은 증상에 맞추기로 바꿨다.
 # DGX(관리 질문 30 + 칩 must 27): "2주" 6/18 → 0/18, 칩 must 18 → 22/27. 피보호자 할 일 포함은 6/15 → 4/15 로 줄었다(사용자 결정으로 감수,
