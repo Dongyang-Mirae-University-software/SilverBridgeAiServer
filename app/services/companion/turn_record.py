@@ -5,7 +5,7 @@ from collections import Counter
 from app.core.config import Settings
 from app.services.companion.dialogue_store import Dialogue
 from app.services.companion.face_service import face_label_ko
-from app.services.companion.reply_service import REPLY_PROMPT_VERSION
+from app.services.companion.reply_service import reply_prompt_version
 from app.services.companion.signals import PROMPT_VERSION as SIGNALS_PROMPT_VERSION
 
 
@@ -59,5 +59,5 @@ def build_dialogue_result(d: Dialogue) -> dict:
         "summary": " · ".join(turn_summaries)[:300] if turn_summaries else None,  # 대화 전체 요약 (보호자 화면용)
         "riskFlag": d.riskSeen,
         "alertLevel": "URGENT" if d.riskSeen else "INFO",
-        "promptVersion": {"reply": REPLY_PROMPT_VERSION, "signals": SIGNALS_PROMPT_VERSION},
+        "promptVersion": {"reply": reply_prompt_version(), "signals": SIGNALS_PROMPT_VERSION},
     }

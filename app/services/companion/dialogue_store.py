@@ -44,6 +44,9 @@ class Dialogue:
     # 어르신이 지금 대답하는 말벗 문장 (11/13). 대답 프롬프트의 "질문:"에 넣는다. 처음은 여는 질문, 턴마다 나간 대답으로 바뀐다
     # (되묻기 턴은 바꾸지 않는다 - 다시 말한 대답은 그 전 질문에 대한 것이다). None 이면 여는 질문을 쓴다
     lastQuestion: str | None = None
+    # 말벗이 화제를 정해 물은 문장 (11/13): 여는 질문과 모델이 만든 대답만. 되묻기·안전 안내·대체 문장은 넣지 않는다.
+    # v3 프롬프트의 '앞서 한 질문'에 쓴다 (create 에서 여는 질문을 넣는다)
+    askedQuestions: list[str] = field(default_factory=list)
 
     @property
     def turnNo(self) -> int:
@@ -76,6 +79,7 @@ class DialogueStore:
                question_id: str | None = None) -> Dialogue:
         d = Dialogue(uuid.uuid4().hex, ward_id, session_id, slot, question, max_turns, question_id)
         d.replies.append(question)  # 질문도 AI가 한 말이므로 같은 문장이 다시 나오지 않게 한다
+        d.askedQuestions.append(question)
         with self._lock:
             self._expire_locked(time.monotonic())
             self._items[d.dialogueId] = d

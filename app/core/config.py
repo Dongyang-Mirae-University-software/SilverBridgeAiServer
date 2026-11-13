@@ -476,6 +476,8 @@ class Settings(BaseModel):
     companion_reply_similar_ratio: float = _as_float("COMPANION_REPLY_SIMILAR_RATIO", 0.65)
     # 비슷해서 다시 만들 때의 온도. 평소 온도(0.1)로는 같은 문장이 다시 나온다 (11/13)
     companion_reply_redo_temperature: float = _as_float("COMPANION_REPLY_REDO_TEMPERATURE", 0.7)
+    # 꼬리질문 프롬프트 (11/13). v3 = v2 + 이 대화에서 앞서 한 질문 - 대답 LoRA cc8 과 함께 쓴다(cc7 은 v2 로 학습됐다)
+    companion_reply_prompt: str = _as_choice("COMPANION_REPLY_PROMPT", "v2", ("v2", "v3"))
     # 짧은 부정 대답("아니 없어"·"없어")은 받아쓰기 확신도가 낮아도 되묻지 않는다 (11/13). 끄면 전과 같다
     companion_short_answer_pass: bool = _as_bool("COMPANION_SHORT_ANSWER_PASS", True)
     # 한 대화에서 이 횟수만큼 말을 피하면 마무리 문장으로 끝낸다 (endReason AVOIDED - BE V72, 끝내기 USER_STOP과 구별). 0이면 일찍 끝내지 않는다

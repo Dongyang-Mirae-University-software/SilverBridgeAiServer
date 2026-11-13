@@ -135,6 +135,7 @@ def run_turn(
     turn_no: int,
     stt_logprob: float | None = None,
     past_replies=(),
+    past_questions=(),
 ) -> dict:
     """한 턴을 처리한다 (S6-4, S7-7). 신호 추출과 응답 생성은 같은 시점에 함께 돌린다.
 
@@ -142,6 +143,7 @@ def run_turn(
     stt_logprob: turbo 받아쓰기의 토큰 평균 로그확률 (글 대답·확률을 내지 않는 엔진은 None).
     question: 어르신이 지금 대답하는 말벗 문장 (직전 대답, 첫 턴은 여는 질문 - 11/13).
     past_replies: 이 대화에서 말벗이 이미 한 문장. 비슷한 대답을 다시 만들 때 쓴다 (11/13).
+    past_questions: 직전 질문보다 앞서 말벗이 한 질문 (여는 질문·모델 대답만). v3 프롬프트에 넣는다 (11/13).
     """
     s = get_settings()
     if s.companion_confirm_mode == "logprob" and stt_logprob is not None:
@@ -152,9 +154,9 @@ def run_turn(
             return _low_confidence_turn(transcript, llm)
     else:
         return _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
-                                     past_replies)
+                                     past_replies, past_questions)
     return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
-                          past_replies)
+                          past_replies, past_questions)
 
 
 def _risk_prob_capped(llm: LlmClient, transcript: str) -> float | None:
@@ -189,7 +191,7 @@ def _low_confidence_turn(transcript: str, llm: LlmClient) -> dict:
 
 
 def _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
-                          past_replies=()) -> dict:
+                          past_replies=(), past_questions=()) -> dict:
     """재희 버전 되묻기: 형태소·어휘 목록 규칙으로 실제 단어가 아닐 수 있는 말을 찾는다."""
     check = check_transcript(transcript)
     if check.suspicious:
@@ -213,11 +215,11 @@ def _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_s
             "riskProbability": risk_prob,
         }
     return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
-                          past_replies)
+                          past_replies, past_questions)
 
 
 def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
-                   past_replies=()) -> dict:
+                   past_replies=(), past_questions=()) -> dict:
     """감정·신호·대답·요약·위험을 함께 만드는 일반 턴."""
     # 한 턴 전체 상한 (백엔드 요청 60초). 넘게 걸리는 작업은 기다리지 않고, 그 결과는 쓰지 않는다
     cap = get_settings().companion_turn_cap_sec
@@ -243,7 +245,7 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
         # 글 기분은 risk_first 일 때만 생성 전에 있다. 꺼져 있으면 None 으로 넘겨 전 규칙으로 검사한다 (11/12)
         reply_future = None if avoided else pool.submit(
             generate_reply, llm, question, transcript, prev_signals, is_last_turn, turn_no,
-            text_mood if risk_first else None, tuple(past_replies))
+            text_mood if risk_first else None, tuple(past_replies), tuple(past_questions))
         summary_future = pool.submit(summarize_answer, llm, transcript)
         risk_future = None if risk_first else pool.submit(risk_probability, llm, transcript)
         try:

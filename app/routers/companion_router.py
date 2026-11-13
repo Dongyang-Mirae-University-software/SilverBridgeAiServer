@@ -23,7 +23,7 @@ from app.services.companion.face_service import FaceResult, FaceUnavailable, fac
 from app.services.companion.llm_client import llm_client
 from app.services.companion.multipart_memory import read_file_part, read_file_parts
 from app.services.companion import reply_service
-from app.services.companion.reply_service import REPLY_PROMPT_VERSION
+from app.services.companion.reply_service import reply_prompt_version
 from app.services.companion.review_store import STATUSES, review_store
 from app.services.companion.stt_engine import get_stt_api_transcriber, transcribe_turn_audio
 from app.services.companion.audio_decode import TARGET_RATE, decode_to_pcm16k
@@ -122,6 +122,8 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
             turn_no=turn_no,
             stt_logprob=stt_logprob,
             past_replies=tuple(d.replies),
+            # v3: 직전 질문(위 question)보다 앞서 말벗이 물은 것 - 여는 질문과 모델 대답만 (11/13)
+            past_questions=tuple(q for q in d.askedQuestions if q != (d.lastQuestion or d.question)),
         )
         if result["signals"] is not None:  # 신호가 없는 턴(무응답·다시 확인)은 직전 신호를 그대로 둔다
             store.set_last_signals(d.dialogueId, result["signals"])
@@ -135,6 +137,9 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
     _apply_avoid_end(d, result, is_last_turn)
     result = _avoid_repeat(d, result, is_last_turn)
     _queue_for_review(d, result)
+    if result.get("replySource") == "LLM" and result["reply"]["text"] not in reply_service.FIXED_REPLIES:
+        # 모델이 화제를 정해 물은 문장만 (반복이라 대체 문장으로 바뀐 턴은 replySource 가 LLM 으로 남아 따로 거른다)
+        d.askedQuestions.append(result["reply"]["text"])
     if result.get("replySource") != "CONFIRM":
         # 되묻기 턴은 바꾸지 않는다: 다시 말해 주신 대답은 그 전 질문에 대한 것이다 (세션 203 4번 "없다고"는 2번 질문의 대답)
         d.lastQuestion = result["reply"]["text"]
@@ -191,7 +196,7 @@ def _queue_for_review(d: Dialogue, result: dict) -> None:
     위험 = 최상위 riskFlag 또는 signals.riskFlag. 다시 확인 턴과 신호 추출이 시간을 넘긴 턴은 signals 가 null 이고
     위험을 최상위에만 싣는다 - signals 만 보면 그 턴의 위험 표시가 빠진다 (백엔드 턴 처리와 같은 규칙).
     """
-    version = REPLY_PROMPT_VERSION if result["replySource"] == "LLM" else reply_service.FALLBACK_VERSION
+    version = reply_prompt_version() if result["replySource"] == "LLM" else reply_service.FALLBACK_VERSION
     signals = result.get("signals") or {}
     risk = bool(result.get("riskFlag")) or bool(signals.get("riskFlag"))
     review_store.add(d.dialogueId, d.turnNo + 1, result["reply"]["text"], version, risk=risk, ward_id=d.wardId)

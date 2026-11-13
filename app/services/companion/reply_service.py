@@ -13,6 +13,13 @@ from app.services.companion.risk import body_emergency_only
 logger = logging.getLogger(__name__)
 
 REPLY_PROMPT_VERSION = "reply-v2"  # 응답 프롬프트 파일을 고치면 올린다 (v2: 대답 속 낱말을 이어 가는 꼬리질문)
+# 11/13 v3: v2 + 이 대화에서 앞서 한 질문(최대 3개). 대답 LoRA cc8 이 이 형식으로 학습됐다 - COMPANION_REPLY_PROMPT 로 고른다
+PAST_QUESTIONS_MAX = 3
+
+
+def reply_prompt_version() -> str:
+    """검수 목록·대화 결과에 남기는 꼬리질문 프롬프트 버전 (설정에 따라 reply-v2 또는 reply-v3)."""
+    return "reply-v3" if get_settings().companion_reply_prompt == "v3" else REPLY_PROMPT_VERSION
 # 대답과 관계없는 문장을 거를 때 기준으로 삼지 않는 흔한 낱말의 앞 두 글자 (조사가 붙은 말도 걸리도록 앞 글자로 본다)
 COMMON_STEMS = {"그냥", "오늘", "어제", "요즘", "정말", "너무", "조금", "많이", "그래", "있어", "없어",
                 "했어", "같아", "좋아", "괜찮", "아니", "그럼", "이제", "다시"}
@@ -85,6 +92,10 @@ BODY_SAFETY_REPLY = (
     "많이 놀라셨겠어요. 몸이 많이 불편하시거나 위급한 상황이면 바로 119에 전화하시고, 가까운 가족에게도 알려 주세요."
 )
 
+# 미리 정한 문장 전부 (11/13). v3 '앞서 한 질문'에 넣지 않는다 - 화제를 정해 물은 말이 아니다
+FIXED_REPLIES = frozenset((*FALLBACK_FOLLOWUP, *FALLBACK_EMPATHY, *FALLBACK_NO_RESPONSE, *FALLBACK_AVOID, *FALLBACK_LAST,
+                           SAFETY_REPLY, BODY_SAFETY_REPLY))
+
 
 def safety_reply(transcript: str) -> str:
     """위험 턴의 안내 문장. 몸 응급 낱말만 걸렸으면 몸 응급용, 아니면 기존 안내 (스위치를 끄면 늘 기존 안내)."""
@@ -146,9 +157,26 @@ def _signal_line(prev_signals: dict | None) -> str:
     return "직전 턴 신호: " + ", ".join(f"{k}={v}" for k, v in prev_signals.items())
 
 
-def build_reply_prompt(question: str, transcript: str, prev_signals: dict | None, is_last_turn: bool) -> str:
-    name = "reply-v1-last.txt" if is_last_turn else "reply-v2-followup.txt"
+def question_sentence(text: str) -> str:
+    """말벗 문장에서 마지막 물음 문장 (없으면 빈 문자열). v3 의 '앞서 한 질문' 칸에 넣는다 (학습 자료와 같은 규칙)."""
+    asks = [x.strip() for x in re.split(r"(?<=[.?!])\s+", (text or "").strip()) if x.strip().endswith("?")]
+    return asks[-1] if asks else ""
+
+
+def past_questions_block(past_questions) -> str:
+    """v3 '앞서 한 질문:' 아래 줄. 물음 문장만 최근 PAST_QUESTIONS_MAX 개, 없으면 '없음'."""
+    qs = [q for q in (question_sentence(p) for p in past_questions or ()) if q][-PAST_QUESTIONS_MAX:]
+    return "\n".join(f"- {q}" for q in qs) if qs else "없음"
+
+
+def build_reply_prompt(question: str, transcript: str, prev_signals: dict | None, is_last_turn: bool,
+                       past_questions=()) -> str:
+    """past_questions: 이 대화에서 직전 질문보다 앞서 말벗이 한 질문 (v3 일 때만 쓴다, 11/13)."""
+    v3 = not is_last_turn and get_settings().companion_reply_prompt == "v3"
+    name = "reply-v1-last.txt" if is_last_turn else ("reply-v3-followup.txt" if v3 else "reply-v2-followup.txt")
     template = (_PROMPT_DIR / name).read_text(encoding="utf-8")
+    if v3:
+        template = template.replace("{{PAST_QUESTIONS}}", past_questions_block(past_questions))
     return (template
             .replace("{{PREV_SIGNALS}}", _signal_line(prev_signals))
             .replace("{{QUESTION}}", question)
@@ -229,6 +257,7 @@ def generate_reply(
     turn_no: int,
     text_mood: dict | None = None,
     past_replies=(),
+    past_questions=(),
 ) -> ReplyResult:
     """응답 문장을 만든다. (S6-3, D20)
 
@@ -239,7 +268,7 @@ def generate_reply(
     COMPANION_REPLY_REDO_TEMPERATURE 로 한 번 다시 만들고, 그래도 비슷하거나 규칙에 걸리면 대체 문장을 쓴다 (실패 이름 "반복").
     """
     s = get_settings()
-    prompt = build_reply_prompt(question, transcript, prev_signals, is_last_turn)
+    prompt = build_reply_prompt(question, transcript, prev_signals, is_last_turn, past_questions)
     failures: list[str] = []
     for _ in range(1 + s.companion_llm_retry):
         try:
