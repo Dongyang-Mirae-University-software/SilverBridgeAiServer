@@ -41,7 +41,8 @@ def settings(monkeypatch):
     set_(companion_confirm_mode="logprob", companion_confirm_logprob=-0.3, companion_short_answer_pass=True,
          companion_reply_similar_ratio=0.65, companion_reply_redo_temperature=0.7, companion_llm_retry=0,
          companion_risk_first=True, companion_reply_relax_calm=True, companion_avoid_reply=True,
-         companion_keep_fixed_replies=True, companion_llm_temperature=0.1)
+         companion_keep_fixed_replies=True, companion_llm_temperature=0.1,
+         companion_flat_topic_switch=0)  # #279 동작만 본다 (짧은 대답 화제 전환은 test_companion_flat_topic_switch)
     return set_
 
 
