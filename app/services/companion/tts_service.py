@@ -258,14 +258,18 @@ class TtsService:
                 self._fixed.popitem(last=False)
 
     # ---- 조회 ----
-    def get(self, session_id: str, index: int, wait_sec: float) -> bytes:
-        """소리를 돌려준다. 합성 중이면 wait_sec 까지 기다린다. 없음·만료·꺼짐·실패 TtsNotFound, 시간 안에 못 끝나면 TtsNotReady."""
+    def get(self, session_id: str, index: int, wait_sec: float, ward_id: str | None = None) -> bytes:
+        """소리를 돌려준다. 합성 중이면 wait_sec 까지 기다린다. 없음·만료·꺼짐·실패 TtsNotFound, 시간 안에 못 끝나면 TtsNotReady.
+
+        ward_id 를 주면 그 소리를 만든 대화의 주인과 대조해 다르면 없는 것과 똑같이 TtsNotFound 다(BE 점검 L-2, 11/13 -
+        소리는 BE 대화 번호로만 찾으므로 BE 두 곳이 같은 AI를 쓰면 같은 번호의 남의 소리가 나갈 수 있다). 기다리기 전에
+        대조해 응답 시간으로도 있는지 드러나지 않게 한다. None 이면 대조하지 않는다(헤더를 싣지 않는 옛 BE 호환)."""
         if not get_settings().companion_tts_enabled:
             raise TtsNotFound()
         with self._lock:
             self._purge_locked(time.monotonic())
             item = self._items.get((str(session_id), int(index)))
-        if item is None:
+        if item is None or (ward_id is not None and item.ward_id != ward_id):
             raise TtsNotFound()
         if not item.done.wait(max(0.0, wait_sec)):
             raise TtsNotReady()
