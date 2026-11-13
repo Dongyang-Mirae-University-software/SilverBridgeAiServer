@@ -48,7 +48,9 @@ def test_examples_two_sentences_no_119_no_verdict() -> None:
     assert "119" not in ex1
     # 2026-11-11: 예시 둘째 문장의 다른 몸 부위(다리 저림)가 다른 증상 답으로 복사됐다 - 몸 부위가 없는 신호로 바꿨다
     ex1_advice = ex1.split('"advice": "')[1].split('"')[0]
-    assert "2주 넘게" in ex1_advice and "통증이 점점 심해지면" in ex1_advice  # 기간 기준은 남긴다(구체 기준)
+    # 2026-11-13: "2주 넘게"가 짧은 증상 답에도 옮겨져 증상에 상관없이 맞는 기간으로 바꿨다(구체 기준은 "며칠"로 유지)
+    assert "며칠이 지나도" in ex1_advice and "통증이 점점 심해지면" in ex1_advice
+    assert "2주" not in ex1_advice
     for copied in ("다리", "저려", "저림"):
         assert copied not in ex1_advice
     ex2 = _example('{"empathy": "관절약')
