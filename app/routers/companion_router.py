@@ -6,7 +6,7 @@ import time
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
@@ -248,13 +248,19 @@ UTTERANCE_INDEX_MAX = 100
                 "없음·만료(15분)·꺼짐·합성 실패면 404 TTS_NOT_FOUND. 소리는 메모리에만 잠시 두고 저장하지 않는다.",
     responses={200: {"content": {"audio/mpeg": {}}}},
 )
-def utterance_audio(session_id: str, index: int, wait: float = 5.0) -> Response:
+def utterance_audio(
+    session_id: str,
+    index: int,
+    wait: float = 5.0,
+    # 대화 주인(BE #485가 싣는다). 있으면 소리를 만든 대화의 wardId와 대조하고 다르면 404 - 로그에 남기지 않는다
+    ward_id: str | None = Header(default=None, alias="X-Companion-Ward-Id", include_in_schema=False),
+) -> Response:
     if not (0.0 <= wait <= AUDIO_WAIT_MAX_SEC):
         raise CompanionError(422, "WAIT_INVALID", "wait 는 0~8초입니다.")
     if not (0 <= index <= UTTERANCE_INDEX_MAX) or not (1 <= len(session_id) <= 64):
         raise CompanionError(404, "TTS_NOT_FOUND", "소리가 없습니다.")
     try:
-        data = tts_service.get(session_id, index, wait)
+        data = tts_service.get(session_id, index, wait, ward_id=ward_id or None)
     except TtsNotReady as exc:
         raise CompanionError(503, "TTS_NOT_READY", "소리를 아직 만드는 중입니다.") from exc
     except TtsNotFound as exc:

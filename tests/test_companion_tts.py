@@ -301,6 +301,33 @@ def test_route_404_503_and_wait_validation(client, monkeypatch):
     assert _audio(c, "s-slow", 101, wait=0).status_code == 404
 
 
+def test_owner_header_must_match(client):
+    """BE 점검 L-2(11/13): X-Companion-Ward-Id 가 있으면 대화 주인과 같을 때만 준다. 없으면 옛 BE 호환으로 그대로 준다."""
+    c, _, _ = client
+    _open(c)  # wardId u1
+    ok = c.get("/companion/sessions/s-tts/utterances/0/audio?wait=2", headers={**HDR, "X-Companion-Ward-Id": "u1"})
+    assert ok.status_code == 200
+    other = c.get("/companion/sessions/s-tts/utterances/0/audio?wait=2", headers={**HDR, "X-Companion-Ward-Id": "u2"})
+    assert other.status_code == 404 and other.json()["code"] == "TTS_NOT_FOUND"
+    assert _audio(c, "s-tts", 0).status_code == 200
+
+
+def test_owner_mismatch_does_not_wait(enable):
+    """남의 소리는 합성 중이어도 기다리지 않고 바로 없음 - 응답 시간으로 있는지 드러나지 않게."""
+    enable()
+    gate = threading.Event()
+    svc = _svc(FakeSynth(gate=gate))
+    assert svc.start("w1", "s1", 0, "안녕하세요")
+    started = time.monotonic()
+    with pytest.raises(TtsNotFound):
+        svc.get("s1", 0, 3, ward_id="w2")
+    assert time.monotonic() - started < 1
+    with pytest.raises(TtsNotReady):
+        svc.get("s1", 0, 0.1, ward_id="w1")
+    gate.set()
+    assert svc.get("s1", 0, 3, ward_id="w1").startswith(b"ID3")
+
+
 def test_audio_route_requires_key(client):
     c, _, _ = client
     _open(c)
