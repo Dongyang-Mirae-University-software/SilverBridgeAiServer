@@ -905,34 +905,63 @@ class GameService:
     /* 짝 맞추기 */
     .memory-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; width: 100%; }
     .memory-card {
-      aspect-ratio: 1; min-height: 0; overflow: hidden; padding: 6px;
-      font-size: calc(var(--card-size, 140px) * 0.24); font-weight: 800;
-      border: 3px solid transparent; border-radius: var(--radius-md); cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      background: var(--primary); color: #fff;
-      transition: transform 0.2s ease, background 0.2s ease;
+      aspect-ratio: 1; min-height: 0; padding: 0; border: none; background: none;
+      cursor: pointer; perspective: 900px;
     }
-    .memory-card .back-mark {
+    /* 카드 뒤집기: 안쪽 판을 Y축으로 돌리고 앞·뒷면은 뒤쪽을 숨긴다 */
+    .card-inner {
+      display: block; position: relative; width: 100%; height: 100%;
+      transform-style: preserve-3d; transition: transform 0.45s ease;
+    }
+    .memory-card.open .card-inner, .memory-card.matched .card-inner { transform: rotateY(180deg); }
+    .face {
+      position: absolute; inset: 0; border-radius: var(--radius-md); overflow: hidden;
+      backface-visibility: hidden; -webkit-backface-visibility: hidden;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2%;
+    }
+    .face.back { background: var(--primary) center / cover no-repeat; color: #fff; }
+    .has-art .face.back { background-image: var(--art-card-back); }
+    .has-art .face.back .back-mark { display: none; }
+    .back-mark {
       width: 46%; aspect-ratio: 1; border-radius: 50%;
       border: 3px solid rgba(255, 255, 255, 0.55);
       display: flex; align-items: center; justify-content: center;
-      font-size: calc(var(--card-size, 140px) * 0.22);
+      font-size: calc(var(--card-size, 140px) * 0.22); font-weight: 800;
     }
-    .memory-card.open { background: var(--surface); color: var(--text); border-color: var(--primary); transform: scale(0.97); }
-    .memory-card.matched { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); cursor: default; }
+    .face.front {
+      transform: rotateY(180deg); padding: 6%;
+      background: var(--surface); border: 3px solid var(--primary); color: var(--text);
+      font-size: calc(var(--card-size, 140px) * 0.24); font-weight: 800;
+    }
+    .face.front img { width: 70%; height: 70%; object-fit: contain; }
+    .face.front img + .label { font-size: calc(var(--card-size, 140px) * 0.13); line-height: 1.1; }
+    .memory-card.matched { cursor: default; }
+    .memory-card.matched .face.front { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
 
-    /* 미로 찾기 */
-    .maze-board { display: grid; gap: 6px; padding: 10px; background: #e9e4da; border-radius: 22px; }
+    /* 미로 찾기: 칸 위에 캐릭터(walker)를 따로 올려 칸 사이를 미끄러지듯 걷게 한다 */
+    .maze-board { position: relative; display: grid; gap: 6px; padding: 10px; background: #e9e4da; border-radius: 22px; }
     .maze-cell {
-      width: 56px; height: 56px; border-radius: 12px; border: none; padding: 0;
+      width: 56px; height: 56px; border-radius: 12px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 30px; font-weight: 800;
+      font-size: 30px; background-size: cover; background-position: center;
     }
-    .maze-wall { background: #a8b0bb; }
-    .maze-path { background: var(--surface); }
-    .maze-next { background: var(--primary-soft); cursor: pointer; box-shadow: inset 0 0 0 3px var(--primary); }
-    .maze-goal { background: #ffe8a3; }
-    .maze-me { background: var(--primary); color: #fff; }
+    .maze-wall { background-color: #a8b0bb; }
+    .maze-path { background-color: var(--surface); }
+    .maze-goal { background-color: #ffe8a3; }
+    .has-art .maze-wall { background-image: var(--art-wall); }
+    .has-art .maze-path, .has-art .maze-goal { background-image: var(--art-path); }
+    .maze-goal img { width: 92%; height: 92%; object-fit: contain; }
+    .maze-next { cursor: pointer; box-shadow: inset 0 0 0 4px var(--primary); }
+    .walker {
+      position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.32s ease;
+    }
+    .walker .dot {
+      width: 82%; height: 82%; border-radius: 50%; background: var(--primary); color: #fff;
+      display: flex; align-items: center; justify-content: center; font-size: 28px;
+    }
+    .walker img { width: 120%; height: 120%; object-fit: contain; margin-top: -20%; }
     .direction-pad { display: grid; grid-template-areas: ". up ." "left down right"; gap: 12px; }
     .dir-btn {
       width: 96px; height: 84px; border-radius: 22px; border: 2px solid var(--line);
@@ -976,7 +1005,29 @@ class GameService:
       width: 140px; height: 140px; border-radius: 50%;
       background: #ffe8a3; display: flex; align-items: center; justify-content: center; font-size: 72px;
     }
+    .done img { width: 220px; height: 220px; object-fit: contain; }
     .done strong { font-size: 34px; }
+
+    /* 퀴즈 배경 그림(가운데는 비어 있는 그림이라 글자 대비는 유지) */
+    .has-art[data-game="arithmetic"] .game-card,
+    .has-art[data-game="initials_quiz"] .game-card { background-image: var(--art-bg); background-size: cover; background-position: center; }
+
+    /* 정답·오답 뒤 잠깐 뜨는 칭찬·응원 */
+    .cheer {
+      position: fixed; inset: 0; z-index: 20; display: none;
+      align-items: center; justify-content: center; background: rgba(251, 246, 240, 0.85);
+    }
+    .cheer.visible { display: flex; }
+    .cheer-box {
+      display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 90vw;
+      padding: 28px 40px; background: var(--surface); border-radius: var(--radius-lg);
+      box-shadow: var(--shadow); text-align: center; animation: pop 0.35s ease;
+    }
+    .cheer-box img { width: 200px; height: 200px; object-fit: contain; }
+    .cheer-emoji { font-size: 96px; line-height: 1.1; }
+    .cheer-box strong { font-size: 34px; }
+    .cheer-box span { font-size: 22px; color: var(--muted); }
+    @keyframes pop { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
     .done span { font-size: 22px; color: var(--muted); }
 
     /* 아래: 버튼 */
@@ -1000,7 +1051,7 @@ class GameService:
       .maze-cell { width: 46px; height: 46px; font-size: 24px; }
       .dir-btn { width: 84px; height: 76px; }
     }
-    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
   </style>
 </head>
 <body>
@@ -1030,16 +1081,47 @@ class GameService:
       </div>
     </main>
   </div>
+  <div class="cheer" id="cheer" role="status" aria-live="polite"><div class="cheer-box" id="cheerBox"></div></div>
 
   <script>
     const BOOT = JSON.parse(document.getElementById('boot').textContent);
     const API_ROOT = BOOT.apiOrigin;
+    const ART = `${API_ROOT}/api/v1/games/assets/`;
     document.body.dataset.game = BOOT.gameSlug;
+    // 짝 맞추기 낱말 → 그림 파일(card-<영문>.png). 그림이 없으면 글자만 보인다
+    const CARD_ART = {
+      '사과': 'apple', '별': 'star', '고양이': 'cat', '바다': 'sea', '하늘': 'sky', '꽃': 'flower', '달': 'moon', '해': 'sun',
+      '나무': 'tree', '물': 'water', '기차': 'train', '버스': 'bus', '자동차': 'car', '자전거': 'bicycle', '연필': 'pencil',
+      '지우개': 'eraser', '공책': 'notebook', '가방': 'bag', '책': 'book', '의자': 'chair', '책상': 'desk', '램프': 'lamp',
+      '창문': 'window', '문': 'door', '토끼': 'rabbit', '사자': 'lion', '호랑이': 'tiger', '기린': 'giraffe', '코끼리': 'elephant',
+      '서울': 'seoul', '부산': 'busan', '대구': 'daegu', '광주': 'gwangju', '대전': 'daejeon', '울산': 'ulsan', '수박': 'watermelon',
+      '포도': 'grape', '딸기': 'strawberry', '감자': 'potato', '고구마': 'sweetpotato', '우산': 'umbrella', '모자': 'hat',
+      '신발': 'shoes', '안경': 'glasses', '시계': 'clock', '전화': 'telephone', '라디오': 'radio', '냄비': 'pot', '숟가락': 'spoon',
+      '젓가락': 'chopsticks', '거울': 'mirror', '비누': 'soap', '수건': 'towel', '이불': 'blanket'
+    };
+    const css = document.body.style;
+    css.setProperty('--art-card-back', `url("${ART}card-back.png")`);
+    css.setProperty('--art-wall', `url("${ART}tile-wall.png")`);
+    css.setProperty('--art-path', `url("${ART}tile-path.png")`);
+    css.setProperty('--art-bg', `url("${ART}bg-${BOOT.gameSlug === 'arithmetic' ? 'arithmetic' : 'initials'}.png")`);
+    // 그림이 올라와 있으면(카드 뒷면으로 확인) 그림 모드. 없으면 1차 화면 그대로
+    let hasArt = false;
+    const probe = new Image();
+    probe.onload = () => {
+      hasArt = true;
+      document.body.classList.add('has-art');
+      ['down', 'up', 'left', 'right'].forEach(d => [1, 2].forEach(f => { new Image().src = `${ART}bunny-${d}-${f}.png`; }));
+      ['praise-bunny', 'cheer-bunny'].forEach(n => { new Image().src = `${ART}${n}.png`; });
+      if (state.progress) renderUi();
+    };
+    probe.src = `${ART}card-back.png`;
+    const artImg = (name, cls = '') => `<img class="${cls}" src="${ART}${name}.png" alt="" onerror="this.remove()">`;
+
     const state = {
       stage: null,
       progress: null,
       memory: { selected: [], matched: new Set() },
-      maze: { path: '', x: 0, y: 0 },
+      maze: { path: '', x: 0, y: 0, dir: 'down', frame: 1 },
       choice: '',
       busy: false
     };
@@ -1053,7 +1135,9 @@ class GameService:
       stageBody: document.getElementById('stageBody'),
       submitBtn: document.getElementById('submitBtn'),
       resetBtn: document.getElementById('resetBtn'),
-      soundBtn: document.getElementById('soundBtn')
+      soundBtn: document.getElementById('soundBtn'),
+      cheer: document.getElementById('cheer'),
+      cheerBox: document.getElementById('cheerBox')
     };
 
     // 소리·진동: 버튼 하나로 함께 켜고 끈다. 설정은 이 기기에만 저장(저장이 막혀도 동작)
@@ -1099,12 +1183,21 @@ class GameService:
     }
     function hideFeedback() { els.feedbackBox.className = 'feedback'; }
 
-    function stageReady() {
-      const type = state.stage?.stageType;
-      if (type === 'memory_match') return state.memory.matched.size === state.stage.payload.pairCount;
-      if (type === 'maze') return state.stage.payload.grid[state.maze.y][state.maze.x] === 'G';
-      return state.choice !== '';
+    // 정답이면 칭찬, 아니면 응원을 잠깐 보여 준다(누르면 바로 닫힘)
+    let cheerTimer = null;
+    function showCheer(correct, message) {
+      const pic = hasArt
+        ? artImg(correct ? 'praise-bunny' : 'cheer-bunny')
+        : `<div class="cheer-emoji" aria-hidden="true">${correct ? '🎉' : '🌱'}</div>`;
+      els.cheerBox.innerHTML = `${pic}<strong></strong><span></span>`;
+      els.cheerBox.querySelector('strong').textContent = correct ? '참 잘하셨어요!' : '괜찮아요!';
+      els.cheerBox.querySelector('span').textContent = message || '';
+      els.cheer.classList.add('visible');
+      clearTimeout(cheerTimer);
+      cheerTimer = setTimeout(hideCheer, 1800);
     }
+    function hideCheer() { els.cheer.classList.remove('visible'); }
+    els.cheer.onclick = hideCheer;
 
     function renderUi() {
       els.gameTitle.textContent = BOOT.game.title;
@@ -1117,7 +1210,8 @@ class GameService:
 
       if (cleared) {
         els.stagePrompt.textContent = '오늘도 수고 많으셨어요';
-        els.stageBody.innerHTML = `<div class="done"><div class="medal" aria-hidden="true">🏅</div>
+        const pic = hasArt ? artImg('done-bunny') : '<div class="medal" aria-hidden="true">🏅</div>';
+        els.stageBody.innerHTML = `<div class="done">${pic}
           <strong>참 잘하셨어요!</strong><span>모든 문제를 다 풀었어요. 모은 점수는 ${state.progress.score}점이에요.</span></div>`;
         hideFeedback();
         els.submitBtn.hidden = true;
@@ -1141,34 +1235,29 @@ class GameService:
       // 짝 맞추기·미로는 다 하면 저절로 넘어가므로, 버튼은 '넘어가기' 역할만 한다
       const autoGame = type === 'memory_match' || type === 'maze';
       els.submitBtn.textContent = autoGame ? '다음 문제로' : '확인';
-      els.submitBtn.disabled = state.busy || (!autoGame && state.choice === '');
+      updateSubmitBtn();
 
       if (type === 'memory_match') {
+        // 카드는 한 번만 그리고, 이후엔 클래스만 바꿔야 뒤집기 애니메이션이 보인다
         els.stageBody.innerHTML = `<div class="memory-grid">${payload.cards.map(card => {
-          const matched = state.memory.matched.has(card.pairKey);
-          const open = matched || state.memory.selected.includes(card.id);
-          const cls = matched ? 'matched' : (open ? 'open' : '');
-          const label = open ? card.label : '<span class="back-mark" aria-hidden="true">?</span>';
-          return `<button type="button" class="memory-card ${cls}" data-id="${card.id}" data-key="${card.pairKey}"
-            aria-label="${open ? card.label : '뒤집힌 카드'}" ${matched ? 'disabled' : ''}>${label}</button>`;
+          const art = hasArt && CARD_ART[card.label] ? artImg(`card-${CARD_ART[card.label]}`) : '';
+          return `<button type="button" class="memory-card" data-id="${card.id}" data-key="${card.pairKey}" aria-label="뒤집힌 카드">
+            <span class="card-inner">
+              <span class="face back"><span class="back-mark" aria-hidden="true">?</span></span>
+              <span class="face front">${art}<span class="label">${card.label}</span></span>
+            </span></button>`;
         }).join('')}</div>`;
+        updateMemory();
       } else if (type === 'maze') {
         const grid = payload.grid;
-        const { x: mx, y: my } = state.maze;
         els.stageBody.innerHTML = `
           <div class="maze-board" style="grid-template-columns: repeat(${grid[0].length}, auto)">
             ${grid.map((row, y) => row.map((cell, x) => {
-              const me = x === mx && y === my;
-              const near = Math.abs(x - mx) + Math.abs(y - my) === 1 && cell !== '#';
-              let cls = cell === '#' ? 'maze-wall' : cell === 'G' ? 'maze-goal' : 'maze-path';
-              if (near) cls += ' maze-next';
-              if (me) cls = 'maze-me';
-              const move = x > mx ? 'R' : x < mx ? 'L' : y > my ? 'D' : 'U';
-              const icon = me ? '🙂' : cell === 'G' ? '🏁' : '';
-              return near
-                ? `<button type="button" class="maze-cell ${cls}" data-move="${move}" aria-label="이 칸으로 가기">${icon}</button>`
-                : `<div class="maze-cell ${cls}">${icon}</div>`;
+              const cls = cell === '#' ? 'maze-wall' : cell === 'G' ? 'maze-goal' : 'maze-path';
+              const goal = cell === 'G' ? (hasArt ? artImg('goal-home') : '🏁') : '';
+              return `<div class="maze-cell ${cls}" data-x="${x}" data-y="${y}">${goal}</div>`;
             }).join('')).join('')}
+            <div class="walker" id="walker" aria-hidden="true"></div>
           </div>
           <div class="direction-pad">
             <button type="button" class="dir-btn up" data-move="U">▲<small>위</small></button>
@@ -1176,6 +1265,7 @@ class GameService:
             <button type="button" class="dir-btn down" data-move="D">▼<small>아래</small></button>
             <button type="button" class="dir-btn right" data-move="R">▶<small>오른쪽</small></button>
           </div>`;
+        updateMaze(false);
       } else if (type === 'arithmetic') {
         const q = payload.question.replace('?', `<span class="blank">${state.choice === '' ? '?' : payload.options[Number(state.choice)]}</span>`);
         els.stageBody.innerHTML = `<div class="question">${q}</div>
@@ -1190,6 +1280,43 @@ class GameService:
           ).join('')}</div>`;
       }
       fitToViewport();
+    }
+
+    function updateSubmitBtn() {
+      const type = state.stage?.stageType;
+      const autoGame = type === 'memory_match' || type === 'maze';
+      els.submitBtn.disabled = state.busy || (!autoGame && state.choice === '');
+    }
+
+    function updateMemory() {
+      document.querySelectorAll('.memory-card').forEach(btn => {
+        const matched = state.memory.matched.has(btn.dataset.key);
+        const open = matched || state.memory.selected.includes(btn.dataset.id);
+        btn.classList.toggle('matched', matched);
+        btn.classList.toggle('open', open && !matched);
+        btn.disabled = matched;
+        btn.setAttribute('aria-label', open ? btn.querySelector('.label').textContent : '뒤집힌 카드');
+      });
+    }
+
+    // 캐릭터를 지금 칸 위로 옮긴다. animate=false면 순간 이동(처음 그릴 때·화면 크기 바뀔 때)
+    function updateMaze(animate = true) {
+      const walker = document.getElementById('walker');
+      if (!walker) return;
+      const { x, y } = state.maze;
+      document.querySelectorAll('.maze-cell').forEach(cell => {
+        const cx = Number(cell.dataset.x), cy = Number(cell.dataset.y);
+        cell.classList.toggle('maze-next', Math.abs(cx - x) + Math.abs(cy - y) === 1 && !cell.classList.contains('maze-wall'));
+      });
+      const target = document.querySelector(`.maze-cell[data-x="${x}"][data-y="${y}"]`);
+      walker.style.width = `${target.offsetWidth}px`;
+      walker.style.height = `${target.offsetHeight}px`;
+      if (!animate) walker.style.transition = 'none';
+      walker.style.transform = `translate(${target.offsetLeft}px, ${target.offsetTop}px)`;
+      if (!animate) { walker.offsetWidth; walker.style.transition = ''; }
+      walker.innerHTML = hasArt
+        ? artImg(`bunny-${state.maze.dir}-${state.maze.frame}`)
+        : '<span class="dot">🙂</span>';
     }
 
     // iframe·태블릿처럼 작은 화면에서도 스크롤 없이 한 화면에 들어가도록 전체를 축소한다.
@@ -1229,7 +1356,7 @@ class GameService:
       document.body.style.zoom = zoom;
       shell.style.minHeight = `${window.innerHeight / zoom}px`;
     }
-    window.addEventListener('resize', fitToViewport);
+    window.addEventListener('resize', () => { fitToViewport(); updateMaze(false); });
 
     async function api(path, method = 'GET', body = null) {
       const options = { method, headers: { 'Content-Type': 'application/json' } };
@@ -1250,7 +1377,7 @@ class GameService:
       state.memory = { selected: [], matched: new Set() };
       state.choice = '';
       if (state.stage?.stageType === 'maze') {
-        state.maze = { path: '', x: state.stage.payload.start.x, y: state.stage.payload.start.y };
+        state.maze = { path: '', x: state.stage.payload.start.x, y: state.stage.payload.start.y, dir: 'down', frame: 1 };
       }
     }
 
@@ -1264,8 +1391,30 @@ class GameService:
       } catch (e) { showFeedback(e.message, 'try'); }
     }
 
+    const DIRS = { U: [0, -1, 'up'], D: [0, 1, 'down'], L: [-1, 0, 'left'], R: [1, 0, 'right'] };
+    function moveMaze(mv) {
+      const grid = state.stage.payload.grid;
+      const [dx, dy, dir] = DIRS[mv];
+      const nx = state.maze.x + dx, ny = state.maze.y + dy;
+      state.maze.dir = dir;
+      if (ny < 0 || ny >= grid.length || nx < 0 || nx >= grid[0].length || grid[ny][nx] === '#') {
+        state.maze.frame = 1;
+        updateMaze();
+        showFeedback('그쪽은 막혀 있어요. 다른 길로 가 볼까요?', 'info');
+        return;
+      }
+      state.maze.x = nx; state.maze.y = ny; state.maze.path += mv;
+      state.maze.frame = state.maze.frame === 1 ? 2 : 1;  // 칸마다 발을 바꿔 걷는 느낌
+      updateMaze();
+      if (grid[ny][nx] === 'G') {
+        showFeedback('도착하셨어요!', 'ok');
+        state.busy = true;  // 도착 후 제출 전까지 더 못 움직이게
+        setTimeout(() => { state.busy = false; submit(); }, 900);
+      }
+    }
+
     els.stageBody.onclick = (e) => {
-      const btn = e.target.closest('button');
+      const btn = e.target.closest('button, .maze-cell');
       if (!btn || state.busy || state.progress?.cleared || !state.stage) return;
 
       if (btn.dataset.id) {
@@ -1281,28 +1430,27 @@ class GameService:
           if (c1.pairKey === c2.pairKey) {
             state.memory.matched.add(c1.pairKey);
             state.memory.selected = [];
-            if (stageReady()) { showFeedback('모두 찾으셨어요! 다음 문제로 넘어가요.', 'ok'); setTimeout(submit, 1200); }
-            else { showFeedback('짝을 찾으셨어요!', 'ok'); chime('ok'); }
+            if (state.memory.matched.size === state.stage.payload.pairCount) {
+              showFeedback('모두 찾으셨어요! 다음 문제로 넘어가요.', 'ok');
+              setTimeout(submit, 1200);
+            } else { showFeedback('짝을 찾으셨어요!', 'ok'); chime('ok'); }
           } else {
             showFeedback('괜찮아요, 위치를 기억해 두고 다시 찾아봐요.', 'info');
-            setTimeout(() => { state.memory.selected = []; renderStageContent(); }, 1300);
+            setTimeout(() => { state.memory.selected = []; updateMemory(); }, 1300);
           }
         }
+        updateMemory();
       } else if (btn.dataset.move) {
-        const mv = btn.dataset.move;
-        const grid = state.stage.payload.grid;
-        let nx = state.maze.x, ny = state.maze.y;
-        if (mv === 'U') ny--; else if (mv === 'D') ny++; else if (mv === 'L') nx--; else if (mv === 'R') nx++;
-        if (ny >= 0 && ny < grid.length && nx >= 0 && nx < grid[0].length && grid[ny][nx] !== '#') {
-          state.maze.x = nx; state.maze.y = ny; state.maze.path += mv;
-          if (grid[ny][nx] === 'G') { showFeedback('출구에 도착하셨어요!', 'ok'); setTimeout(submit, 1000); }
-        } else {
-          showFeedback('그쪽은 벽이에요. 다른 길로 가 볼까요?', 'info');
-        }
+        moveMaze(btn.dataset.move);
+      } else if (btn.dataset.x !== undefined) {
+        // 옆 칸을 직접 눌러도 그 칸으로 걸어간다
+        const dx = Number(btn.dataset.x) - state.maze.x, dy = Number(btn.dataset.y) - state.maze.y;
+        if (Math.abs(dx) + Math.abs(dy) !== 1) return;
+        moveMaze(dx === 1 ? 'R' : dx === -1 ? 'L' : dy === 1 ? 'D' : 'U');
       } else if (btn.dataset.idx !== undefined) {
         state.choice = btn.dataset.idx;
+        renderStageContent();
       }
-      renderStageContent();
     };
 
     async function submit() {
@@ -1314,18 +1462,20 @@ class GameService:
       else if (state.choice !== '') answer = { value: state.choice };
       if (!answer) return;
       state.busy = true;
-      els.submitBtn.disabled = true;
+      updateSubmitBtn();
       try {
         const data = await api(`/api/v1/games/${BOOT.gameSlug}/answer`, 'POST', {
           userId: BOOT.userId, gameSlug: BOOT.gameSlug, stageNo: state.stage.stageNo, answer
         });
         chime(data.correct ? 'ok' : 'try');
+        showCheer(data.correct, data.message);
         state.progress = data.progress;
         state.stage = data.stage;
         resetLocal();
       } catch (e) { showFeedback(e.message, 'try'); }
       state.busy = false;
       if (state.stage || state.progress?.cleared) renderUi();
+      else updateSubmitBtn();
     }
 
     els.submitBtn.onclick = submit;
