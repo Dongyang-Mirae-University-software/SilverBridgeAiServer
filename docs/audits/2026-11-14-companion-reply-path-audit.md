@@ -59,3 +59,10 @@ BE `resumeOrReject`는 여는 질문(`companion_question.text`)을 돌려주고 
 
 ## 종합
 조건부 통과 - 안전·로그·계약은 PASS. M-1~M-3은 대답 품질 문제로, M-2·M-3은 AI 안에서 고칠 수 있고 M-1은 BE·AI 계약 결정이 필요하다.
+
+## 조치 (2026-11-14, 사용자 "전부 반영")
+- M-1: AI `GET /companion/dialogues/{id}` - `{dialogueId, question, lastQuestion, turnNo, ended}`(원문 없음, 말벗 키 필요). BE 이어 가기 응답의 `question`을 `lastQuestion`으로(실패하면 여는 질문) - BE PR 별도.
+- M-2: 화제 판정은 말벗의 물음 문장만 보고, `(?<!힘)드셨`·`잠(?!깐|시)`·`저녁(?!노을)`·`불편하신 (곳|데)`로 오탐을 막는다.
+- M-3·L-2: 위험·안전 안내 턴은 짧은 대답 횟수 0, 무응답·되묻기·확신도 낮은 턴은 횟수를 바꾸지 않는다.
+- L-1: 글 기분 또는 표정까지 합친 턴 판정(`turnResult.label`)이 부정이면 화제를 바꾸지 않는다.
+- L-3: 두 낱말 목록에 서로를 가리키는 주석. L-4: 다시 생성은 한 대답에 한 번. L-5: `tests/test_companion_reply_audit_fixes.py` 19건.
