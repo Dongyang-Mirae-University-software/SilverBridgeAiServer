@@ -21,6 +21,24 @@ _PROMPT_DIR = Path(__file__).parent / "prompts"
 # S6-2: 규칙 검사에 쓰는 목록. 한 곳에만 둔다 (C-23 결정 전까지 이 목록을 그대로 쓴다)
 DISEASE_TERMS = ("우울증", "치매", "불안증", "공황장애", "조현병", "조울증")
 PAST_TERMS = ("지난", "어제", "예전", "옛날", "여행")
+# 11/13: '과거 가정' 완화 (DGX 재현, AI main 460200f 사본).
+#   ① 어르신이 이번 턴에 지난 때를 먼저 말했으면(예전에는·옛날에·전에는·젊었을 때) 대답의 예전·옛날은 넘겨짚기가 아니다.
+#      같은 낱말(어제·지난·여행)을 어르신이 먼저 말한 경우도 마찬가지다.
+#   ② '예전 같지 않다·예전처럼·예전만'은 지난 일을 넘겨짚는 말이 아니라 지금 상태를 말하는 관용 표현이다
+#      ("몸이 예전같지 않으셔서 피곤하시겠네요" - 앞 턴에서 어르신이 한 말을 받았는데 탈락했다)
+ELDER_PAST_PATTERN = re.compile(r"예전|옛날|전에|전엔|젊었을|젊을\s?때")
+ELDER_PAST_ALLOWS = ("예전", "옛날")
+PAST_IDIOM_PATTERN = re.compile(r"예전\s?(?:같|처럼|만\s?(?:못|하|같))")
+# 11/13: '대답과 무관' 보정 - 어르신 말의 뜻을 다른 낱말로 받은 대답을 통과시킨다 (같은 뜻 묶음).
+#   앞 두 글자 비교만으로는 못잤어↔못 주무셨다니, 못했어↔못하셨군요, 몸이↔몸 상태, 아파서↔불편하시겠어요가 모두 걸렸다.
+#   어르신 말과 대답이 같은 묶음에 함께 걸리면 이어 받은 대답으로 본다. "공감 한 마디 + 질문" 꼴을 통째로 허용하지 않는 것은
+#   걸러야 할 대답("잠이 많이 중요하시겠네요. …편안했던 순간은 언제였나요?")도 같은 꼴이기 때문이다.
+#   한계: '못 ~'만 받은 대답은 화제가 달라도 통과한다 (대답은 질문 문맥을 보고 만들어져 드물다고 보고 수용).
+RELATED_GROUPS = (
+    re.compile(r"잠|잤|자고|자요|주무|깼|깨서|깨요|수면"),  # 잠
+    re.compile(r"(?<!잘)못\s?[가-힣]"),  # 못 함 ('잘못'은 뺀다)
+    re.compile(r"몸|아프|아파|아픈|아팠|쑤시|쑤셔|결리|저리|저려|불편|편찮|몸살|피곤|건강|무릎|허리|어깨"),  # 몸 불편
+)
 
 # S6-3: 규칙을 통과하지 못하면 이 목록에서 고른다. 모든 문장이 규칙을 통과해야 한다 (시험으로 확인)
 # 11/11: 대체 문장은 어르신 말을 받아 주기만 하고 화제를 바꾸지 않는다 (식사·하루 일과 질문 금지).
@@ -105,6 +123,24 @@ def _content_words(text: str) -> list[str]:
     return [w for w in re.findall(r"[가-힣]+", text) if len(w) >= 2 and w[:2] not in COMMON_STEMS]
 
 
+def _shares_meaning(transcript: str, body: str) -> bool:
+    """어르신 말과 대답이 같은 뜻 묶음(RELATED_GROUPS)에 함께 걸리는가 (11/13)."""
+    return any(g.search(transcript) and g.search(body) for g in RELATED_GROUPS)
+
+
+def _presumes_past(body: str, transcript: str) -> bool:
+    """대답이 어르신이 말하지 않은 지난 일을 넘겨짚는가 ('과거 가정', 11/13 완화)."""
+    rest = PAST_IDIOM_PATTERN.sub("", body)  # '예전 같지 않다' 같은 지금 상태 표현은 지운 뒤 본다
+    elder_past = bool(ELDER_PAST_PATTERN.search(transcript))
+    for term in PAST_TERMS:
+        if term not in rest:
+            continue
+        if term in transcript or (elder_past and term in ELDER_PAST_ALLOWS):
+            continue
+        return True
+    return False
+
+
 def is_relaxed_mood(text_mood: dict | None) -> bool:
     """글 기분이 쓸 수 있는 결과이고 평온·기쁨인가 ('대답과 무관' 검사를 빼는 턴)."""
     return bool(text_mood and text_mood.get("usable") and text_mood.get("turnLabel") in RELAX_TURN_LABELS)
@@ -126,14 +162,15 @@ def check_reply(text: str, is_last_turn: bool, transcript: str = "", text_mood: 
         failures.append("길이 초과")
     if any(term in body for term in DISEASE_TERMS):
         failures.append("질병명")
-    if any(term in body for term in PAST_TERMS):
+    if _presumes_past(body, transcript):
         failures.append("과거 가정")
     if not is_last_turn and not body.endswith("?"):
         failures.append("물음으로 끝나지 않음")
     # 꼬리질문은 어르신 대답에 나온 낱말 가운데 하나를 이어 받아야 한다 (2글자 앞부분으로 비교: 토스트 ↔ 토스트를)
+    # 11/13: 같은 뜻 묶음(잠·못 함·몸 불편)에 어르신 말과 대답이 함께 걸려도 이어 받은 것으로 본다
     if not is_last_turn and transcript and not (relax and is_relaxed_mood(text_mood)):
         words = _content_words(transcript)
-        if words and not any(w[:2] in body for w in words):
+        if words and not any(w[:2] in body for w in words) and not _shares_meaning(transcript, body):
             failures.append("대답과 무관")
     if relax and not is_last_turn and ADVICE_PATTERN.search(body):
         failures.append("권유")

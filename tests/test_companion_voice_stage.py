@@ -239,7 +239,8 @@ def test_low_confidence_turn_still_runs_risk_model(settings):
     assert r["riskFlag"] is False and r["reply"]["text"] == LOW_CONFIDENCE_REPLY
 
 
-def test_text_answers_and_sensevoice_keep_the_lexicon_rule(settings):
+def test_voice_without_logprob_keeps_the_lexicon_rule(settings):
+    """sensevoice·whisper 음성 턴(확률 없음)은 낱말 규칙을 쓴다. 글 대답은 되묻지 않는다 (11/13, input_kind)."""
     settings(companion_confirm_mode="logprob")
     r = _turn("삼기탕을 먹었어요", None)
     assert r["replySource"] == "CONFIRM" and "삼계탕" in r["reply"]["text"]
