@@ -188,6 +188,7 @@ Written for: 팀원 전체 (BE·FE·관리자 화면·AI 담당). 노션 요구�
 | `COMPANION_REPLY_SIMILAR_RATIO` | 0.65 | 대답 프롬프트 `질문:`은 직전 말벗 문장(첫 턴은 여는 질문, 되묻기 턴은 바꾸지 않음, 11/13). 새 대답이 이 대화의 지난 말벗 문장과 이 비율 이상 비슷하면(공백·문장부호 뺀 글자 비교) 한 번 다시 생성, 그래도 비슷하면 대체 문장(실패 이름 `반복`). 0이면 끔 |
 | `COMPANION_REPLY_REDO_TEMPERATURE` | 0.7 | 위의 다시 생성 때만 쓰는 온도 (평소 0.1로는 같은 문장이 다시 나옴) |
 | `COMPANION_SHORT_ANSWER_PASS` | true | 짧은 부정 대답(아니·없어·괜찮아·몰라 등, `pipeline.SHORT_ANSWER_WORDS`, 12자 이하)은 받아쓰기 확신도가 낮아도 되묻지 않음 (11/13). 위험 판정은 그대로. false 면 전과 같음 |
+| `COMPANION_FLAT_TOPIC_SWITCH` | 2 | 별 내용 없는 짧은 대답(`reply_service.FLAT_ANSWER_WORDS`, 14자 이하 - 그냥 그래·몰라·계획 없어 등)이 이 횟수만큼 이어지면 모델 대답 대신 아직 묻지 않은 일상 화제 질문(`TOPIC_SWITCH`: 식사·잠·몸·가족·이웃·바깥)으로 답함 (11/13). 위험·안전 안내·말 피함·되묻기·확신도 낮은 턴, 글 기분이 부정인 턴(11/11 결정), 마지막 턴은 그대로. 바꾸면 횟수는 0으로. 검수 버전 `fallback-v4`, 로그 `[COMPANION-TOPIC-SWITCH] streak=` 원문 없음. 0이면 끔 |
 | `COMPANION_AVOID_END_COUNT` | 2 | 한 대화에서 이 횟수만큼 말을 피하면(위험 턴 제외) 마무리 문장으로 답하고 `endReason=AVOIDED` 로 끝냄(11/12, BE V72 - 끝내기를 누른 `USER_STOP`과 구별). 0이면 일찍 끝내지 않음 |
 | `COMPANION_BODY_SAFETY_REPLY` | true | 몸 응급 낱말(숨·가슴·쓰러짐·뇌졸중 징후)만 걸린 위험 턴은 "많이 놀라셨겠어요. 몸이 많이 불편하시거나 위급한 상황이면 바로 119에 전화하시고, 가까운 가족에게도 알려 주세요."(본인 몸 응급·"영감이 쓰러졌어" 같은 위급 상황 모두)로 답함 (11/12). 자해·죽음 낱말이 같이 있거나 모델 확률로만 위험이면 기존 안내. false 면 전과 같음 |
 | `COMPANION_CONFIRM_RISK_MODEL` | true | 단어 확인(되묻기) 턴에서도 위험 모델을 돌리고 위험이면 안전 안내 (H-3). false 면 낱말 규칙만 |
