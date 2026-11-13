@@ -6,6 +6,9 @@
 - 매번 같은 문장(AI 고정 문장·백엔드 질문 문장)은 문장 기준으로 따로 보관해 다시 합성하지 않는다. 모델 대답은 이 보관에 넣지 않는다
   (어르신 말을 담을 수 있다 - 세션 보관 15분만).
 - 로그에는 문장·세션 원문을 남기지 않는다 (길이·소요 시간·결과만).
+- 엔진 (11/14): COMPANION_TTS_ENGINE=google 이면 Gemini TTS(google_tts.py)로 먼저 만들고, 실패하면 그 문장을 F1 으로 만든다.
+  전환이 한 번 일어난 대화(sessionId)는 끝까지 F1 이다 (한 대화 안에서 목소리가 오가지 않게). F1 은 전환용으로 계속 올린다.
+  고정 문장 보관은 엔진별로 나눈다 - 구글 대화에 F1 고정 문장이 섞이지 않게.
 """
 from __future__ import annotations
 
@@ -71,19 +74,29 @@ def fixed_sentences() -> tuple[str, ...]:
     return tuple(out)
 
 
-def encode_mp3(wav, sample_rate: int) -> bytes:
-    """float 파형(-1~1)을 24kHz mono mp3 로 바꾼다. 이미지에 있는 imageio-ffmpeg 의 libmp3lame 을 쓴다 (파일을 쓰지 않는다)."""
+def _ffmpeg_mp3(input_args: list[str], data: bytes) -> bytes:
+    """입력을 24kHz mono mp3 로 바꾼다. 이미지에 있는 imageio-ffmpeg 의 libmp3lame 을 쓴다 (파일을 쓰지 않는다)."""
     import imageio_ffmpeg
+
+    proc = subprocess.run(
+        [imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error", *input_args, "-i", "pipe:0",
+         "-ar", str(MP3_RATE), "-ac", "1", "-c:a", "libmp3lame", "-b:a", MP3_BITRATE, "-f", "mp3", "pipe:1"],
+        input=data, capture_output=True, timeout=ENCODE_TIMEOUT_SEC, check=True,
+    )
+    return proc.stdout
+
+
+def encode_mp3(wav, sample_rate: int) -> bytes:
+    """float 파형(-1~1)을 24kHz mono mp3 로 바꾼다 (F1)."""
     import numpy as np
 
     pcm = (np.clip(np.asarray(wav, dtype=np.float32).reshape(-1), -1.0, 1.0) * 32767).astype("<i2").tobytes()
-    proc = subprocess.run(
-        [imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-f", "s16le", "-ar", str(sample_rate),
-         "-ac", "1", "-i", "pipe:0", "-ar", str(MP3_RATE), "-ac", "1", "-c:a", "libmp3lame", "-b:a", MP3_BITRATE,
-         "-f", "mp3", "pipe:1"],
-        input=pcm, capture_output=True, timeout=ENCODE_TIMEOUT_SEC, check=True,
-    )
-    return proc.stdout
+    return _ffmpeg_mp3(["-f", "s16le", "-ar", str(sample_rate), "-ac", "1"], pcm)
+
+
+def encode_wav_mp3(wav_bytes: bytes) -> bytes:
+    """WAV 파일 바이트(구글 응답)를 F1 과 같은 24kHz mono mp3 로 바꾼다."""
+    return _ffmpeg_mp3(["-f", "wav"], wav_bytes)
 
 
 def load_supertonic() -> Synth:
@@ -105,12 +118,24 @@ def load_supertonic() -> Synth:
     return synth
 
 
+def load_google_tts() -> Synth:
+    from app.services.companion.google_tts import load_google
+
+    return load_google()
+
+
 class TtsService:
     def __init__(self, loader: Callable[[], Synth] = load_supertonic, workers: int = WORKERS,
                  max_pending: int = MAX_PENDING, ttl_sec: float = TTL_SEC, max_items: int = MAX_ITEMS,
                  fixed_max: int = FIXED_MAX, max_bytes: int = MAX_AUDIO_BYTES,
-                 sweep_interval_sec: float = SWEEP_INTERVAL_SEC) -> None:
+                 sweep_interval_sec: float = SWEEP_INTERVAL_SEC,
+                 google_loader: Callable[[], Synth] = load_google_tts) -> None:
         self._loader = loader
+        self._google_loader = google_loader
+        self._google: Synth | None = None
+        self._google_broken = False  # 구글 엔진을 못 만들었으면(키 없음 등) 재시작 전까지 F1 만 쓴다
+        self._google_key_warned = False
+        self._pinned: OrderedDict[str, float] = OrderedDict()  # F1 으로 넘어간 대화 (sessionId -> 시각, TTL 동안)
         self._workers = workers
         self._max_inflight = workers + max_pending
         self._ttl_sec = ttl_sec
@@ -120,7 +145,7 @@ class TtsService:
         self._lock = threading.Lock()
         self._load_lock = threading.Lock()
         self._items: OrderedDict[tuple[str, int], _Item] = OrderedDict()
-        self._fixed: OrderedDict[str, bytes] = OrderedDict()
+        self._fixed: OrderedDict[tuple[str, str], bytes] = OrderedDict()  # (엔진, 문장) -> mp3
         self._inflight = 0
         self._synth: Synth | None = None
         self._broken = False  # 모델을 못 올렸으면 재시작 전까지 합성하지 않는다 (요청마다 다시 올리며 CPU 를 쓰지 않게)
@@ -132,7 +157,47 @@ class TtsService:
 
     # ---- 상태 ----
     def enabled(self) -> bool:
-        return bool(get_settings().companion_tts_enabled) and not self._broken
+        return bool(get_settings().companion_tts_enabled) and (not self._broken or self._google_on())
+
+    def _google_on(self) -> bool:
+        """구글 엔진을 쓸 설정인지. 키가 비면 한 번만 경고하고 F1 만 쓴다 (키 값은 어디에도 남기지 않는다)."""
+        s = get_settings()
+        if s.companion_tts_engine != "google" or self._google_broken:
+            return False
+        if not s.companion_tts_google_api_key:
+            if not self._google_key_warned:
+                self._google_key_warned = True
+                logger.warning("[COMPANION-TTS] engine=google key=missing - F1 만 쓴다")
+            return False
+        return True
+
+    def _google_engine(self) -> Synth:
+        if self._google is None:
+            with self._load_lock:
+                if self._google is None:
+                    try:
+                        self._google = self._google_loader()
+                    except Exception as exc:  # noqa: BLE001 - 클래스명만
+                        self._google_broken = True
+                        logger.warning("[COMPANION-TTS] google load failed (%s) - F1 만 쓴다", type(exc).__name__)
+                        raise
+        return self._google
+
+    def _engine_for(self, session_id: str) -> str:
+        """이 대화의 문장을 만들 엔진. 전환이 한 번 일어난 대화는 끝까지 F1."""
+        if not self._google_on():
+            return "f1"
+        with self._lock:
+            if session_id in self._pinned:
+                self._pinned[session_id] = time.monotonic()  # 쓰는 동안은 만료되지 않게 (긴 대화가 도중에 구글로 돌아가지 않게)
+                self._pinned.move_to_end(session_id)
+                return "f1"
+            return "google"
+
+    def _pin(self, session_id: str) -> None:
+        with self._lock:
+            self._pinned[session_id] = time.monotonic()
+            self._pinned.move_to_end(session_id)
 
     def _pool(self) -> ThreadPoolExecutor:
         return self._executor
@@ -186,6 +251,10 @@ class TtsService:
             del self._items[k]
         while len(self._items) > self._max_items:
             self._items.popitem(last=False)
+        while self._pinned and now - next(iter(self._pinned.values())) > self._ttl_sec:
+            self._pinned.popitem(last=False)
+        while len(self._pinned) > self._max_items:
+            self._pinned.popitem(last=False)
 
     # ---- 합성 시작 ----
     def start(self, ward_id: str, session_id: str, index: int, text: str, cache_text: bool = False) -> bool:
@@ -197,18 +266,21 @@ class TtsService:
             return False
         key = (str(session_id), int(index))
         self._ensure_sweeper()
+        engine = self._engine_for(key[0])
+        if engine == "f1" and self._broken:  # F1 을 못 올렸고 이 대화는 F1 이어야 한다
+            return False
         now = time.monotonic()
         with self._lock:
             self._purge_locked(now)
-            cached = self._fixed.get(text)
+            cached = self._fixed.get((engine, text))
             if cached is not None:
-                self._fixed.move_to_end(text)
+                self._fixed.move_to_end((engine, text))
                 item = _Item(ward_id, data=cached)
                 item.done.set()
                 self._items[key] = item
                 self._items.move_to_end(key)
                 self._purge_locked(now)
-                logger.info("[COMPANION-TTS] index=%d chars=%d result=cached", key[1], len(text))
+                logger.info("[COMPANION-TTS] index=%d engine=%s chars=%d result=cached", key[1], engine, len(text))
                 return True
             if self._inflight >= self._max_inflight:
                 logger.info("[COMPANION-TTS] index=%d chars=%d result=skip_busy", key[1], len(text))
@@ -219,7 +291,7 @@ class TtsService:
             self._purge_locked(now)
             self._inflight += 1
         try:
-            self._pool().submit(self._work, item, key[1], text, cache_text)
+            self._pool().submit(self._work, item, key[1], text, cache_text, key[0])
         except RuntimeError:  # 종료 중
             with self._lock:
                 self._inflight -= 1
@@ -227,11 +299,22 @@ class TtsService:
             return False
         return True
 
-    def _work(self, item: _Item, index: int, text: str, cache_text: bool) -> None:
+    def _work(self, item: _Item, index: int, text: str, cache_text: bool, session_id: str = "") -> None:
         started = time.monotonic()
         result = "fail"
+        engine = self._engine_for(session_id)  # 기다리는 사이 같은 대화의 다른 문장이 F1 으로 넘어갔을 수 있다
         try:
-            data = self._engine()(text)
+            data = None
+            if engine == "google":
+                try:
+                    data = self._google_engine()(text)
+                except Exception as exc:  # noqa: BLE001 - 고정 코드나 클래스명만 남긴다
+                    self._pin(session_id)
+                    logger.info("[COMPANION-TTS] index=%d engine=google chars=%d ms=%d result=%s -> f1", index, len(text),
+                                int((time.monotonic() - started) * 1000), getattr(exc, "code", type(exc).__name__))
+                    engine = "f1"
+            if engine == "f1":
+                data = self._engine()(text)
             if not data:
                 result = "fail_empty"
             elif len(data) > self._max_bytes:
@@ -240,20 +323,20 @@ class TtsService:
                 item.data = data
                 result = "ok"
                 if cache_text:
-                    self._remember(text, data)
+                    self._remember(engine, text, data)
         except Exception as exc:  # noqa: BLE001 - 원문이 섞일 수 있어 클래스명만
             result = f"fail_{type(exc).__name__}"
         finally:
             with self._lock:
                 self._inflight -= 1
             item.done.set()
-            logger.info("[COMPANION-TTS] index=%d chars=%d ms=%d bytes=%d result=%s", index, len(text),
+            logger.info("[COMPANION-TTS] index=%d engine=%s chars=%d ms=%d bytes=%d result=%s", index, engine, len(text),
                         int((time.monotonic() - started) * 1000), len(item.data or b""), result)
 
-    def _remember(self, text: str, data: bytes) -> None:
+    def _remember(self, engine: str, text: str, data: bytes) -> None:
         with self._lock:
-            self._fixed[text] = data
-            self._fixed.move_to_end(text)
+            self._fixed[(engine, text)] = data
+            self._fixed.move_to_end((engine, text))
             while len(self._fixed) > self._fixed_max:
                 self._fixed.popitem(last=False)
 
@@ -287,34 +370,50 @@ class TtsService:
             return len(gone)
 
     def prewarm(self, texts: tuple[str, ...]) -> int:
-        """모델을 올리고 고정 문장을 차례로 만들어 둔다 (기동 뒤 백그라운드 스레드에서 부른다). 만든 개수를 돌려준다."""
+        """고정 문장을 차례로 만들어 둔다 (기동 뒤 백그라운드 스레드에서 부른다). 만든 개수를 돌려준다.
+
+        구글 엔진이면 구글 소리를 먼저 만들고, F1 도 전환용으로 올려 같은 문장을 만들어 둔다 (11/14).
+        """
         if not self.enabled():
             return 0
         started = time.monotonic()
+        made = 0
+        if self._google_on():
+            try:
+                made += self._prewarm_with("google", self._google_engine(), texts)
+            except Exception:  # noqa: BLE001 - _google_engine 이 이미 로그를 남겼다
+                pass
         try:
             synth = self._engine()
         except Exception:  # noqa: BLE001 - _engine 이 이미 로그를 남겼다
-            return 0
+            synth = None
+        if synth is not None:
+            made += self._prewarm_with("f1", synth, texts)
+        logger.info("[COMPANION-TTS] prewarm done count=%d ms=%d", made, int((time.monotonic() - started) * 1000))
+        return made
+
+    def _prewarm_with(self, engine: str, synth: Synth, texts: tuple[str, ...]) -> int:
         made = 0
         for t in texts:
-            if t in self._fixed:
+            if (engine, t) in self._fixed:
                 continue
             with self._lock:
                 self._inflight += 1  # 예열도 대기 개수에 센다 (11/13 점검 L-3) - 요청 대기열이 상한보다 길어지지 않게
             try:
                 data = self._pool().submit(synth, t).result()  # 실행기를 거쳐 동시 합성 상한(2) 안에서 만든다
             except Exception as exc:  # noqa: BLE001
-                logger.warning("[COMPANION-TTS] prewarm fail (%s) chars=%d", type(exc).__name__, len(t))
+                code = getattr(exc, "code", type(exc).__name__)
+                logger.warning("[COMPANION-TTS] prewarm fail engine=%s (%s) chars=%d", engine, code, len(t))
+                if code in ("429", "limit", "cooldown"):  # 구글이 멈춘 동안은 나머지를 부르지 않는다
+                    break
                 continue
             finally:
                 with self._lock:
                     self._inflight -= 1
             if data and len(data) <= self._max_bytes:
-                self._remember(t, data)
+                self._remember(engine, t, data)
                 made += 1
-        logger.info("[COMPANION-TTS] prewarm done count=%d/%d ms=%d", made, len(texts),
-                    int((time.monotonic() - started) * 1000))
+        logger.info("[COMPANION-TTS] prewarm engine=%s count=%d/%d", engine, made, len(texts))
         return made
-
 
 tts_service = TtsService()

@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 load_dotenv()
 
@@ -489,6 +489,19 @@ class Settings(BaseModel):
     companion_tts_threads: int = _as_int_min("COMPANION_TTS_THREADS", 3, 1)
     companion_tts_subdir: str = os.getenv("COMPANION_TTS_SUBDIR", "companion/tts-supertonic3")  # MODEL_BASE_PATH 아래 (약 390MB)
     companion_tts_voice: str = os.getenv("COMPANION_TTS_VOICE", "F1")
+    # 말벗 목소리 엔진 (11/14): supertonic(기본, 위 F1) | google(Gemini TTS, 실패하면 그 문장부터 F1 - F1 은 전환용으로 계속 올린다).
+    # google 은 Agent Platform generateContent 를 서비스 계정에 묶인 API 키로 부른다. 키가 비면 google 을 끄고 F1 만 쓴다
+    companion_tts_engine: str = _as_choice("COMPANION_TTS_ENGINE", "supertonic", ("supertonic", "google"))
+    companion_tts_google_api_key: str = Field(default=os.getenv("COMPANION_TTS_GOOGLE_API_KEY", "").strip(), repr=False)
+    companion_tts_google_model: str = os.getenv("COMPANION_TTS_GOOGLE_MODEL", "gemini-3.8-flash-tts").strip()
+    companion_tts_google_voice: str = os.getenv("COMPANION_TTS_GOOGLE_VOICE", "Kore").strip()
+    # 3.8 은 언어를 자동 감지해 요청에 언어 칸이 없다 - 읽기만 하고 쓰지 않는다 (다른 모델로 바꿀 때를 위해 남김)
+    companion_tts_google_lang: str = os.getenv("COMPANION_TTS_GOOGLE_LANG", "ko-KR").strip()
+    # 말투 지시 (speechMetadata.style 로 보내 소리로 읽히지 않는다)
+    companion_tts_google_style: str = os.getenv("COMPANION_TTS_GOOGLE_STYLE", "").strip()
+    companion_tts_google_timeout_sec: float = max(1.0, _as_float("COMPANION_TTS_GOOGLE_TIMEOUT_SEC", 8.0))
+    # 하루(KST) 보낼 글자 수 상한. 넘으면 10분씩 구글을 멈추고 F1 만 쓴다. 0이면 상한 없음. 재시작하면 0부터 다시 센다
+    companion_tts_google_daily_char_limit: int = _as_int_min("COMPANION_TTS_GOOGLE_DAILY_CHAR_LIMIT", 50000, 0)
     # 한 대화에서 이 횟수만큼 말을 피하면 마무리 문장으로 끝낸다 (endReason AVOIDED - BE V72, 끝내기 USER_STOP과 구별). 0이면 일찍 끝내지 않는다
     companion_avoid_end_count: int = _as_int("COMPANION_AVOID_END_COUNT", 2)
     # 몸 응급 낱말(숨·가슴·쓰러짐·뇌졸중 징후)만 걸린 위험 턴은 몸 응급용 안내 문장으로 답한다 (11/12). 끄면 전과 같다

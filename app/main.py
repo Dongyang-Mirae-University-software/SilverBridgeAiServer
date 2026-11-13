@@ -217,6 +217,9 @@ def _start_companion_tts_prewarm() -> None:
         return
     from app.services.companion.tts_service import fixed_sentences, tts_service
 
+    # 엔진과 키 유무만 남긴다 (키 값은 남기지 않는다, 11/14)
+    _LOG.info("[COMPANION-TTS] engine=%s key=%s", settings.companion_tts_engine,
+              "present" if settings.companion_tts_google_api_key else "missing")
     threading.Thread(target=lambda: tts_service.prewarm(fixed_sentences()), name="companion-tts-prewarm",
                      daemon=True).start()
 
