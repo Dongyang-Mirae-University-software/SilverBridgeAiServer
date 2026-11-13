@@ -136,6 +136,7 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
         # 이번 턴으로 대화가 끝나므로 다시 말해 달라고 하지 않고 마무리 문장으로 답한다
         result["reply"] = {"text": reply_service.FALLBACK_LAST[0], "isFollowUp": False}
         result["replySource"] = "FALLBACK"
+    _flat_topic_switch(d, transcript, result, is_last_turn)
     _apply_avoid_end(d, result, is_last_turn)
     result = _avoid_repeat(d, result, is_last_turn)
     _queue_for_review(d, result)
@@ -143,6 +144,30 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
         # 되묻기 턴은 바꾸지 않는다: 다시 말해 주신 대답은 그 전 질문에 대한 것이다 (세션 203 4번 "없다고"는 2번 질문의 대답)
         d.lastQuestion = result["reply"]["text"]
     return result
+
+
+def _flat_topic_switch(d: Dialogue, transcript: str, result: dict, is_last_turn: bool) -> None:
+    """별 내용 없는 짧은 대답이 COMPANION_FLAT_TOPIC_SWITCH 번 이어지면 아직 묻지 않은 일상 화제 질문으로 답한다 (11/13).
+
+    위험·안전 안내·말 피함·되묻기 턴, 확신도 낮은 턴, 글 기분이 부정인 턴, 마지막 턴은 그대로 둔다.
+    로그에는 횟수만 남긴다 (어르신 말 원문 없음).
+    """
+    limit = get_settings().companion_flat_topic_switch
+    flat = reply_service.is_flat_answer(transcript)
+    d.flatStreak = d.flatStreak + 1 if flat else 0
+    if not limit or not flat or d.flatStreak < limit or is_last_turn:
+        return
+    if result.get("riskFlag") or result.get("lowConfidence") or result.get("replySource") in ("SAFETY", "AVOID", "CONFIRM"):
+        return
+    if reply_service.is_negative_mood(result.get("textMood")):
+        return
+    text = reply_service.topic_switch_reply(d.replies)
+    if text is None:
+        return
+    result["reply"] = {"text": text, "isFollowUp": True}
+    result["replySource"] = "TOPIC"
+    logger.info("[COMPANION-TOPIC-SWITCH] streak=%d", d.flatStreak)
+    d.flatStreak = 0
 
 
 def _apply_avoid_end(d: Dialogue, result: dict, is_last_turn: bool) -> None:

@@ -477,6 +477,9 @@ class Settings(BaseModel):
     companion_reply_similar_ratio: float = _as_float("COMPANION_REPLY_SIMILAR_RATIO", 0.65)
     # 비슷해서 다시 만들 때의 온도. 평소 온도(0.1)로는 같은 문장이 다시 나온다 (11/13)
     companion_reply_redo_temperature: float = _as_float("COMPANION_REPLY_REDO_TEMPERATURE", 0.7)
+    # 별 내용 없는 짧은 대답이 이 횟수만큼 이어지면 아직 묻지 않은 일상 화제 질문으로 넘어간다 (11/13). 0이면 끈다.
+    # 위험·말 피함·되묻기 턴과 글 기분이 부정인 턴은 바꾸지 않는다 (11/11: 힘든 이야기에는 화제를 바꾸지 않는다)
+    companion_flat_topic_switch: int = _as_int("COMPANION_FLAT_TOPIC_SWITCH", 2)
     # 짧은 부정 대답("아니 없어"·"없어")은 받아쓰기 확신도가 낮아도 되묻지 않는다 (11/13). 끄면 전과 같다
     companion_short_answer_pass: bool = _as_bool("COMPANION_SHORT_ANSWER_PASS", True)
     # 말벗 목소리 (11/13): Supertonic 3 F1 목소리로 말벗 문장을 mp3 로 만든다. CPU 전용(onnxruntime), GPU 를 쓰지 않는다.

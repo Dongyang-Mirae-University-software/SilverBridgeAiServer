@@ -44,6 +44,7 @@ class Dialogue:
     # 어르신이 지금 대답하는 말벗 문장 (11/13). 대답 프롬프트의 "질문:"에 넣는다. 처음은 여는 질문, 턴마다 나간 대답으로 바뀐다
     # (되묻기 턴은 바꾸지 않는다 - 다시 말한 대답은 그 전 질문에 대한 것이다). None 이면 여는 질문을 쓴다
     lastQuestion: str | None = None
+    flatStreak: int = 0  # 별 내용 없는 짧은 대답이 이어진 횟수 (11/13). 다른 대답이면 0, 화제를 바꾸면 0으로 돌아간다
 
     @property
     def turnNo(self) -> int:
