@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
@@ -11,6 +13,8 @@ from app.schemas.game_schema import GameAnswerRequest, GameStartRequest
 from app.services.game_service import GameService
 
 router = APIRouter(prefix="/api/v1/games", tags=["Games"])
+# 게임 그림(카드·캐릭터·배경). main 에서 /api/v1/games/assets 로 정적 제공(키 없이 iframe 이 읽음)
+GAME_ASSETS_DIR = Path(__file__).resolve().parent.parent / "static" / "game"
 
 
 @router.get("", summary="게임 목록 조회", dependencies=[Depends(require_game_api_key)])

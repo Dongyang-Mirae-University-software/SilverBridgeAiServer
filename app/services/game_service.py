@@ -815,391 +815,508 @@ class GameService:
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>__TITLE__</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   <style>
+    /* 어르신용: 큰 글씨·큰 버튼, 높은 대비(본문 대비 12:1 이상), 차분하고 밝은 색 */
     :root {
-      --bg: #fffaf0;
-      --card-bg: #ffffff;
-      --text: #1f2937;
-      --muted: #4b5563;
-      --primary: __PRIMARY__;
-      --primary-hover: #ea580c;
-      --success: #16a34a;
-      --danger: #dc2626;
-      --info: #2563eb;
-      --border: #fed7aa;
-      --radius-lg: 32px;
-      --radius-md: 22px;
-      --shadow: 0 10px 25px rgba(124, 45, 18, 0.1);
+      --bg: #f6f3ee;
+      --surface: #ffffff;
+      --text: #1d2733;
+      --muted: #4a5563;
+      --line: #e4ded4;
+      --primary: #2f5d8a;
+      --primary-soft: #e8eff6;
+      --ok: #1f7a4d;
+      --ok-soft: #e6f4ec;
+      --try: #8a5a00;
+      --try-soft: #fdf3dc;
+      --radius-lg: 28px;
+      --radius-md: 20px;
+      --shadow: 0 2px 4px rgba(29, 39, 51, 0.04), 0 8px 24px rgba(29, 39, 51, 0.06);
     }
+    /* 게임별 색. 흰 글씨와 대비 4.5:1 이상이 되도록 고른 진한 색 */
+    body[data-game="memory_match"] { --primary: #5b45b0; --primary-soft: #efebfa; }
+    body[data-game="maze"] { --primary: #0b6e96; --primary-soft: #e3f2f8; }
+    body[data-game="arithmetic"] { --primary: #b04a08; --primary-soft: #fdeee3; }
+    body[data-game="initials_quiz"] { --primary: #2b7049; --primary-soft: #e6f3eb; }
+
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html { overflow: hidden; }
     body {
       margin: 0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: "Pretendard Variable", Pretendard, system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
       background: var(--bg);
       color: var(--text);
       font-size: 22px;
-      line-height: 1.5;
-    }
-    .shell {
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      padding: 12px;
-      gap: 12px;
-    }
-    header.hero {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      padding: 12px 20px;
-      background: var(--card-bg);
-      border: 3px solid var(--border);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow);
-    }
-    .hero-top {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-    }
-    .hero-title {
-      margin: 0;
-      font-size: 26px;
-      font-weight: 900;
-      color: var(--primary);
-    }
-    .hero-info {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .pill {
-      background: #fff7ed;
-      border: 1px solid var(--border);
-      padding: 8px 18px;
-      border-radius: 999px;
-      font-size: 18px;
-      font-weight: 700;
-      color: #9a3412;
-    }
-    .progress-container {
-      width: 100%;
-      height: 12px;
-      background: #fed7aa;
-      border-radius: 999px;
-      overflow: hidden;
-      margin-top: 4px;
-    }
-    .progress-bar {
-      height: 100%;
-      background: var(--primary);
-      border-radius: 999px;
-      transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    .layout {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
-    }
-    .game-card {
-      background: var(--card-bg);
-      border: 3px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 16px 20px;
-      box-shadow: var(--shadow);
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      flex: 1;
-    }
-    .stage-header { text-align: center; }
-    .stage-title { font-size: 24px; font-weight: 800; margin: 0 0 4px; }
-    .stage-prompt { font-size: 18px; color: var(--muted); margin: 0; font-weight: 500; }
-    
-    .question-box {
-      font-size: 42px;
-      font-weight: 900;
-      padding: 40px;
-      text-align: center;
-      background: #f8fafc;
-      border-radius: var(--radius-md);
-      border: 2px dashed var(--border);
-      margin: 12px 0;
-    }
-    
-    .feedback {
-      font-size: 20px;
-      font-weight: 800;
-      padding: 12px;
-      border-radius: var(--radius-md);
-      text-align: center;
-      display: none;
-    }
-    .feedback.visible { display: block; }
-    .feedback.ok { background: #f0fdf4; color: var(--success); border: 2px solid #bcf0da; }
-    .feedback.bad { background: #fef2f2; color: var(--danger); border: 2px solid #fecaca; }
-    .feedback.info { background: #eff6ff; color: var(--info); border: 2px solid #bfdbfe; }
-
-    .board { width: 100%; }
-    
-    /* Memory Match Styles */
-    .memory-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
-      margin-top: 0;
-    }
-    .memory-card {
-      aspect-ratio: 1;
-      min-height: 0;
-      overflow: hidden;
+      line-height: 1.45;
       word-break: keep-all;
-      font-size: calc(var(--card-size, 160px) * 0.28);
-      font-weight: 800;
-      border: 4px solid #e2e8f0;
-      border-radius: var(--radius-md);
-      background: #f1f5f9;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.2s;
     }
-    .memory-card.selected { border-color: #f59e0b; background: #fff7ed; transform: scale(0.95); }
-    .memory-card.matched { border-color: var(--success); background: #f0fdf4; color: var(--success); cursor: default; }
+    button { font: inherit; color: inherit; }
+    button:focus-visible { outline: 4px solid var(--primary); outline-offset: 3px; }
+    .shell { min-height: 100vh; display: flex; flex-direction: column; gap: 14px; padding: 14px; }
 
-    /* Maze Styles */
-    .maze-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 24px;
+    /* 위쪽: 제목·점수·소리 */
+    .topbar {
+      display: flex; flex-direction: column; gap: 12px;
+      padding: 16px 20px; background: var(--surface);
+      border-radius: var(--radius-lg); box-shadow: var(--shadow);
     }
-    .maze-board {
-      display: grid;
-      gap: 4px;
-      padding: 8px;
-      background: #27272a;
-      border-radius: 12px;
-      border: 6px solid #18181b;
+    .topbar-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .title-wrap { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    .game-title { margin: 0; font-size: 28px; font-weight: 800; color: var(--primary); letter-spacing: -0.02em; }
+    .stage-count { font-size: 20px; font-weight: 700; color: var(--muted); }
+    .top-actions { display: flex; gap: 10px; align-items: center; }
+    .score {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 999px;
+      background: var(--primary-soft); color: var(--primary);
+      font-size: 20px; font-weight: 800;
     }
+    .sound-btn {
+      min-height: 48px; padding: 0 16px; border-radius: 999px;
+      border: 2px solid var(--line); background: var(--surface);
+      font-size: 18px; font-weight: 700; color: var(--muted); cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .sound-btn[aria-pressed="true"] { color: var(--text); border-color: var(--text); }
+    .progress { height: 10px; background: var(--line); border-radius: 999px; overflow: hidden; }
+    .progress-bar { height: 100%; width: 0; background: var(--primary); border-radius: 999px; transition: width 0.5s ease; }
+
+    /* 가운데: 문제 카드 */
+    .game-card {
+      flex: 1; display: flex; flex-direction: column; gap: 16px;
+      padding: 20px; background: var(--surface);
+      border-radius: var(--radius-lg); box-shadow: var(--shadow);
+    }
+    .prompt { margin: 0; text-align: center; font-size: 26px; font-weight: 800; letter-spacing: -0.01em; }
+    .feedback {
+      display: none; align-items: center; justify-content: center; gap: 10px;
+      padding: 14px 18px; border-radius: var(--radius-md);
+      font-size: 22px; font-weight: 700; text-align: center;
+    }
+    .feedback.visible { display: flex; }
+    .feedback.ok { background: var(--ok-soft); color: var(--ok); }
+    .feedback.try { background: var(--try-soft); color: var(--try); }
+    .feedback.info { background: var(--primary-soft); color: var(--primary); }
+    .board { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+
+    /* 짝 맞추기 */
+    .memory-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; width: 100%; }
+    .memory-card {
+      aspect-ratio: 1; min-height: 0; padding: 0; border: none; background: none;
+      cursor: pointer; perspective: 900px;
+    }
+    /* 카드 뒤집기: 안쪽 판을 Y축으로 돌리고 앞·뒷면은 뒤쪽을 숨긴다 */
+    .card-inner {
+      display: block; position: relative; width: 100%; height: 100%;
+      transform-style: preserve-3d; transition: transform 0.45s ease;
+    }
+    .memory-card.open .card-inner, .memory-card.matched .card-inner { transform: rotateY(180deg); }
+    .face {
+      position: absolute; inset: 0; border-radius: var(--radius-md); overflow: hidden;
+      backface-visibility: hidden; -webkit-backface-visibility: hidden;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2%;
+    }
+    .face.back { background: var(--primary) center / cover no-repeat; color: #fff; }
+    .has-art .face.back { background-image: var(--art-card-back); }
+    .has-art .face.back .back-mark { display: none; }
+    .back-mark {
+      width: 46%; aspect-ratio: 1; border-radius: 50%;
+      border: 3px solid rgba(255, 255, 255, 0.55);
+      display: flex; align-items: center; justify-content: center;
+      font-size: calc(var(--card-size, 140px) * 0.22); font-weight: 800;
+    }
+    .face.front {
+      transform: rotateY(180deg); padding: 6%;
+      background: var(--surface); border: 3px solid var(--primary); color: var(--text);
+      font-size: calc(var(--card-size, 140px) * 0.24); font-weight: 800;
+    }
+    .face.front img { width: 70%; height: 70%; object-fit: contain; }
+    .face.front img + .label { font-size: calc(var(--card-size, 140px) * 0.13); line-height: 1.1; }
+    .memory-card.matched { cursor: default; }
+    .memory-card.matched .face.front { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
+
+    /* 미로 찾기: 칸 위에 캐릭터(walker)를 따로 올려 칸 사이를 미끄러지듯 걷게 한다 */
+    .maze-board { position: relative; display: grid; gap: 6px; padding: 10px; background: #e9e4da; border-radius: 22px; }
     .maze-cell {
-      width: 44px;
-      height: 44px;
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 900;
-      font-size: 18px;
+      width: 56px; height: 56px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 30px; background-size: cover; background-position: center;
     }
-    .maze-wall { background: #18181b; color: #3f3f46; }
-    .maze-path { background: #3f3f46; }
-    .maze-start { background: var(--info); color: white; }
-    .maze-goal { background: #f59e0b; color: white; }
-    .maze-current { background: var(--success); color: white; box-shadow: 0 0 15px var(--success); z-index: 10; }
-    
-    .direction-pad {
-      display: grid;
-      grid-template-areas: ". up ." "left down right";
-      gap: 12px;
+    .maze-wall { background-color: #a8b0bb; }
+    .maze-path { background-color: var(--surface); }
+    .maze-goal { background-color: #ffe8a3; }
+    .has-art .maze-wall { background-image: var(--art-wall); }
+    .has-art .maze-path, .has-art .maze-goal { background-image: var(--art-path); }
+    .maze-goal img { width: 92%; height: 92%; object-fit: contain; }
+    .maze-next { cursor: pointer; box-shadow: inset 0 0 0 4px var(--primary); }
+    .walker {
+      position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.32s ease;
     }
+    .walker .dot {
+      width: 82%; height: 82%; border-radius: 50%; background: var(--primary); color: #fff;
+      display: flex; align-items: center; justify-content: center; font-size: 28px;
+    }
+    .walker img { width: 120%; height: 120%; object-fit: contain; margin-top: -20%; }
+    .direction-pad { display: grid; grid-template-areas: ". up ." "left down right"; gap: 12px; }
     .dir-btn {
-      width: 92px;
-      height: 92px;
-      font-size: 32px;
-      font-weight: 900;
-      border-radius: 20px;
-      border: none;
-      background: #f1f5f9;
-      color: #1e293b;
-      cursor: pointer;
-      box-shadow: 0 6px 0 #cbd5e1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      width: 96px; height: 84px; border-radius: 22px; border: 2px solid var(--line);
+      background: var(--surface); cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-size: 30px; font-weight: 800; line-height: 1.1; box-shadow: 0 4px 0 var(--line);
     }
-    .dir-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #cbd5e1; }
-    .dir-btn.up { grid-area: up; }
-    .dir-btn.left { grid-area: left; }
-    .dir-btn.down { grid-area: down; }
-    .dir-btn.right { grid-area: right; }
+    .dir-btn small { font-size: 16px; font-weight: 700; color: var(--muted); }
+    .dir-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--line); }
+    .dir-btn.up { grid-area: up; } .dir-btn.left { grid-area: left; }
+    .dir-btn.down { grid-area: down; } .dir-btn.right { grid-area: right; }
 
-    /* Arithmetic & Quiz Styles */
-    .option-list { display: grid; gap: 16px; width: 100%; }
+    /* 사칙연산·초성 퀴즈 */
+    .question {
+      width: 100%; padding: 28px 16px; text-align: center;
+      background: var(--primary-soft); border-radius: var(--radius-md);
+      font-size: 56px; font-weight: 800; letter-spacing: -0.01em; color: var(--text);
+    }
+    .question .blank {
+      display: inline-block; min-width: 1.6em; padding: 0 0.2em;
+      border-bottom: 5px solid var(--primary); color: var(--primary);
+    }
+    .tiles { display: flex; justify-content: center; gap: 14px; }
+    .tile {
+      width: 104px; height: 104px; border-radius: 22px; background: var(--surface);
+      border: 3px solid var(--primary); color: var(--primary);
+      display: flex; align-items: center; justify-content: center; font-size: 60px; font-weight: 800;
+    }
+    .options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; width: 100%; }
     .option-btn {
-      min-height: 84px;
-      font-size: 26px;
-      font-weight: 800;
-      border-radius: var(--radius-md);
-      border: 3px solid #e2e8f0;
-      background: white;
-      color: var(--text);
-      cursor: pointer;
-      text-align: left;
-      padding: 0 32px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      transition: all 0.2s;
+      min-height: 92px; padding: 10px 16px; border-radius: var(--radius-md);
+      border: 3px solid var(--line); background: var(--surface);
+      font-size: 34px; font-weight: 800; cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease;
     }
-    .option-btn:hover { border-color: var(--primary); background: #fff7ed; }
-    .option-btn.selected { border-color: var(--primary); background: #fff7ed; box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.2); }
-    .option-btn::after { content: '👉'; opacity: 0.3; }
-    .option-btn.selected::after { content: '✅'; opacity: 1; }
+    .option-btn.selected { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); box-shadow: 0 0 0 4px var(--primary-soft); }
 
-    .numpad {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
-      max-width: 400px;
-      margin: 20px auto;
+    /* 완료 화면 */
+    .done { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px 0; text-align: center; }
+    .medal {
+      width: 140px; height: 140px; border-radius: 50%;
+      background: #ffe8a3; display: flex; align-items: center; justify-content: center; font-size: 72px;
     }
-    .num-btn {
-      height: 84px;
-      font-size: 32px;
-      font-weight: 900;
-      border-radius: 18px;
-      border: none;
-      background: #f1f5f9;
-      color: #1e293b;
-      box-shadow: 0 6px 0 #cbd5e1;
-    }
-    .num-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #cbd5e1; }
-    .num-btn.clear { background: #fee2e2; color: #b91c1c; box-shadow: 0 6px 0 #fecaca; }
-    .num-btn.submit-small { background: #f0fdf4; color: #15803d; box-shadow: 0 6px 0 #bcf0da; }
+    .done img { width: 220px; height: 220px; object-fit: contain; }
+    .done strong { font-size: 34px; }
 
-    .footer-controls {
-      display: flex;
-      gap: 16px;
-      margin-top: auto;
-    }
-    .btn-large {
-      flex: 1;
-      height: 60px;
-      font-size: 22px;
-      font-weight: 900;
-      border-radius: 999px;
-      border: none;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-    }
-    .btn-primary { background: var(--primary); color: white; box-shadow: 0 8px 20px rgba(249, 115, 22, 0.3); }
-    .btn-secondary { background: #f1f5f9; color: var(--muted); border: 2px solid #e2e8f0; }
-    .btn-primary:active, .btn-secondary:active { transform: translateY(2px); }
-    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    /* 퀴즈 배경 그림(가운데는 비어 있는 그림이라 글자 대비는 유지) */
+    .has-art[data-game="arithmetic"] .game-card,
+    .has-art[data-game="initials_quiz"] .game-card { background-image: var(--art-bg); background-size: cover; background-position: center; }
 
-    @media (max-width: 768px) {
+    /* 정답·오답 뒤 잠깐 뜨는 칭찬·응원 */
+    .cheer {
+      position: fixed; inset: 0; z-index: 20; display: none;
+      align-items: center; justify-content: center; background: rgba(251, 246, 240, 0.85);
+    }
+    .cheer.visible { display: flex; }
+    .cheer-box {
+      display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 90vw;
+      padding: 28px 40px; background: var(--surface); border-radius: var(--radius-lg);
+      box-shadow: var(--shadow); text-align: center; animation: pop 0.35s ease;
+    }
+    .cheer-box img { width: 200px; height: 200px; object-fit: contain; }
+    .cheer-emoji { font-size: 96px; line-height: 1.1; }
+    .cheer-box strong { font-size: 34px; }
+    .cheer-box span { font-size: 22px; color: var(--muted); }
+    @keyframes pop { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .done span { font-size: 22px; color: var(--muted); }
+
+    /* 아래: 버튼 */
+    .footer { display: flex; gap: 12px; margin-top: auto; }
+    .btn {
+      min-height: 72px; padding: 0 24px; border-radius: 999px; border: none; cursor: pointer;
+      font-size: 24px; font-weight: 800;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn-primary { flex: 2; background: var(--primary); color: #fff; }
+    .btn-secondary { flex: 1; background: var(--surface); color: var(--muted); border: 2px solid var(--line); }
+    .btn:active { transform: translateY(2px); }
+    .btn-primary:disabled { background: #c9ced6; color: #4a5563; cursor: not-allowed; transform: none; }
+
+    @media (max-width: 640px) {
       body { font-size: 20px; }
-      .memory-grid { grid-template-columns: repeat(3, 1fr); }
-      .hero-title { font-size: 28px; }
-      .question-box { font-size: 32px; padding: 24px; }
-      .dir-btn { width: 72px; height: 72px; font-size: 24px; }
+      .game-title { font-size: 24px; }
+      .question { font-size: 44px; padding: 20px 12px; }
+      .tile { width: 80px; height: 80px; font-size: 46px; }
+      .option-btn { font-size: 28px; min-height: 80px; }
+      .maze-cell { width: 46px; height: 46px; font-size: 24px; }
+      .dir-btn { width: 84px; height: 76px; }
     }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
   </style>
 </head>
 <body>
   <script id="boot" type="application/json">__BOOT__</script>
   <div class="shell">
-    <header class="hero">
-      <div class="hero-top">
-        <h1 class="hero-title" id="gameTitle">로딩 중...</h1>
-        <div class="hero-info">
-          <span class="pill" id="scoreText">점수: 0</span>
-          <span class="pill" id="stageText">단 계: -</span>
+    <header class="topbar">
+      <div class="topbar-row">
+        <div class="title-wrap">
+          <h1 class="game-title" id="gameTitle">불러오는 중</h1>
+          <span class="stage-count" id="stageText"></span>
+        </div>
+        <div class="top-actions">
+          <span class="score" id="scoreText">⭐ 0점</span>
+          <button type="button" class="sound-btn" id="soundBtn" aria-pressed="true">🔊 소리 켜짐</button>
         </div>
       </div>
-      <div class="progress-container">
-        <div class="progress-bar" id="progressBar" style="width: 0%"></div>
-      </div>
+      <div class="progress" aria-hidden="true"><div class="progress-bar" id="progressBar"></div></div>
     </header>
 
-    <div class="layout">
-      <section class="game-card">
-        <div class="stage-header">
-          <h2 class="stage-title" id="stageTitle">준비 중...</h2>
-          <p class="stage-prompt" id="stagePrompt"></p>
-        </div>
-
-        <div id="feedbackBox" class="feedback">문제를 풀어보세요.</div>
-        
-        <div id="stageBody" class="board"></div>
-
-        <div class="footer-controls">
-          <button class="btn-large btn-secondary" id="resetBtn">처음부터</button>
-          <button class="btn-large btn-primary" id="submitBtn">정답 제출하기</button>
-        </div>
-      </section>
-    </div>
+    <main class="game-card">
+      <h2 class="prompt" id="stagePrompt">잠시만 기다려 주세요</h2>
+      <div id="feedbackBox" class="feedback" role="status" aria-live="polite"></div>
+      <div id="stageBody" class="board"></div>
+      <div class="footer">
+        <button type="button" class="btn btn-secondary" id="resetBtn">처음부터</button>
+        <button type="button" class="btn btn-primary" id="submitBtn">확인</button>
+      </div>
+    </main>
   </div>
+  <div class="cheer" id="cheer" role="status" aria-live="polite"><div class="cheer-box" id="cheerBox"></div></div>
 
   <script>
     const BOOT = JSON.parse(document.getElementById('boot').textContent);
     const API_ROOT = BOOT.apiOrigin;
+    const ART = `${API_ROOT}/api/v1/games/assets/`;
+    document.body.dataset.game = BOOT.gameSlug;
+    // 짝 맞추기 낱말 → 그림 파일(card-<영문>.png). 그림이 없으면 글자만 보인다
+    const CARD_ART = {
+      '사과': 'apple', '별': 'star', '고양이': 'cat', '바다': 'sea', '하늘': 'sky', '꽃': 'flower', '달': 'moon', '해': 'sun',
+      '나무': 'tree', '물': 'water', '기차': 'train', '버스': 'bus', '자동차': 'car', '자전거': 'bicycle', '연필': 'pencil',
+      '지우개': 'eraser', '공책': 'notebook', '가방': 'bag', '책': 'book', '의자': 'chair', '책상': 'desk', '램프': 'lamp',
+      '창문': 'window', '문': 'door', '토끼': 'rabbit', '사자': 'lion', '호랑이': 'tiger', '기린': 'giraffe', '코끼리': 'elephant',
+      '서울': 'seoul', '부산': 'busan', '대구': 'daegu', '광주': 'gwangju', '대전': 'daejeon', '울산': 'ulsan', '수박': 'watermelon',
+      '포도': 'grape', '딸기': 'strawberry', '감자': 'potato', '고구마': 'sweetpotato', '우산': 'umbrella', '모자': 'hat',
+      '신발': 'shoes', '안경': 'glasses', '시계': 'clock', '전화': 'telephone', '라디오': 'radio', '냄비': 'pot', '숟가락': 'spoon',
+      '젓가락': 'chopsticks', '거울': 'mirror', '비누': 'soap', '수건': 'towel', '이불': 'blanket'
+    };
+    const css = document.body.style;
+    css.setProperty('--art-card-back', `url("${ART}card-back.png")`);
+    css.setProperty('--art-wall', `url("${ART}tile-wall.png")`);
+    css.setProperty('--art-path', `url("${ART}tile-path.png")`);
+    css.setProperty('--art-bg', `url("${ART}bg-${BOOT.gameSlug === 'arithmetic' ? 'arithmetic' : 'initials'}.png")`);
+    // 그림이 올라와 있으면(카드 뒷면으로 확인) 그림 모드. 없으면 1차 화면 그대로
+    let hasArt = false;
+    const probe = new Image();
+    probe.onload = () => {
+      hasArt = true;
+      document.body.classList.add('has-art');
+      ['down', 'up', 'left', 'right'].forEach(d => [1, 2].forEach(f => { new Image().src = `${ART}bunny-${d}-${f}.png`; }));
+      ['praise-bunny', 'cheer-bunny'].forEach(n => { new Image().src = `${ART}${n}.png`; });
+      if (state.progress) renderUi();
+    };
+    probe.src = `${ART}card-back.png`;
+    const artImg = (name, cls = '') => `<img class="${cls}" src="${ART}${name}.png" alt="" onerror="this.remove()">`;
+
     const state = {
       stage: null,
       progress: null,
       memory: { selected: [], matched: new Set() },
-      maze: { path: '', x: 0, y: 0 },
+      maze: { path: '', x: 0, y: 0, dir: 'down', frame: 1 },
       choice: '',
-      history: []
+      busy: false
     };
-
     const els = {
       gameTitle: document.getElementById('gameTitle'),
       scoreText: document.getElementById('scoreText'),
       stageText: document.getElementById('stageText'),
       progressBar: document.getElementById('progressBar'),
-      stageTitle: document.getElementById('stageTitle'),
       stagePrompt: document.getElementById('stagePrompt'),
       feedbackBox: document.getElementById('feedbackBox'),
       stageBody: document.getElementById('stageBody'),
       submitBtn: document.getElementById('submitBtn'),
-      resetBtn: document.getElementById('resetBtn')
+      resetBtn: document.getElementById('resetBtn'),
+      soundBtn: document.getElementById('soundBtn'),
+      cheer: document.getElementById('cheer'),
+      cheerBox: document.getElementById('cheerBox')
     };
+
+    // 소리·진동: 버튼 하나로 함께 켜고 끈다. 설정은 이 기기에만 저장(저장이 막혀도 동작)
+    let soundOn = true;
+    try { soundOn = localStorage.getItem('sb-game-sound') !== 'off'; } catch (e) {}
+    let audioCtx = null;
+    function renderSoundBtn() {
+      els.soundBtn.setAttribute('aria-pressed', String(soundOn));
+      els.soundBtn.textContent = soundOn ? '🔊 소리 켜짐' : '🔇 소리 꺼짐';
+    }
+    els.soundBtn.onclick = () => {
+      soundOn = !soundOn;
+      try { localStorage.setItem('sb-game-sound', soundOn ? 'on' : 'off'); } catch (e) {}
+      renderSoundBtn();
+      if (soundOn) chime('tap');
+    };
+    function chime(kind) {
+      if (!soundOn) return;
+      try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const notes = kind === 'ok' ? [523, 659, 784] : kind === 'try' ? [440, 392] : [660];
+        notes.forEach((freq, i) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          const t = audioCtx.currentTime + i * 0.14;
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0.0001, t);
+          gain.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+          osc.connect(gain).connect(audioCtx.destination);
+          osc.start(t);
+          osc.stop(t + 0.32);
+        });
+      } catch (e) {}
+      if (kind === 'ok' && navigator.vibrate) { try { navigator.vibrate(40); } catch (e) {} }
+    }
+
+    function showFeedback(msg, type) {
+      els.feedbackBox.textContent = msg;
+      els.feedbackBox.className = `feedback visible ${type}`;
+      fitToViewport();
+    }
+    function hideFeedback() { els.feedbackBox.className = 'feedback'; }
+
+    // 정답이면 칭찬, 아니면 응원을 잠깐 보여 준다(누르면 바로 닫힘)
+    let cheerTimer = null;
+    function showCheer(correct, message) {
+      const pic = hasArt
+        ? artImg(correct ? 'praise-bunny' : 'cheer-bunny')
+        : `<div class="cheer-emoji" aria-hidden="true">${correct ? '🎉' : '🌱'}</div>`;
+      els.cheerBox.innerHTML = `${pic}<strong></strong><span></span>`;
+      els.cheerBox.querySelector('strong').textContent = correct ? '참 잘하셨어요!' : '괜찮아요!';
+      els.cheerBox.querySelector('span').textContent = message || '';
+      els.cheer.classList.add('visible');
+      clearTimeout(cheerTimer);
+      cheerTimer = setTimeout(hideCheer, 1800);
+    }
+    function hideCheer() { els.cheer.classList.remove('visible'); }
+    els.cheer.onclick = hideCheer;
 
     function renderUi() {
       els.gameTitle.textContent = BOOT.game.title;
-      els.scoreText.textContent = `점수: ${state.progress?.score || 0}`;
-      
+      els.scoreText.textContent = `⭐ ${state.progress?.score || 0}점`;
       const total = BOOT.game.totalStages || 1;
-      const current = state.progress?.cleared ? total : (state.progress?.currentStageNo || 1);
-      els.stageText.textContent = state.progress?.cleared ? '모두 완료!' : `단 계: ${current} / ${total}`;
-      
-      const progressPercent = Math.min(100, Math.round(((current - (state.progress?.cleared ? 0 : 1)) / total) * 100));
-      els.progressBar.style.width = `${progressPercent}%`;
+      const cleared = !!state.progress?.cleared;
+      const current = cleared ? total : (state.progress?.currentStageNo || 1);
+      els.stageText.textContent = cleared ? '모두 마쳤어요' : `${current}번째 / ${total}`;
+      els.progressBar.style.width = `${Math.min(100, Math.round(((cleared ? total : current - 1) / total) * 100))}%`;
 
-      if (state.progress?.cleared) {
-        els.stageTitle.textContent = '축하합니다!';
-        els.stagePrompt.textContent = '모든 문제를 다 풀었습니다.';
-        els.stageBody.innerHTML = '<div class="question-box">🏅 참 잘하셨어요! 🏅</div>';
-        showFeedback('오늘의 게임을 모두 완료하셨습니다!', 'ok');
-        els.submitBtn.disabled = true;
+      if (cleared) {
+        els.stagePrompt.textContent = '오늘도 수고 많으셨어요';
+        const pic = hasArt ? artImg('done-bunny') : '<div class="medal" aria-hidden="true">🏅</div>';
+        els.stageBody.innerHTML = `<div class="done">${pic}
+          <strong>참 잘하셨어요!</strong><span>모든 문제를 다 풀었어요. 모은 점수는 ${state.progress.score}점이에요.</span></div>`;
+        hideFeedback();
+        els.submitBtn.hidden = true;
+        els.resetBtn.textContent = '처음부터 다시';
+        fitToViewport();
         return;
       }
-
+      els.submitBtn.hidden = false;
+      els.resetBtn.textContent = '처음부터';
       if (!state.stage) return;
-
-      els.stageTitle.textContent = state.stage.title;
       els.stagePrompt.textContent = state.stage.prompt;
-      
       const lastMsg = state.progress?.state?.lastMessage;
-      if (lastMsg) {
-        showFeedback(lastMsg, state.progress.lastAnswerCorrect ? 'ok' : 'bad');
-      } else {
-        els.feedbackBox.classList.remove('visible');
-      }
-
+      if (lastMsg) showFeedback(`앞 문제: ${lastMsg}`, state.progress.lastAnswerCorrect ? 'ok' : 'try');
+      else hideFeedback();
       renderStageContent();
+    }
+
+    function renderStageContent() {
+      const type = state.stage.stageType;
+      const payload = state.stage.payload;
+      // 짝 맞추기·미로는 다 하면 저절로 넘어가므로, 버튼은 '넘어가기' 역할만 한다
+      const autoGame = type === 'memory_match' || type === 'maze';
+      els.submitBtn.textContent = autoGame ? '다음 문제로' : '확인';
+      updateSubmitBtn();
+
+      if (type === 'memory_match') {
+        // 카드는 한 번만 그리고, 이후엔 클래스만 바꿔야 뒤집기 애니메이션이 보인다
+        els.stageBody.innerHTML = `<div class="memory-grid">${payload.cards.map(card => {
+          const art = hasArt && CARD_ART[card.label] ? artImg(`card-${CARD_ART[card.label]}`) : '';
+          return `<button type="button" class="memory-card" data-id="${card.id}" data-key="${card.pairKey}" aria-label="뒤집힌 카드">
+            <span class="card-inner">
+              <span class="face back"><span class="back-mark" aria-hidden="true">?</span></span>
+              <span class="face front">${art}<span class="label">${card.label}</span></span>
+            </span></button>`;
+        }).join('')}</div>`;
+        updateMemory();
+      } else if (type === 'maze') {
+        const grid = payload.grid;
+        els.stageBody.innerHTML = `
+          <div class="maze-board" style="grid-template-columns: repeat(${grid[0].length}, auto)">
+            ${grid.map((row, y) => row.map((cell, x) => {
+              const cls = cell === '#' ? 'maze-wall' : cell === 'G' ? 'maze-goal' : 'maze-path';
+              const goal = cell === 'G' ? (hasArt ? artImg('goal-home') : '🏁') : '';
+              return `<div class="maze-cell ${cls}" data-x="${x}" data-y="${y}">${goal}</div>`;
+            }).join('')).join('')}
+            <div class="walker" id="walker" aria-hidden="true"></div>
+          </div>
+          <div class="direction-pad">
+            <button type="button" class="dir-btn up" data-move="U">▲<small>위</small></button>
+            <button type="button" class="dir-btn left" data-move="L">◀<small>왼쪽</small></button>
+            <button type="button" class="dir-btn down" data-move="D">▼<small>아래</small></button>
+            <button type="button" class="dir-btn right" data-move="R">▶<small>오른쪽</small></button>
+          </div>`;
+        updateMaze(false);
+      } else if (type === 'arithmetic') {
+        const q = payload.question.replace('?', `<span class="blank">${state.choice === '' ? '?' : payload.options[Number(state.choice)]}</span>`);
+        els.stageBody.innerHTML = `<div class="question">${q}</div>
+          <div class="options">${payload.options.map((opt, i) =>
+            `<button type="button" class="option-btn ${state.choice === String(i) ? 'selected' : ''}" data-idx="${i}">${opt}</button>`
+          ).join('')}</div>`;
+      } else if (type === 'initials_quiz') {
+        els.stageBody.innerHTML = `<div class="tiles" aria-label="초성 ${payload.clue}">${Array.from(payload.clue).map(ch =>
+            `<span class="tile">${ch}</span>`).join('')}</div>
+          <div class="options">${payload.options.map((opt, i) =>
+            `<button type="button" class="option-btn ${state.choice === String(i) ? 'selected' : ''}" data-idx="${i}">${opt}</button>`
+          ).join('')}</div>`;
+      }
       fitToViewport();
+    }
+
+    function updateSubmitBtn() {
+      const type = state.stage?.stageType;
+      const autoGame = type === 'memory_match' || type === 'maze';
+      els.submitBtn.disabled = state.busy || (!autoGame && state.choice === '');
+    }
+
+    function updateMemory() {
+      document.querySelectorAll('.memory-card').forEach(btn => {
+        const matched = state.memory.matched.has(btn.dataset.key);
+        const open = matched || state.memory.selected.includes(btn.dataset.id);
+        btn.classList.toggle('matched', matched);
+        btn.classList.toggle('open', open && !matched);
+        btn.disabled = matched;
+        btn.setAttribute('aria-label', open ? btn.querySelector('.label').textContent : '뒤집힌 카드');
+      });
+    }
+
+    // 캐릭터를 지금 칸 위로 옮긴다. animate=false면 순간 이동(처음 그릴 때·화면 크기 바뀔 때)
+    function updateMaze(animate = true) {
+      const walker = document.getElementById('walker');
+      if (!walker) return;
+      const { x, y } = state.maze;
+      document.querySelectorAll('.maze-cell').forEach(cell => {
+        const cx = Number(cell.dataset.x), cy = Number(cell.dataset.y);
+        cell.classList.toggle('maze-next', Math.abs(cx - x) + Math.abs(cy - y) === 1 && !cell.classList.contains('maze-wall'));
+      });
+      const target = document.querySelector(`.maze-cell[data-x="${x}"][data-y="${y}"]`);
+      walker.style.width = `${target.offsetWidth}px`;
+      walker.style.height = `${target.offsetHeight}px`;
+      if (!animate) walker.style.transition = 'none';
+      walker.style.transform = `translate(${target.offsetLeft}px, ${target.offsetTop}px)`;
+      if (!animate) { walker.offsetWidth; walker.style.transition = ''; }
+      walker.innerHTML = hasArt
+        ? artImg(`bunny-${state.maze.dir}-${state.maze.frame}`)
+        : '<span class="dot">🙂</span>';
     }
 
     // iframe·태블릿처럼 작은 화면에서도 스크롤 없이 한 화면에 들어가도록 전체를 축소한다.
@@ -1210,15 +1327,13 @@ class GameService:
       if (!grid) return;
       grid.style.display = 'none';
       shell.style.minHeight = '0';
-      // documentElement.scrollHeight는 뷰포트보다 작아지지 않으므로 shell 실제 높이를 잰다.
       const usedHeight = shell.offsetHeight;
       grid.style.display = '';
       grid.style.gridTemplateColumns = '';
-      const gap = parseFloat(getComputedStyle(grid).gap) || 16;
+      const gap = parseFloat(getComputedStyle(grid).gap) || 14;
       const count = grid.children.length;
       const availHeight = window.innerHeight - usedHeight;
       const availWidth = grid.clientWidth;
-      // 카드가 가장 커지는 열 수를 고른다(넓은 화면이면 한 줄, 좁으면 여러 줄).
       let cols = 1;
       let size = 0;
       for (let c = 1; c <= count; c++) {
@@ -1226,12 +1341,11 @@ class GameService:
         const fit = Math.min((availWidth - gap * (c - 1)) / c, (availHeight - gap * (rows - 1)) / rows);
         if (fit > size) { size = fit; cols = c; }
       }
-      const cardSize = Math.max(48, Math.floor(size));
+      const cardSize = Math.max(56, Math.floor(Math.min(size, 200)));
       grid.style.gridTemplateColumns = `repeat(${cols}, ${cardSize}px)`;
       grid.style.setProperty('--card-size', `${cardSize}px`);
       grid.style.justifyContent = 'center';
     }
-
     function fitToViewport() {
       const shell = document.querySelector('.shell');
       document.body.style.zoom = '';
@@ -1242,86 +1356,9 @@ class GameService:
       document.body.style.zoom = zoom;
       shell.style.minHeight = `${window.innerHeight / zoom}px`;
     }
+    window.addEventListener('resize', () => { fitToViewport(); updateMaze(false); });
 
-    function updateUi() {
-      renderUi();
-      fitToViewport();
-    }
-    window.addEventListener('resize', fitToViewport);
-
-    function showFeedback(msg, type) {
-      els.feedbackBox.textContent = msg;
-      els.feedbackBox.className = `feedback visible ${type}`;
-      fitToViewport();
-    }
-
-    function renderStageContent() {
-      const type = state.stage.stageType;
-      const payload = state.stage.payload;
-
-      if (type === 'memory_match') {
-        els.stageBody.innerHTML = `
-          <div class="memory-grid">
-            ${payload.cards.map(card => {
-              const matched = state.memory.matched.has(card.pairKey);
-              const selected = state.memory.selected.includes(card.id);
-              return `<button class="memory-card ${matched ? 'matched' : ''} ${selected ? 'selected' : ''}" 
-                        data-id="${card.id}" data-key="${card.pairKey}" ${matched ? 'disabled' : ''}>
-                        ${matched || selected ? card.label : '❓'}
-                      </button>`;
-            }).join('')}
-          </div>
-        `;
-      } else if (type === 'maze') {
-        const grid = payload.grid;
-        els.stageBody.innerHTML = `
-          <div class="maze-container">
-            <div class="maze-board" style="grid-template-columns: repeat(${grid[0].length}, 1fr)">
-              ${grid.map((row, y) => row.map((cell, x) => {
-                const isCurrent = state.maze.x === x && state.maze.y === y;
-                let cls = 'maze-cell';
-                if (cell === '#') cls += ' maze-wall';
-                else if (cell === 'S') cls += ' maze-start';
-                else if (cell === 'G') cls += ' maze-goal';
-                else cls += ' maze-path';
-                if (isCurrent) cls += ' maze-current';
-                return `<div class="${cls}">${isCurrent ? '🚶' : (cell === '#' ? '' : cell)}</div>`;
-              }).join('')).join('')}
-            </div>
-            <div class="direction-pad">
-              <button class="dir-btn up" data-move="U">▲</button>
-              <button class="dir-btn left" data-move="L">◀</button>
-              <button class="dir-btn down" data-move="D">▼</button>
-              <button class="dir-btn right" data-move="R">▶</button>
-            </div>
-          </div>
-        `;
-      } else if (type === 'arithmetic') {
-        els.stageBody.innerHTML = `
-          <div class="question-box">${payload.question.replace('?', '___')}</div>
-          <div class="question-box" style="background:#fff7ed; font-size: 54px; margin-top:0">${state.choice || '?'}</div>
-          <div class="numpad">
-            ${[1,2,3,4,5,6,7,8,9].map(n => `<button class="num-btn" data-val="${n}">${n}</button>`).join('')}
-            <button class="num-btn clear" data-val="C">지우기</button>
-            <button class="num-btn" data-val="0">0</button>
-            <button class="num-btn submit-small" data-val="S">입력</button>
-          </div>
-        `;
-      } else if (type === 'initials_quiz') {
-        els.stageBody.innerHTML = `
-          <div class="question-box" style="letter-spacing: 0.5em; font-size: 60px">${payload.clue}</div>
-          <div class="option-list">
-            ${payload.options.map((opt, i) => `
-              <button class="option-btn ${state.choice === String(i) ? 'selected' : ''}" data-idx="${i}">
-                ${i+1}. ${opt}
-              </button>
-            `).join('')}
-          </div>
-        `;
-      }
-    }
-
-    async function api(path, method='GET', body=null) {
+    async function api(path, method = 'GET', body = null) {
       const options = { method, headers: { 'Content-Type': 'application/json' } };
       if (body) options.body = JSON.stringify(body);
       const res = await fetch(`${API_ROOT}${path}`, options);
@@ -1330,36 +1367,58 @@ class GameService:
         json = await res.json();
       } catch {
         // nginx 오류 페이지(HTML) 등 JSON이 아닌 응답: 서버 재시작 중이거나 연결 실패
-        throw new Error(`서버에 연결할 수 없습니다 (${res.status}). 잠시 후 다시 시도해주세요.`);
+        throw new Error(`잠시 연결이 어려워요 (${res.status}). 조금 뒤에 다시 눌러 주세요.`);
       }
-      if (!res.ok || !json.success) throw new Error(json.message || '오류가 발생했습니다.');
+      if (!res.ok || !json.success) throw new Error(json.message || '잠시 문제가 생겼어요. 다시 눌러 주세요.');
       return json.data;
-    }
-
-    async function load() {
-      const data = await api(`/api/v1/games/${BOOT.gameSlug}/state?userId=${BOOT.userId}`);
-      state.game = data.game;
-      state.progress = data.progress;
-      state.stage = data.stage;
-      resetLocal();
-      updateUi();
     }
 
     function resetLocal() {
       state.memory = { selected: [], matched: new Set() };
       state.choice = '';
       if (state.stage?.stageType === 'maze') {
-        state.maze = { path: '', x: state.stage.payload.start.x, y: state.stage.payload.start.y };
+        state.maze = { path: '', x: state.stage.payload.start.x, y: state.stage.payload.start.y, dir: 'down', frame: 1 };
+      }
+    }
+
+    async function load() {
+      try {
+        const data = await api(`/api/v1/games/${BOOT.gameSlug}/state?userId=${BOOT.userId}`);
+        state.progress = data.progress;
+        state.stage = data.stage;
+        resetLocal();
+        renderUi();
+      } catch (e) { showFeedback(e.message, 'try'); }
+    }
+
+    const DIRS = { U: [0, -1, 'up'], D: [0, 1, 'down'], L: [-1, 0, 'left'], R: [1, 0, 'right'] };
+    function moveMaze(mv) {
+      const grid = state.stage.payload.grid;
+      const [dx, dy, dir] = DIRS[mv];
+      const nx = state.maze.x + dx, ny = state.maze.y + dy;
+      state.maze.dir = dir;
+      if (ny < 0 || ny >= grid.length || nx < 0 || nx >= grid[0].length || grid[ny][nx] === '#') {
+        state.maze.frame = 1;
+        updateMaze();
+        showFeedback('그쪽은 막혀 있어요. 다른 길로 가 볼까요?', 'info');
+        return;
+      }
+      state.maze.x = nx; state.maze.y = ny; state.maze.path += mv;
+      state.maze.frame = state.maze.frame === 1 ? 2 : 1;  // 칸마다 발을 바꿔 걷는 느낌
+      updateMaze();
+      if (grid[ny][nx] === 'G') {
+        showFeedback('도착하셨어요!', 'ok');
+        state.busy = true;  // 도착 후 제출 전까지 더 못 움직이게
+        setTimeout(() => { state.busy = false; submit(); }, 900);
       }
     }
 
     els.stageBody.onclick = (e) => {
-      const btn = e.target.closest('button, [data-move]');
-      if (!btn || state.progress?.cleared) return;
+      const btn = e.target.closest('button, .maze-cell');
+      if (!btn || state.busy || state.progress?.cleared || !state.stage) return;
 
-      if (btn.dataset.id) { // Memory
-        const id = btn.dataset.id;
-        const key = btn.dataset.key;
+      if (btn.dataset.id) {
+        const { id, key } = btn.dataset;
         // 틀린 두 장이 다시 뒤집히길 기다리는 동안(선택 2장)에는 다른 카드를 열 수 없다.
         if (state.memory.selected.length >= 2) return;
         if (state.memory.matched.has(key) || state.memory.selected.includes(id)) return;
@@ -1371,70 +1430,67 @@ class GameService:
           if (c1.pairKey === c2.pairKey) {
             state.memory.matched.add(c1.pairKey);
             state.memory.selected = [];
-            showFeedback('정답입니다! 짝을 맞췄어요.', 'ok');
+            if (state.memory.matched.size === state.stage.payload.pairCount) {
+              showFeedback('모두 찾으셨어요! 다음 문제로 넘어가요.', 'ok');
+              setTimeout(submit, 1200);
+            } else { showFeedback('짝을 찾으셨어요!', 'ok'); chime('ok'); }
           } else {
-            showFeedback('틀렸습니다. 다시 해볼까요?', 'bad');
-            setTimeout(() => { state.memory.selected = []; renderStageContent(); fitToViewport(); }, 1000);
+            showFeedback('괜찮아요, 위치를 기억해 두고 다시 찾아봐요.', 'info');
+            setTimeout(() => { state.memory.selected = []; updateMemory(); }, 1300);
           }
         }
-      } else if (btn.dataset.move) { // Maze
-        const mv = btn.dataset.move;
-        const grid = state.stage.payload.grid;
-        let nx = state.maze.x, ny = state.maze.y;
-        if (mv === 'U') ny--; else if (mv === 'D') ny++; else if (mv === 'L') nx--; else if (mv === 'R') nx++;
-        if (ny >= 0 && ny < grid.length && nx >= 0 && nx < grid[0].length && grid[ny][nx] !== '#') {
-          state.maze.x = nx; state.maze.y = ny; state.maze.path += mv;
-          if (grid[ny][nx] === 'G') showFeedback('출구에 도착했습니다! 제출 버튼을 누르세요.', 'info');
-        }
-      } else if (btn.dataset.val) { // Arithmetic Numpad
-        const val = btn.dataset.val;
-        if (val === 'C') state.choice = '';
-        else if (val === 'S') submit();
-        else state.choice += val;
-      } else if (btn.dataset.idx) { // Choice
+        updateMemory();
+      } else if (btn.dataset.move) {
+        moveMaze(btn.dataset.move);
+      } else if (btn.dataset.x !== undefined) {
+        // 옆 칸을 직접 눌러도 그 칸으로 걸어간다
+        const dx = Number(btn.dataset.x) - state.maze.x, dy = Number(btn.dataset.y) - state.maze.y;
+        if (Math.abs(dx) + Math.abs(dy) !== 1) return;
+        moveMaze(dx === 1 ? 'R' : dx === -1 ? 'L' : dy === 1 ? 'D' : 'U');
+      } else if (btn.dataset.idx !== undefined) {
         state.choice = btn.dataset.idx;
+        renderStageContent();
       }
-      renderStageContent();
-      fitToViewport();
     };
 
     async function submit() {
-      let answer = null;
+      if (state.busy || !state.stage) return;
       const type = state.stage.stageType;
+      let answer = null;
       if (type === 'memory_match') answer = { matchedPairs: Array.from(state.memory.matched) };
       else if (type === 'maze') answer = { path: state.maze.path };
-      else if (type === 'arithmetic') {
-        const val = state.choice;
-        const options = state.stage.payload.options;
-        const idx = options.findIndex(o => String(o) === val);
-        answer = { value: idx !== -1 ? String(idx) : val };
-      }
-      else if (type === 'initials_quiz') answer = { value: state.choice };
-
+      else if (state.choice !== '') answer = { value: state.choice };
       if (!answer) return;
+      state.busy = true;
+      updateSubmitBtn();
       try {
         const data = await api(`/api/v1/games/${BOOT.gameSlug}/answer`, 'POST', {
           userId: BOOT.userId, gameSlug: BOOT.gameSlug, stageNo: state.stage.stageNo, answer
         });
+        chime(data.correct ? 'ok' : 'try');
+        showCheer(data.correct, data.message);
         state.progress = data.progress;
         state.stage = data.stage;
         resetLocal();
-        updateUi();
-      } catch (e) { showFeedback(e.message, 'bad'); }
+      } catch (e) { showFeedback(e.message, 'try'); }
+      state.busy = false;
+      if (state.stage || state.progress?.cleared) renderUi();
+      else updateSubmitBtn();
     }
 
     els.submitBtn.onclick = submit;
     els.resetBtn.onclick = async () => {
-      if (!confirm('1번 문제부터 다시 시작할까요? (지금까지 쌓은 점수는 그대로 남아요)')) return;
-      const data = await api(`/api/v1/games/${BOOT.gameSlug}/reset`, 'POST', {
-        userId: BOOT.userId, gameSlug: BOOT.gameSlug
-      });
-      state.progress = data.progress;
-      state.stage = data.stage;
-      resetLocal();
-      updateUi();
+      if (!confirm('1번 문제부터 다시 시작할까요? (지금까지 모은 점수는 그대로 남아요)')) return;
+      try {
+        const data = await api(`/api/v1/games/${BOOT.gameSlug}/reset`, 'POST', { userId: BOOT.userId, gameSlug: BOOT.gameSlug });
+        state.progress = data.progress;
+        state.stage = data.stage;
+        resetLocal();
+        renderUi();
+      } catch (e) { showFeedback(e.message, 'try'); }
     };
 
+    renderSoundBtn();
     load();
   </script>
 </body>

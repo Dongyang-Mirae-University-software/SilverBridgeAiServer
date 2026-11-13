@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.core.companion_errors import register_companion_error_handler
@@ -22,7 +23,7 @@ from app.routers.analysis_router import router as analysis_router
 from app.routers.camera_router import router as camera_router
 from app.routers.chat_router import router as chat_router
 from app.routers.companion_router import router as companion_router
-from app.routers.game_router import router as game_router
+from app.routers.game_router import GAME_ASSETS_DIR, router as game_router
 from app.routers.health_router import router as health_router
 from app.routers.live_stream_router import router as live_stream_router
 from app.routers.live_ws_router import router as live_ws_router
@@ -242,6 +243,7 @@ if settings.legacy_camera_api_enabled:
     app.include_router(analysis_router, dependencies=[Depends(require_api_key)])
 app.include_router(chat_router, dependencies=[Depends(require_api_key)])
 app.include_router(game_router)  # 키 요구는 game_router 가 경로별로 붙인다
+app.mount("/api/v1/games/assets", StaticFiles(directory=GAME_ASSETS_DIR), name="game-assets")
 app.include_router(live_stream_router, dependencies=[Depends(require_api_key)])
 app.include_router(live_ws_router)
 app.include_router(reservation_credential_router, dependencies=[Depends(require_api_key)])
