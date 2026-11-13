@@ -7,6 +7,7 @@ import time
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
@@ -32,6 +33,7 @@ from app.services.companion.mood_service import mood_service
 from app.services.companion.text_emotion_service import text_emotion_service
 from app.services.companion.timeouts import call_with_timeout
 from app.services.companion.turn_record import build_dialogue_result
+from app.services.companion.tts_service import TtsNotFound, TtsNotReady, tts_service
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +232,34 @@ def delete_ward_data(ward_id: str) -> dict:
     """AI 서버가 가진 말벗 데이터를 지운다: 메모리의 대화, 검수 항목. 백엔드의 대화 결과는 백엔드가 지운다 (노션 요구)."""
     dialogues = store.delete_ward(ward_id)
     reviews = review_store.delete_by_ward(ward_id)
+    tts_service.delete_ward(ward_id)  # 그 피보호자 대화의 소리도 지운다 (응답 형식은 그대로 둔다 - 백엔드 계약)
     return success_response("말벗 데이터를 지웠습니다.", {"wardId": ward_id, "dialogues": dialogues, "reviewItems": reviews})
+
+
+AUDIO_WAIT_MAX_SEC = 8.0
+UTTERANCE_INDEX_MAX = 100
+
+
+@router.get(
+    "/sessions/{session_id}/utterances/{index}/audio",
+    summary="말벗 문장의 소리(mp3)를 받는다",
+    description="index 0 = 여는 질문, n = n번째 턴 뒤 말벗이 한 말. 합성 중이면 `wait`초(0~8, 기본 5)까지 기다린다. "
+                "200 `audio/mpeg` (24kHz mono, 1MB 이하). 시간 안에 못 끝나면 503 TTS_NOT_READY, "
+                "없음·만료(15분)·꺼짐·합성 실패면 404 TTS_NOT_FOUND. 소리는 메모리에만 잠시 두고 저장하지 않는다.",
+    responses={200: {"content": {"audio/mpeg": {}}}},
+)
+def utterance_audio(session_id: str, index: int, wait: float = 5.0) -> Response:
+    if not (0.0 <= wait <= AUDIO_WAIT_MAX_SEC):
+        raise CompanionError(422, "WAIT_INVALID", "wait 는 0~8초입니다.")
+    if not (0 <= index <= UTTERANCE_INDEX_MAX) or not (1 <= len(session_id) <= 64):
+        raise CompanionError(404, "TTS_NOT_FOUND", "소리가 없습니다.")
+    try:
+        data = tts_service.get(session_id, index, wait)
+    except TtsNotReady as exc:
+        raise CompanionError(503, "TTS_NOT_READY", "소리를 아직 만드는 중입니다.") from exc
+    except TtsNotFound as exc:
+        raise CompanionError(404, "TTS_NOT_FOUND", "소리가 없습니다.") from exc
+    return Response(content=data, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
 
 
 @router.get(
@@ -264,6 +293,11 @@ def _risk_probability_out(p) -> float | None:
     return round(float(p), 4)
 
 
+def _start_audio(d: Dialogue, index: int, text: str, cache_text: bool = False) -> dict | None:
+    """말벗 문장의 소리를 뒤에서 만들기 시작한다 (응답을 기다리게 하지 않는다). 시작했으면 {"index": index}."""
+    return {"index": index} if tts_service.start(d.wardId, d.sessionId, index, text, cache_text=cache_text) else None
+
+
 def _turn_response(d: Dialogue, result: dict, transcript: str | None = None, face: dict | None = None) -> dict:
     face_label = (face or {}).get("label") if (face or {}).get("usable") else None  # 표정을 못 읽었으면 기록하지 않는다
     updated = store.add_turn(d.dialogueId, result["turnResult"]["label"], result["turnResult"]["source"],
@@ -287,6 +321,9 @@ def _turn_response(d: Dialogue, result: dict, transcript: str | None = None, fac
         "avoided": bool(result.get("avoided")),  # 말을 피한 턴인가 (11/12). 원문·이유는 싣지 않는다
         "ended": updated.ended,
         "endReason": updated.endReason,
+        # 말벗 목소리 (11/13): 이 턴 응답 문장의 소리를 만들기 시작했으면 {"index": 턴 번호}, 꺼짐·포화면 null.
+        # 소리는 GET /companion/sessions/{sessionId}/utterances/{index}/audio 로 받는다
+        "audio": _start_audio(d, updated.turnNo, result["reply"]["text"]),
     }
     if transcript is not None:
         body["transcript"] = transcript  # 받아 적은 글은 응답으로만 나간다. 저장하지 않는다.
@@ -309,6 +346,8 @@ def open_dialogue(body: DialogueOpen, settings: Settings = Depends(get_settings)
         "dialogueId": d.dialogueId,
         "question": d.question,
         "maxTurns": d.maxTurns,
+        # 여는 질문은 index 0. 백엔드가 고른 질문 문장은 매번 같으므로 문장 기준으로도 보관한다 (11/13)
+        "audio": _start_audio(d, 0, d.question, cache_text=True),
     })
 
 

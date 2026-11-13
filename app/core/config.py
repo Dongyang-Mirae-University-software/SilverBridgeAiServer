@@ -478,6 +478,13 @@ class Settings(BaseModel):
     companion_reply_redo_temperature: float = _as_float("COMPANION_REPLY_REDO_TEMPERATURE", 0.7)
     # 짧은 부정 대답("아니 없어"·"없어")은 받아쓰기 확신도가 낮아도 되묻지 않는다 (11/13). 끄면 전과 같다
     companion_short_answer_pass: bool = _as_bool("COMPANION_SHORT_ANSWER_PASS", True)
+    # 말벗 목소리 (11/13): Supertonic 3 F1 목소리로 말벗 문장을 mp3 로 만든다. CPU 전용(onnxruntime), GPU 를 쓰지 않는다.
+    # 꺼져 있거나 실패하면 audio 가 null 이고 FE 가 브라우저 읽기로 대신한다. 소리는 메모리에만 잠시 둔다 (디스크·DB 저장 없음)
+    companion_tts_enabled: bool = _as_bool("COMPANION_TTS_ENABLED", False)
+    # 합성 한 건이 쓰는 CPU 스레드 수. 정하지 않으면 onnxruntime 이 모든 코어를 쓴다. gosky 실측(11/13) 3이 가장 빨랐다
+    companion_tts_threads: int = _as_int_min("COMPANION_TTS_THREADS", 3, 1)
+    companion_tts_subdir: str = os.getenv("COMPANION_TTS_SUBDIR", "companion/tts-supertonic3")  # MODEL_BASE_PATH 아래 (약 390MB)
+    companion_tts_voice: str = os.getenv("COMPANION_TTS_VOICE", "F1")
     # 한 대화에서 이 횟수만큼 말을 피하면 마무리 문장으로 끝낸다 (endReason AVOIDED - BE V72, 끝내기 USER_STOP과 구별). 0이면 일찍 끝내지 않는다
     companion_avoid_end_count: int = _as_int("COMPANION_AVOID_END_COUNT", 2)
     # 몸 응급 낱말(숨·가슴·쓰러짐·뇌졸중 징후)만 걸린 위험 턴은 몸 응급용 안내 문장으로 답한다 (11/12). 끄면 전과 같다

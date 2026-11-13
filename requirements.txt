@@ -37,3 +37,6 @@ silero-vad==6.2.3
 peft==0.21.2
 # 예약 서비스 사용자별 키 저장용 암호화(Fernet, 전체 점검 M-5). 이미 다른 패키지가 끌어오던 판과 같게 고정
 cryptography==50.0.2
+# 말벗 목소리 (11/13): Supertonic 3 (코드 MIT, 모델 OpenRAIL-M). onnxruntime CPU 로 돈다(GPU 미사용).
+# 필요한 onnxruntime·numpy·soundfile·huggingface-hub 는 이미 다른 패키지가 끌어온 판을 쓴다. 모델 파일은 볼륨(models/companion/tts-supertonic3)에 미리 받아 둔다
+supertonic==1.3.1

@@ -132,6 +132,7 @@ async def lifespan(_: FastAPI):
     get_drug_name_list()  # 약 이름 허가 목록을 한 번 메모리에 올린다(없으면 WARN 후 대조 생략)
     _startup_housekeeping()
     _start_companion_warmup()
+    _start_companion_tts_prewarm()
     yield
     if torch is not None and torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -205,6 +206,19 @@ def _start_companion_warmup() -> None:
 
     threading.Thread(target=run, name="companion-warmup", daemon=True).start()
 
+
+
+def _start_companion_tts_prewarm() -> None:
+    """말벗 목소리가 켜져 있으면(키 + COMPANION_TTS_ENABLED) 모델을 올리고 고정 문장을 미리 만든다 (11/13).
+
+    CPU 만 쓰므로 EXAONE·turbo 예열 스레드와 따로 돈다. 서버 기동은 기다리지 않는다. 실패하면 소리 없이 동작한다.
+    """
+    if not (settings.companion_api_key and settings.companion_tts_enabled):
+        return
+    from app.services.companion.tts_service import fixed_sentences, tts_service
+
+    threading.Thread(target=lambda: tts_service.prewarm(fixed_sentences()), name="companion-tts-prewarm",
+                     daemon=True).start()
 
 app = FastAPI(
     title=settings.app_name,
