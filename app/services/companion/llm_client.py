@@ -369,7 +369,7 @@ class ExaoneLlm:
         """시간 제한을 넘으면 LlmUnavailable."""
         return _with_timeout(self._next_token_probs_blocking, timeout, "확률 계산", prompt, prefix, candidates)
 
-    # --- 11/10: system + user 대화 형식, 어댑터 선택 (위험 v9·기분 e900·대답 cc5) ---
+    # --- 11/10: system + user 대화 형식, 어댑터 선택 (위험 v9·기분 e900·대답 cc7(11/13 기본, 이전 cc5)) ---
 
     def _chat_ids(self, tokenizer, system: str | None, user: str):
         messages = ([{"role": "system", "content": system}] if system else []) + [

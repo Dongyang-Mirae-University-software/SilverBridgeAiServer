@@ -66,6 +66,26 @@ def test_new_switch_defaults():
     assert risk_threshold() == 0.99 and pipeline.min_text_chars() == 2
 
 
+@pytest.mark.parametrize("env_value, expected", [
+    (None, "companion/llm/lora-reply-cc7"),  # 11/13 기본값 cc7 (환경 변수 없이 띄우면 cc7)
+    ("companion/llm/lora-reply-cc5", "companion/llm/lora-reply-cc5"),  # 되돌림: 환경 변수가 이긴다
+])
+def test_reply_lora_subdir_default_is_cc7(env_value, expected):
+    # 설정 기본값은 import 때 정해진다. 여기서 config를 다시 import하면 다른 테스트가 쓰는 설정까지 바뀌므로
+    # 별도 프로세스에서 읽는다 (.env는 읽지 않게 막는다)
+    import os
+    import subprocess
+    import sys
+
+    env = {k: v for k, v in os.environ.items() if k != "COMPANION_REPLY_LORA_SUBDIR"}
+    if env_value is not None:
+        env["COMPANION_REPLY_LORA_SUBDIR"] = env_value
+    code = ("import dotenv; dotenv.load_dotenv = lambda *a, **k: False\n"
+            "from app.core.config import Settings; print(Settings().companion_reply_lora_subdir)")
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=60, check=True)
+    assert out.stdout.strip().splitlines()[-1] == expected
+
+
 def test_jaehee_values_restore_old_thresholds(settings):
     settings(**JAEHEE)
     assert risk_threshold() == 0.5 and pipeline.min_text_chars() == 10
@@ -366,7 +386,7 @@ def test_keyword_rule_still_alerts_when_model_is_off():
     assert r["riskFlag"] is False
 
 
-# --- 공감 대답 cc5 ---------------------------------------------------------------------------
+# --- 공감 대답 (기본 cc7) ---------------------------------------------------------------------------
 
 class ReplyLlm:
     def __init__(self, text, has=True):

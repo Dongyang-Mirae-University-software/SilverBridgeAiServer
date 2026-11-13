@@ -180,7 +180,7 @@ Written for: 팀원 전체 (BE·FE·관리자 화면·AI 담당). 노션 요구�
 | `COMPANION_RISK_PROMPT` | v9 | 위험 판정 프롬프트: v9(노인 자살 경고 신호) · v4(재희) |
 | `COMPANION_RISK_THRESHOLD` | (비움) | 위험 '있' 확률 기준. 비우면 v9 0.99 · v4 0.5 |
 | `COMPANION_RISK_KEYWORD_RULE` | kw4 | 위험 낱말 규칙: kw4('자살'·'자해' 앞이 한글이면 제외, '아파 죽겠' 같은 관용 제외) · jaehee |
-| `COMPANION_REPLY_LORA` | true | 꼬리질문 대답을 대답 LoRA(`COMPANION_REPLY_LORA_SUBDIR`=companion/llm/lora-reply-cc5)로 생성. 프롬프트·규칙 검사는 그대로, 마지막 인사는 기본 모델. 폴더가 없으면 기본 모델 |
+| `COMPANION_REPLY_LORA` | true | 꼬리질문 대답을 대답 LoRA(`COMPANION_REPLY_LORA_SUBDIR`=companion/llm/lora-reply-cc7, 11/13 cc5에서 교체 - DGX 비교에서 질문 주제 덧붙임·대체 문장이 줄어 채택)로 생성. 프롬프트·규칙 검사는 그대로, 마지막 인사는 기본 모델. 폴더가 없으면 기본 모델 |
 | `COMPANION_SUMMARY_STRIP_PREFIX` | true | 한 줄 요약 앞 "요약:"·"기록:" 머리말 지움 |
 | `COMPANION_RISK_FIRST` | true | 위험·기분 확률(각 0.1초 안팎)을 생성(신호·요약·대답)보다 먼저 계산 (11/10 점검 H-1). false 면 넷을 함께 보냄 |
 | `COMPANION_REPLY_RELAX_CALM` | true | 글 기분이 평온·기쁨인 턴은 '대답과 무관'(대답 낱말 이어 받기) 검사를 빼고, 권유 문장("~해 보세요"·"산책 어떠세요" 등)을 거르는 '권유' 검사를 꼬리질문 턴 전체에 더함 (11/12). 걱정·우울·판단 불가·기분 없음 턴과 `COMPANION_RISK_FIRST=false` 는 전 규칙. false 면 전과 같음 |

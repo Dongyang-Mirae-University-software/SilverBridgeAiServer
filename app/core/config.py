@@ -459,7 +459,8 @@ class Settings(BaseModel):
     companion_risk_keyword_rule: str = _as_choice("COMPANION_RISK_KEYWORD_RULE", "kw4", ("kw4", "jaehee"))
     # LoRA 어댑터 (MODEL_BASE_PATH 아래). 폴더가 없으면 그 단계만 기본 모델로 돌린다
     companion_mood_lora_subdir: str = os.getenv("COMPANION_MOOD_LORA_SUBDIR", "companion/llm/lora-mood-e900")
-    companion_reply_lora_subdir: str = os.getenv("COMPANION_REPLY_LORA_SUBDIR", "companion/llm/lora-reply-cc5")
+    # 대답 어댑터 기본값 cc7 (11/13, 11/12 DGX 비교에서 cc5 대신 채택). cc5로 되돌리려면 COMPANION_REPLY_LORA_SUBDIR=companion/llm/lora-reply-cc5
+    companion_reply_lora_subdir: str = os.getenv("COMPANION_REPLY_LORA_SUBDIR", "companion/llm/lora-reply-cc7")
     # 공감 대답(꼬리질문 턴) 생성을 대답 어댑터로: true(11/10 기본) | false(재희: 기본 모델). 프롬프트·규칙 검사는 같다
     companion_reply_lora: bool = _as_bool("COMPANION_REPLY_LORA", True)
     # 한 줄 요약 앞의 "요약:"·"기록:" 머리말을 지운다 (false 면 재희 그대로)
