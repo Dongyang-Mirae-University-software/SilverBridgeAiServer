@@ -314,3 +314,83 @@ def test_delete_ward_data_drops_audio(client):
     out = c.delete("/companion/wards/u1/data", headers=HDR).json()["data"]
     assert set(out) == {"wardId", "dialogues", "reviewItems"}  # 응답 형식은 그대로
     assert _audio(c, "s-tts", 0, wait=0).status_code == 404
+
+
+# ---- 11/13 기능 점검 반영 (M-1·L-1·L-2·L-3) ----
+
+def _wait_until(cond, sec=3.0):
+    end = time.monotonic() + sec
+    while time.monotonic() < end:
+        if cond():
+            return True
+        time.sleep(0.02)
+    return cond()
+
+
+def test_sweeper_removes_expired_without_requests(enable):
+    """M-1: 요청이 없어도 주기 정리가 만료 소리를 지운다."""
+    enable()
+    svc = _svc(FakeSynth(), ttl_sec=0.2, sweep_interval_sec=0.05)
+    svc.start("w1", "s1", 1, "안녕하세요")
+    svc.get("s1", 1, 2)
+    assert _wait_until(lambda: len(svc._items) == 0)
+
+
+def test_single_executor_under_simultaneous_first_use(enable):
+    """L-1: 첫 사용이 동시에 몰려도 실행기는 하나라 동시 합성은 2건을 넘지 않는다."""
+    enable()
+    gate = threading.Event()
+    synth = FakeSynth(gate=gate)
+    svc = _svc(synth, workers=2, max_pending=20)
+    barrier = threading.Barrier(8)
+
+    def go(i):
+        barrier.wait()
+        svc.start("w1", "s1", i, f"문장{i}")
+    threads = [threading.Thread(target=go, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert _wait_until(lambda: synth.peak == 2)
+    time.sleep(0.1)
+    assert synth.peak == 2
+    gate.set()
+    for i in range(8):
+        assert svc.get("s1", i, 3)
+    assert svc._pool() is svc._pool()
+
+
+def test_load_failure_is_not_retried_by_queued_jobs(enable):
+    """L-2: 적재가 실패하면 대기열에 있던 작업이 저마다 다시 올리지 않는다."""
+    enable()
+    gate = threading.Event()
+    calls = []
+
+    def slow_bad_loader():
+        calls.append(1)
+        assert gate.wait(5)
+        raise MemoryError()
+
+    svc = TtsService(loader=slow_bad_loader, workers=2, max_pending=8)
+    for i in range(5):
+        assert svc.start("w1", "s1", i, f"문장{i}")
+    gate.set()
+    for i in range(5):
+        with pytest.raises(TtsNotFound):
+            svc.get("s1", i, 3)
+    assert len(calls) == 1
+
+
+def test_prewarm_counts_toward_queue_limit(enable):
+    """L-3: 예열 중인 합성도 대기 개수에 센다."""
+    enable()
+    gate = threading.Event()
+    svc = _svc(FakeSynth(gate=gate), workers=2, max_pending=1)  # 합쳐서 3건까지
+    t = threading.Thread(target=svc.prewarm, args=(("고정 문장",),))
+    t.start()
+    assert _wait_until(lambda: svc._inflight == 1)
+    assert [svc.start("w1", "s1", i, f"문장{i}") for i in range(3)] == [True, True, False]
+    gate.set()
+    t.join(5)
+    assert svc._inflight == 0 or _wait_until(lambda: svc._inflight == 0)

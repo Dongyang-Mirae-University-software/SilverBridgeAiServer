@@ -32,6 +32,7 @@ FIXED_MAX = 300  # 고정 문장 보관 상한
 ENCODE_TIMEOUT_SEC = 10.0
 MP3_RATE = 24000
 MP3_BITRATE = "48k"
+SWEEP_INTERVAL_SEC = 60.0  # 요청이 없어도 만료 소리를 지우는 주기 (11/13 점검 M-1)
 
 Synth = Callable[[str], bytes]
 
@@ -42,6 +43,10 @@ class TtsNotFound(Exception):
 
 class TtsNotReady(Exception):
     pass
+
+
+class TtsUnavailable(Exception):
+    """모델을 못 올린 뒤의 합성 요청. 다시 올리지 않는다 (11/13 점검 L-2)."""
 
 
 @dataclass
@@ -103,7 +108,8 @@ def load_supertonic() -> Synth:
 class TtsService:
     def __init__(self, loader: Callable[[], Synth] = load_supertonic, workers: int = WORKERS,
                  max_pending: int = MAX_PENDING, ttl_sec: float = TTL_SEC, max_items: int = MAX_ITEMS,
-                 fixed_max: int = FIXED_MAX, max_bytes: int = MAX_AUDIO_BYTES) -> None:
+                 fixed_max: int = FIXED_MAX, max_bytes: int = MAX_AUDIO_BYTES,
+                 sweep_interval_sec: float = SWEEP_INTERVAL_SEC) -> None:
         self._loader = loader
         self._workers = workers
         self._max_inflight = workers + max_pending
@@ -118,20 +124,51 @@ class TtsService:
         self._inflight = 0
         self._synth: Synth | None = None
         self._broken = False  # 모델을 못 올렸으면 재시작 전까지 합성하지 않는다 (요청마다 다시 올리며 CPU 를 쓰지 않게)
-        self._executor: ThreadPoolExecutor | None = None
+        # 처음부터 만든다 (11/13 점검 L-1: 처음 쓸 때 만들면 예열과 첫 요청이 겹칠 때 실행기가 2개 생겨 동시 합성이 4건이 된다).
+        # 스레드는 첫 제출 때 생기므로 꺼져 있으면 비용이 없다
+        self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="companion-tts")
+        self._sweep_interval_sec = sweep_interval_sec
+        self._sweeper: threading.Thread | None = None
 
     # ---- 상태 ----
     def enabled(self) -> bool:
         return bool(get_settings().companion_tts_enabled) and not self._broken
 
     def _pool(self) -> ThreadPoolExecutor:
-        if self._executor is None:
-            self._executor = ThreadPoolExecutor(max_workers=self._workers, thread_name_prefix="companion-tts")
         return self._executor
+
+    def sweep(self) -> None:
+        """만료·초과 소리를 지운다. 주기 정리 스레드와 요청이 부른다."""
+        with self._lock:
+            self._purge_locked(time.monotonic())
+
+    def _ensure_sweeper(self) -> None:
+        """소리를 처음 보관할 때 주기 정리 스레드를 띄운다 (11/13 점검 M-1).
+
+        요청 때만 정리하면 마지막 대화 뒤 다음 대화까지(예: 21시 -> 다음 날 09시) 모델 대답 소리가 메모리에 남는다.
+        """
+        if self._sweeper is not None:
+            return
+        with self._lock:
+            if self._sweeper is not None:
+                return
+
+            def loop() -> None:
+                while True:
+                    time.sleep(self._sweep_interval_sec)
+                    try:
+                        self.sweep()
+                    except Exception as exc:  # noqa: BLE001 - 정리 실패로 스레드가 멈추지 않게
+                        logger.warning("[COMPANION-TTS] sweep failed (%s)", type(exc).__name__)
+
+            self._sweeper = threading.Thread(target=loop, name="companion-tts-sweep", daemon=True)
+            self._sweeper.start()
 
     def _engine(self) -> Synth:
         if self._synth is None:
             with self._load_lock:
+                if self._broken:  # 이미 실패했으면 기다리던 작업마다 다시 올리지 않는다 (11/13 점검 L-2)
+                    raise TtsUnavailable()
                 if self._synth is None:
                     started = time.monotonic()
                     try:
@@ -159,6 +196,7 @@ class TtsService:
         if not self.enabled() or not text or not text.strip():
             return False
         key = (str(session_id), int(index))
+        self._ensure_sweeper()
         now = time.monotonic()
         with self._lock:
             self._purge_locked(now)
@@ -257,11 +295,16 @@ class TtsService:
         for t in texts:
             if t in self._fixed:
                 continue
+            with self._lock:
+                self._inflight += 1  # 예열도 대기 개수에 센다 (11/13 점검 L-3) - 요청 대기열이 상한보다 길어지지 않게
             try:
                 data = self._pool().submit(synth, t).result()  # 실행기를 거쳐 동시 합성 상한(2) 안에서 만든다
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[COMPANION-TTS] prewarm fail (%s) chars=%d", type(exc).__name__, len(t))
                 continue
+            finally:
+                with self._lock:
+                    self._inflight -= 1
             if data and len(data) <= self._max_bytes:
                 self._remember(t, data)
                 made += 1
