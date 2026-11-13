@@ -24,19 +24,22 @@ PAST_TERMS = ("지난", "어제", "예전", "옛날", "여행")
 # 11/13: '과거 가정' 완화 (DGX 재현, AI main 460200f 사본).
 #   ① 어르신이 이번 턴에 지난 때를 먼저 말했으면(예전에는·옛날에·전에는·젊었을 때) 대답의 예전·옛날은 넘겨짚기가 아니다.
 #      같은 낱말(어제·지난·여행)을 어르신이 먼저 말한 경우도 마찬가지다.
-#   ② '예전 같지 않다·예전처럼·예전만'은 지난 일을 넘겨짚는 말이 아니라 지금 상태를 말하는 관용 표현이다
+#   ② '예전 같지 않다·예전만 못하다'는 지난 일을 넘겨짚는 말이 아니라 지금 상태를 말하는 관용 표현이다
 #      ("몸이 예전같지 않으셔서 피곤하시겠네요" - 앞 턴에서 어르신이 한 말을 받았는데 탈락했다)
+#      11/14 점검 M-1: '예전처럼·예전만 하'는 뺐다 - "요즘도 예전처럼 자주 산책하세요?"는 지난 일을 넘겨짚는다
 ELDER_PAST_PATTERN = re.compile(r"예전|옛날|전에|전엔|젊었을|젊을\s?때")
 ELDER_PAST_ALLOWS = ("예전", "옛날")
-PAST_IDIOM_PATTERN = re.compile(r"예전\s?(?:같|처럼|만\s?(?:못|하|같))")
+PAST_IDIOM_PATTERN = re.compile(r"예전\s?같지\s?않|예전만\s?못")
 # 11/13: '대답과 무관' 보정 - 어르신 말의 뜻을 다른 낱말로 받은 대답을 통과시킨다 (같은 뜻 묶음).
 #   앞 두 글자 비교만으로는 못잤어↔못 주무셨다니, 못했어↔못하셨군요, 몸이↔몸 상태, 아파서↔불편하시겠어요가 모두 걸렸다.
 #   어르신 말과 대답이 같은 묶음에 함께 걸리면 이어 받은 대답으로 본다. "공감 한 마디 + 질문" 꼴을 통째로 허용하지 않는 것은
 #   걸러야 할 대답("잠이 많이 중요하시겠네요. …편안했던 순간은 언제였나요?")도 같은 꼴이기 때문이다.
 #   한계: '못 ~'만 받은 대답은 화제가 달라도 통과한다 (대답은 질문 문맥을 보고 만들어져 드물다고 보고 수용).
+#   11/14 점검 L-1: 어르신이 되물은 말("어디 아픈 곳이라도 있나요?")은 묶음으로 보지 않는다 - 물음을 대답으로 받은
+#   "아프신 곳은 없으시다니 다행이네요"가 통과했다. 이때는 앞 두 글자 비교만 한다
 RELATED_GROUPS = (
-    re.compile(r"잠|잤|자고|자요|주무|깼|깨서|깨요|수면"),  # 잠
-    re.compile(r"(?<!잘)못\s?[가-힣]"),  # 못 함 ('잘못'은 뺀다)
+    re.compile(r"잠(?!깐|시)|잤|(?<![남여])자고|(?<![남여])자요|주무|깼|깨서|깨요|수면"),  # 잠 ('잠깐·잠시·남자요'는 뺀다, 11/14 L-4)
+    re.compile(r"(?<![잘연])못\s?[가-힣]"),  # 못 함 ('잘못·연못'은 뺀다)
     re.compile(r"몸|아프|아파|아픈|아팠|쑤시|쑤셔|결리|저리|저려|불편|편찮|몸살|피곤|건강|무릎|허리|어깨"),  # 몸 불편
 )
 
@@ -72,6 +75,8 @@ ADVICE_PATTERN = re.compile(
     r"|(?:스트레칭|명상|가벼운|간단한)[^.?!]*(?:어떠신가요|어떨까요|어떠세요)"
     r"|(?:하|드)시는\s?건\s?(?:어떠신가요|어떨까요|어떠세요)"
     r"|하시면\s?좋(?:아요|습니다|겠|을\s?것|을\s?거)"
+    # ⑤ 11/14 점검 H-1: "어떻게 하면 … 생각해 보셨나요?"(방법을 궁리해 보라는 권유). '과거 가정'이 우연히 걸러 주던 대답이다
+    r"|어떻게\s?하면[^.?!]*(?:생각해\s?보|해\s?보|찾아\s?보)(?:셨|시|세|실)"
 )
 # 어르신이 아무 말도 하지 않은 턴(무응답)의 문장 (11/12 점검 H-1). 말을 들은 것처럼 받지 않고, 편하게 다시 말을 건넨다.
 # 무응답 턴에는 대화를 다시 여는 질문이 화제 전환이 아니다
@@ -124,7 +129,9 @@ def _content_words(text: str) -> list[str]:
 
 
 def _shares_meaning(transcript: str, body: str) -> bool:
-    """어르신 말과 대답이 같은 뜻 묶음(RELATED_GROUPS)에 함께 걸리는가 (11/13)."""
+    """어르신 말과 대답이 같은 뜻 묶음(RELATED_GROUPS)에 함께 걸리는가 (11/13). 어르신 말이 물음이면 보지 않는다 (11/14 L-1)."""
+    if transcript.rstrip().endswith("?"):
+        return False
     return any(g.search(transcript) and g.search(body) for g in RELATED_GROUPS)
 
 
@@ -325,11 +332,13 @@ def generate_reply(
     prompt = build_reply_prompt(question, transcript, prev_signals, is_last_turn)
     failures: list[str] = []
     redone = False
+    llm_code = "-"  # LLM 실패 원인 코드 (TIMEOUT·ERROR·LOAD·ADAPTER, 11/14 점검 L-3). 메시지는 남기지 않는다
     for _ in range(1 + s.companion_llm_retry):
         try:
             raw = _generate(llm, prompt, is_last_turn)
-        except LlmUnavailable:
+        except LlmUnavailable as exc:
             failures = ["LLM 실패"]
+            llm_code = getattr(exc, "code", "UNAVAILABLE")
             continue
         text = re.sub(r"\s+", " ", raw).strip()
         failures = check_reply(text, is_last_turn, transcript, text_mood)
@@ -342,8 +351,8 @@ def generate_reply(
         if not failures:
             return ReplyResult(text=text, isFollowUp=not is_last_turn, source="LLM", failures=[])
     # 11/12 점검 L-2: 대체된 이유(규칙 이름)만 남긴다 - 대답·어르신 말 본문은 남기지 않는다
-    logger.info("[COMPANION-REPLY-FALLBACK] failures=%s relaxed=%s last=%s",
-                ",".join(failures), is_relaxed_mood(text_mood), is_last_turn)
+    logger.info("[COMPANION-REPLY-FALLBACK] failures=%s relaxed=%s last=%s llm=%s",
+                ",".join(failures), is_relaxed_mood(text_mood), is_last_turn, llm_code)
     return ReplyResult(text=_fallback(turn_no, is_last_turn), isFollowUp=not is_last_turn,
                        source="FALLBACK", failures=failures)
 

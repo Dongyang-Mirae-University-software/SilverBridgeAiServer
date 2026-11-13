@@ -21,7 +21,14 @@ REPLY_ADAPTER = "reply"
 
 
 class LlmUnavailable(Exception):
-    """LLM 을 쓸 수 없음 (모델 파일 없음, 불러오기 실패, 시간 초과). 응답 쪽은 재시도 뒤 대체 문장으로 간다 (D20)."""
+    """LLM 을 쓸 수 없음 (모델 파일 없음, 불러오기 실패, 시간 초과). 응답 쪽은 재시도 뒤 대체 문장으로 간다 (D20).
+
+    code: 원인 코드만 (TIMEOUT·ERROR·LOAD·ADAPTER·UNAVAILABLE). 로그에는 메시지 대신 이 코드를 남긴다 (11/14 점검 L-3).
+    """
+
+    def __init__(self, message: str = "", code: str = "UNAVAILABLE"):
+        super().__init__(message)
+        self.code = code
 
 
 def llm_load_kwargs(dtype, cuda_available: bool, quant: str) -> dict:
@@ -129,11 +136,11 @@ def _with_timeout(fn, timeout: float, label: str, *args):
     try:
         return future.result(timeout=timeout)
     except concurrent.futures.TimeoutError as exc:
-        raise LlmUnavailable(f"LLM {label} 시간 초과") from exc
+        raise LlmUnavailable(f"LLM {label} 시간 초과", code="TIMEOUT") from exc
     except LlmUnavailable:
         raise
     except Exception as exc:
-        raise LlmUnavailable(f"LLM {label} 실패 ({type(exc).__name__})") from exc
+        raise LlmUnavailable(f"LLM {label} 실패 ({type(exc).__name__})", code="ERROR") from exc
     finally:
         pool.shutdown(wait=False)
 
@@ -265,14 +272,14 @@ class ExaoneLlm:
         if self._model is not None:
             return self._tokenizer, self._model
         if self._load_error is not None:
-            raise LlmUnavailable(self._load_error)
+            raise LlmUnavailable(self._load_error, code="LOAD")
         with self._lock:
             if self._model is not None:
                 return self._tokenizer, self._model
             path = self.model_dir()
             if not (path / "config.json").is_file():
                 self._load_error = f"LLM 모델 폴더가 없습니다: {path}"
-                raise LlmUnavailable(self._load_error)
+                raise LlmUnavailable(self._load_error, code="LOAD")
             try:
                 import torch
                 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -288,7 +295,7 @@ class ExaoneLlm:
                 self._tokenizer, self._model = tokenizer, model
             except Exception as exc:
                 self._load_error = f"LLM 을 불러오지 못했습니다 ({type(exc).__name__})"
-                raise LlmUnavailable(self._load_error) from exc
+                raise LlmUnavailable(self._load_error, code="LOAD") from exc
             return self._tokenizer, self._model
 
     def warm_up(self) -> None:
@@ -379,7 +386,7 @@ class ExaoneLlm:
 
     def _need_adapter(self, adapter: str | None) -> None:
         if adapter is not None and adapter not in self._adapters:
-            raise LlmUnavailable(f"LoRA 어댑터가 없습니다: {adapter}")
+            raise LlmUnavailable(f"LoRA 어댑터가 없습니다: {adapter}", code="ADAPTER")
 
     def _message_probs_blocking(self, system, user, prefix, candidates, adapter, *, deadline: float) -> dict[str, float]:
         import torch

@@ -140,6 +140,9 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
     _apply_avoid_end(d, result, is_last_turn)
     result = _avoid_repeat(d, result, is_last_turn)
     _queue_for_review(d, result)
+    # 11/14 점검 L-2: 실제로 나간 출처를 한 줄로 (화제 전환·마무리·되풀이 교체 뒤). [COMPANION-REPLY-SOURCE]는 모델을 부른 턴의
+    #   생성 단계 결과라 분모가 다르다. 코드만 남긴다 (어르신 말·대답 원문 없음)
+    logger.info("[COMPANION-REPLY-FINAL] source=%s input=%s", result.get("replySource"), input_kind)
     if result.get("replySource") != "CONFIRM":
         # 되묻기 턴은 바꾸지 않는다: 다시 말해 주신 대답은 그 전 질문에 대한 것이다 (세션 203 4번 "없다고"는 2번 질문의 대답)
         d.lastQuestion = result["reply"]["text"]
