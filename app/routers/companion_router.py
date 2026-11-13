@@ -105,7 +105,8 @@ class ReviewDecision(BaseModel):
     decision: Literal["approved", "rejected"]
 
 
-def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_logprob: float | None = None) -> dict:
+def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_logprob: float | None = None,
+              input_kind: str = "voice") -> dict:
     """턴 하나를 처리하고, 직전 신호와 검수 목록을 갱신한다. 답이 비었으면 무응답 턴이다 (S7-8)."""
     turn_no = d.turnNo + 1
     is_last_turn = turn_no >= d.maxTurns
@@ -124,6 +125,7 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
             turn_no=turn_no,
             stt_logprob=stt_logprob,
             past_replies=tuple(d.replies),
+            input_kind=input_kind,  # 11/13: 글 대답은 되묻지 않는다 (받아쓰기가 없다)
         )
         if result["signals"] is not None:  # 신호가 없는 턴(무응답·다시 확인)은 직전 신호를 그대로 둔다
             store.set_last_signals(d.dialogueId, result["signals"])
@@ -376,7 +378,7 @@ def reply_text(
     if len(body.text) > ANSWER_MAX_CHARS:
         raise CompanionError(422, "ANSWER_TOO_LONG", f"대답은 {ANSWER_MAX_CHARS}자 이하여야 합니다.")
     face = _no_face()
-    result = _run_turn(d, body.text, face, classify_text, llm)
+    result = _run_turn(d, body.text, face, classify_text, llm, input_kind="text")
     out = _turn_response(d, result)
     return success_response("턴 분석 완료", out)
 

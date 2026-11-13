@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
-from typing import Callable
+from typing import Callable, Literal
 
 from app.core.config import get_settings
 from app.services.companion.answer_summary import summarize_answer
@@ -33,6 +34,25 @@ from app.services.companion.signals import extract_signals
 from app.services.companion.transcript_check import check_transcript, confirm_reply
 from app.services.companion.text_emotion_service import TextEmotionResult, TextEmotionUnavailable
 from app.services.companion.timeouts import call_with_timeout
+
+logger = logging.getLogger(__name__)
+
+# 대답 출처·대체 이유를 숫자처럼 셀 수 있는 코드로만 남긴다 (11/13). 어르신 말·대답 원문은 남기지 않는다.
+#   시간 초과와 규칙 탈락이 같은 대체 문장으로 나가 gosky 에서 비율을 볼 수 없었다
+REASON_CODES = {
+    "비어 있음": "RULE_EMPTY",
+    "길이 초과": "RULE_LENGTH",
+    "질병명": "RULE_DISEASE",
+    "과거 가정": "RULE_PAST",
+    "물음으로 끝나지 않음": "RULE_QUESTION",
+    "대답과 무관": "RULE_UNRELATED",
+    "권유": "RULE_ADVICE",
+    "반복": "RULE_REPEAT",
+    "LLM 실패": "LLM_FAIL",
+    "말 피함": "AVOID",
+}
+
+InputKind = Literal["voice", "text"]
 
 # 확신도가 낮을 때 되묻는 문장 (11/09). 후보 낱말을 넣지 않는다
 LOW_CONFIDENCE_REPLY = "잘 알아듣지 못했어요. 한 번 더 말씀해 주시겠어요?"
@@ -135,6 +155,7 @@ def run_turn(
     turn_no: int,
     stt_logprob: float | None = None,
     past_replies=(),
+    input_kind: InputKind = "voice",
 ) -> dict:
     """한 턴을 처리한다 (S6-4, S7-7). 신호 추출과 응답 생성은 같은 시점에 함께 돌린다.
 
@@ -142,8 +163,15 @@ def run_turn(
     stt_logprob: turbo 받아쓰기의 토큰 평균 로그확률 (글 대답·확률을 내지 않는 엔진은 None).
     question: 어르신이 지금 대답하는 말벗 문장 (직전 대답, 첫 턴은 여는 질문 - 11/13).
     past_replies: 이 대화에서 말벗이 이미 한 문장. 비슷한 대답을 다시 만들 때 쓴다 (11/13).
+    input_kind: "text" 는 어르신이 직접 쓴 글 대답이다. 받아쓰기가 없으므로 되묻기(확신도·낱말 규칙)를 하지 않는다 (11/13).
+        "voice" 는 음성 대답이다. logprob 를 내는 엔진(turbo)은 확신도로, 내지 않는 엔진(sensevoice·whisper)은 낱말 규칙으로 되묻는다.
     """
     s = get_settings()
+    if input_kind == "text":
+        # 11/13: 글 대답이 낱말 규칙에 걸려 "잘 알아듣지 못했어요"·"혹시 편안 이야기이신가요?"로 되물었다.
+        #   위험 판정·피하는 말·기분은 일반 턴에서 그대로 돈다
+        return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
+                              past_replies)
     if s.companion_confirm_mode == "logprob" and stt_logprob is not None:
         # 11/09: 받아쓰기 확신도가 낮으면 되묻는다. 후보 낱말은 내지 않는다 (틀린 후보를 말하면 더 헷갈린다)
         # 11/13: 짧은 부정 대답("아니 없어")은 확신도가 낮아도 되묻지 않는다 (위험 판정은 일반 턴에서 그대로 돈다)
@@ -237,6 +265,7 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
     # 11/12: 말을 피하는 대답이면 모델 대답을 만들지 않고 물러나는 문장으로 답한다 (캐묻지 않는다).
     #   위험 턴이면 아래에서 안전 안내(safety_reply)로 덮어쓴다 - 위험 판정이 항상 우선이다
     avoided = get_settings().companion_avoid_reply and is_avoidance(transcript)
+    timed_out = False
     pool = ThreadPoolExecutor(max_workers=4)
     try:
         signal_future = pool.submit(extract_signals, transcript, llm, get_settings().companion_llm_retry)
@@ -257,6 +286,7 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
                 reply = reply_future.result(timeout=left())
             except FutureTimeout:
                 reply = timeout_reply(turn_no, is_last_turn)  # 시간 상한: 미리 정한 문장으로 답한다 (말은 있으므로 받아 주는 문장)
+                timed_out = True
         try:
             summary = summary_future.result(timeout=left())
         except FutureTimeout:
@@ -283,6 +313,7 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
                             failures=reply.failures)
     if signals is not None:
         signals = {**signals, "riskFlag": risk_flag}
+    _log_reply_source(reply, timed_out)
     return {
         "turnResult": turn_result,
         "textMood": text_mood or None,
@@ -296,6 +327,23 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
         # 말을 피한 턴인가 (11/12). 위험 턴이면 안전 안내가 나가도 감지 여부는 그대로 남긴다. 원문은 싣지 않는다
         "avoided": avoided,
     }
+
+
+def reply_reason(reply: ReplyResult, timed_out: bool) -> str:
+    """대답이 왜 그 출처가 됐는지 코드 하나로 (11/13). 위험 턴은 SAFETY 가 우선한다."""
+    if reply.source == "SAFETY":
+        return "SAFETY"
+    if timed_out:
+        return "TIMEOUT"
+    if not reply.failures:
+        return "NONE"
+    return "+".join(dict.fromkeys(REASON_CODES.get(f, "OTHER") for f in reply.failures))
+
+
+def _log_reply_source(reply: ReplyResult, timed_out: bool) -> None:
+    # 코드만 남긴다 (어르신 말·대답 원문 없음). 시간 초과로 대체됐는데 위험 턴이면 source=SAFETY, timeout=1 로 함께 보인다
+    logger.info("[COMPANION-REPLY-SOURCE] source=%s reason=%s timeout=%d",
+                reply.source, reply_reason(reply, timed_out), int(timed_out))
 
 
 def run_no_response_turn(turn_no: int, is_last_turn: bool) -> dict:
