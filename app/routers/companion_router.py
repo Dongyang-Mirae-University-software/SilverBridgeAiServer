@@ -332,10 +332,20 @@ def _dialogue_or_404(dialogue_id: str) -> Dialogue:
 
 
 def _risk_probability_out(p) -> float | None:
-    """턴 응답의 riskProbability. 백엔드 누적 기준(0.97)이 v9 척도라 다른 프롬프트(v4)의 확률은 내보내지 않는다."""
+    """턴 응답의 riskProbability. 백엔드 누적 기준(0.97)이 v9 척도라 다른 프롬프트(v4)의 확률은 내보내지 않는다.
+
+    11/15: v9 프롬프트라도 위험 어댑터로 계산하면 눈금이 다르다 - riskModel 로 어느 눈금인지 함께 보낸다.
+    """
     if p is None or get_settings().companion_risk_prompt != "v9":
         return None
     return round(float(p), 4)
+
+
+def _risk_model_out(result: dict) -> str | None:
+    """riskProbability 를 내보낼 때만 그 눈금 (v9 · v9+lora-risk-r1). 확률이 null 이면 null."""
+    if _risk_probability_out(result.get("riskProbability")) is None:
+        return None
+    return result.get("riskModel")
 
 
 def _start_audio(d: Dialogue, index: int, text: str, cache_text: bool = False) -> dict | None:
@@ -363,6 +373,8 @@ def _turn_response(d: Dialogue, result: dict, transcript: str | None = None, fac
         "riskFlag": bool(result.get("riskFlag")),  # 신호가 null 이어도 위험 여부는 항상 채운다 (백엔드 요청)
         # v9 위험 확률 (백엔드 여러 날 위험 누적용, 2026-11-11). 계산 안 했거나 시간 초과·v9 아님이면 null. 저장·로그 없음
         "riskProbability": _risk_probability_out(result.get("riskProbability")),
+        # 위 확률의 눈금 (11/15): "v9"(기본 모델, 기준 0.99) · "v9+lora-risk-r1"(위험 어댑터, 기준 0.5). 확률이 null 이면 null
+        "riskModel": _risk_model_out(result),
         "avoided": bool(result.get("avoided")),  # 말을 피한 턴인가 (11/12). 원문·이유는 싣지 않는다
         "ended": updated.ended,
         "endReason": updated.endReason,

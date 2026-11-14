@@ -19,6 +19,10 @@ RISK_THRESHOLD = 0.5  # 2026-11-09 측정. 검증 세트 B(개발에 안 쓴 새
 # system = 프롬프트, user = "대답:\n" + 말, 모델 답 앞에 '{"risk": "' 를 이어 붙이고 '있음'·'없음' 첫 토큰 확률을 비교한다
 RISK_V9_PROMPT_VERSION = "risk-v9"
 RISK_V9_THRESHOLD = 0.99  # 평범한 안부 통화 강제 알림 100통 중 11 → 1 미만 (노션 "재희 버전에서 무엇을 바꿨나" 6번)
+# 11/15 위험 어댑터 r1 (v9 프롬프트로 학습). 확률 눈금이 기본 모델과 달라 기준도 따로 둔다.
+# DGX 시험40 자살 신호 14% → 86% · 몸 응급 67% → 100% · CareCall 헛경보 0.7% → 0.5% (시험셋은 학습·기준 고르기에 안 씀)
+RISK_LORA_THRESHOLD = 0.5
+RISK_ADAPTER = "risk"  # llm_client.RISK_ADAPTER 와 같은 이름 (순환 import 를 피해 따로 적는다)
 _PROMPT_V9 = Path(__file__).parent / "prompts" / f"{RISK_V9_PROMPT_VERSION}.txt"
 _PROMPT = Path(__file__).parent / "prompts" / f"{RISK_PROMPT_VERSION}.txt"
 PREFIX = '{"risk": "'  # 모델이 이 뒤에 '있' 또는 '없'을 쓰도록 미리 적어 둔다
@@ -39,14 +43,54 @@ def _warn_once(key: str, msg: str, *args) -> None:
         logger.warning(msg, *args)
 
 
-def risk_threshold() -> float:
-    """설정값이 있으면 그 값, 없으면 프롬프트에 맞춘 기준 (v9 0.99 · v4 0.5).
+def risk_adapter_active(llm) -> bool:
+    """v9 위험 확률을 위험 어댑터로 계산하는가. 모델을 올린 뒤 어댑터 목록은 바뀌지 않아 확률과 기준이 같은 경로를 쓴다."""
+    if llm is None or get_settings().companion_risk_prompt != "v9":
+        return False
+    has = getattr(llm, "has_adapter", None)
+    if has is None:
+        return False
+    try:
+        return bool(has(RISK_ADAPTER))
+    except Exception:  # noqa: BLE001 - 모델을 못 올리면 확률도 없다 (기본 경로로 본다)
+        return False
+
+
+def risk_model(llm) -> str:
+    """턴 응답 riskModel: 확률이 어느 눈금인지 (백엔드 누적 기준용). v9 · v9+<어댑터 폴더 이름> · v4"""
+    return risk_model_name(risk_adapter_active(llm))
+
+
+def _default_threshold(adapter: bool) -> float:
+    if get_settings().companion_risk_prompt != "v9":
+        return RISK_THRESHOLD
+    return RISK_LORA_THRESHOLD if adapter else RISK_V9_THRESHOLD
+
+
+def log_risk_path(adapter: bool) -> None:
+    """모델을 올린 뒤 한 번: 위험 판단이 어떤 경로·기준인지."""
+    logger.info("[COMPANION-RISK] path=%s threshold=%.2f", risk_model_name(adapter), _threshold_for(adapter))
+
+
+def risk_model_name(adapter: bool) -> str:
+    s = get_settings()
+    if s.companion_risk_prompt != "v9":
+        return "v4"
+    return "v9+" + Path(s.companion_risk_lora_subdir).name if adapter else "v9"
+
+
+def risk_threshold(llm=None) -> float:
+    """설정값이 있으면 그 값, 없으면 경로에 맞춘 기준 (v9 + 위험 어댑터 0.5 · v9 기본 모델 0.99 · v4 0.5).
 
     11/10 점검 M-3: 0 이하·1 이상·숫자가 아닌 값(nan·inf)은 위험 모델을 사실상 끄거나 모든 턴을 강제 알림으로 만든다.
     그런 값은 경고 후 기본 기준을 쓴다.
     """
+    return _threshold_for(risk_adapter_active(llm))
+
+
+def _threshold_for(adapter: bool) -> float:
     s = get_settings()
-    default = RISK_V9_THRESHOLD if s.companion_risk_prompt == "v9" else RISK_THRESHOLD
+    default = _default_threshold(adapter)
     t = s.companion_risk_threshold
     if t is None:
         return default
@@ -70,9 +114,10 @@ def _risk_probability_v9(llm, transcript: str) -> float | None:
     if probs_fn is None:
         return None
     try:
-        # 위험은 어댑터를 끈 기본 모델로 본다 (기분·대답 어댑터는 위험 판정에 학습되지 않았다)
+        # 위험 어댑터가 얹혀 있으면 그것으로, 없으면 어댑터를 끈 기본 모델로 본다 (기분·대답 어댑터는 위험 판정에 학습되지 않았다)
+        adapter = RISK_ADAPTER if risk_adapter_active(llm) else None
         probs = probs_fn(_PROMPT_V9.read_text(encoding="utf-8"), "대답:\n" + transcript, PREFIX, CANDIDATES,
-                         adapter=None, timeout=get_settings().companion_llm_timeout_sec)
+                         adapter=adapter, timeout=get_settings().companion_llm_timeout_sec)
     except Exception as exc:  # noqa: BLE001 - 위험 판정이 실패해도 대화를 막지 않는다
         logger.warning("[COMPANION-RISK] model probability unavailable (%s)", type(exc).__name__)  # 원문·메시지 없이
         return None
@@ -97,8 +142,9 @@ def risk_probability(llm, transcript: str) -> float | None:
     return _finite(probs.get("있"))
 
 
-def is_risk(probability: float | None) -> bool:
-    return probability is not None and probability >= risk_threshold()
+def is_risk(probability: float | None, llm=None) -> bool:
+    """llm 을 주면 그 모델의 경로(위험 어댑터 유무)에 맞춘 기준으로 본다."""
+    return probability is not None and probability >= risk_threshold(llm)
 
 
 # 백엔드 결정 E (2026-11-03): 응급·자해 낱말은 모델과 따로, 규칙으로 먼저 잡는다. 모델이 꺼져 있어도 알림이 나간다.
