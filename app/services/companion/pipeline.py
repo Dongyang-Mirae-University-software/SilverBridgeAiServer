@@ -29,7 +29,7 @@ from app.services.companion.reply_service import (
     no_response_reply,
     timeout_reply,
 )
-from app.services.companion.risk import is_risk, keyword_risk, risk_probability
+from app.services.companion.risk import is_risk, keyword_risk, risk_model, risk_probability
 from app.services.companion.signals import extract_signals
 from app.services.companion.transcript_check import check_transcript, confirm_reply
 from app.services.companion.text_emotion_service import TextEmotionResult, TextEmotionUnavailable
@@ -202,7 +202,7 @@ def _low_confidence_turn(transcript: str, llm: LlmClient) -> dict:
         risk_prob = call_with_timeout(risk_probability, get_settings().companion_turn_cap_sec, llm, transcript)
     except TimeoutError:
         risk_prob = None
-    risk_flag = keyword_risk(transcript) or is_risk(risk_prob)
+    risk_flag = keyword_risk(transcript) or is_risk(risk_prob, llm)
     return {
         "turnResult": {"label": UNDECIDED, "source": "TEXT"},
         "reply": {"text": safety_reply(transcript) if risk_flag else LOW_CONFIDENCE_REPLY, "isFollowUp": True},
@@ -212,6 +212,7 @@ def _low_confidence_turn(transcript: str, llm: LlmClient) -> dict:
         "needsCheck": True,
         "riskFlag": risk_flag,
         "riskProbability": risk_prob,  # 모델 위험 확률 (계산 못 했으면 None) - 턴 응답용, 저장·로그 없음
+        "riskModel": risk_model(llm) if risk_prob is not None else None,  # 확률 눈금 (11/15)
         # 확신도가 낮아 되물은 턴 (연속 종료 횟수용, 응답에는 싣지 않는다). 위험 턴은 안전 안내가 우선이라 세지 않는다
         "lowConfidence": not risk_flag,
     }
@@ -226,7 +227,7 @@ def _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_s
         if get_settings().companion_confirm_risk_model:
             # 11/10 점검 H-3: 확인 턴에서도 위험 모델을 돌리고, 위험이면 되묻는 대신 안전 안내로 답한다 (확신도 낮은 턴과 같은 규칙)
             risk_prob = _risk_prob_capped(llm, transcript)
-            risk_flag = keyword_risk(transcript) or is_risk(risk_prob)
+            risk_flag = keyword_risk(transcript) or is_risk(risk_prob, llm)
             reply_text, source = (safety_reply(transcript), "SAFETY") if risk_flag else (confirm_reply(check), "CONFIRM")
         else:
             risk_flag, reply_text, source = keyword_risk(transcript), confirm_reply(check), "CONFIRM"  # 낱말 규칙만 (#206)
@@ -240,6 +241,7 @@ def _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_s
             "needsCheck": True,
             "riskFlag": risk_flag,
             "riskProbability": risk_prob,
+            "riskModel": risk_model(llm) if risk_prob is not None else None,
         }
     return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
                           past_replies)
@@ -300,7 +302,7 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
     finally:
         pool.shutdown(wait=False)  # 늦게 끝나는 작업은 백그라운드에서 끝나고, 결과는 버린다
     # 위험 판정 = 낱말 규칙 또는 모델 확률 (모델이 꺼져 있어도 낱말 규칙으로 알린다)
-    model_flag = is_risk(risk_prob) if risk_prob is not None else bool((signals or {}).get("riskFlag"))
+    model_flag = is_risk(risk_prob, llm) if risk_prob is not None else bool((signals or {}).get("riskFlag"))
     risk_flag = keyword_risk(transcript) or model_flag
     if turn_result is None:  # risk_first 가 꺼져 있으면 여기서 글 기분을 만든다 (대체 문장 고르기에 쓴다)
         turn_result = analyze_turn_result(transcript, face, classify_text, text_out=text_mood)
@@ -325,6 +327,7 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
         "riskFlag": risk_flag,  # 대화 한 번의 위험 여부 (낱말 규칙 또는 모델. 신호 추출이 실패해도 판정한다)
         # 모델 위험 확률만 (낱말 규칙·signals 대체 판정은 섞지 않는다). 계산 못 했거나 시간 초과면 None. 저장·로그 없음
         "riskProbability": risk_prob,
+        "riskModel": risk_model(llm) if risk_prob is not None else None,  # 확률 눈금: v9 · v9+lora-risk-r1 (11/15)
         # 말을 피한 턴인가 (11/12). 위험 턴이면 안전 안내가 나가도 감지 여부는 그대로 남긴다. 원문은 싣지 않는다
         "avoided": avoided,
     }

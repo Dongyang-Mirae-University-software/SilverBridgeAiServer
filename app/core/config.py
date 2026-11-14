@@ -453,7 +453,7 @@ class Settings(BaseModel):
     companion_llm_quant: str = os.getenv("COMPANION_LLM_QUANT", "int8").strip().lower()
     # 위험 판정 프롬프트: v9(노인 자살 경고 신호, 11/10 기본) | v4(재희)
     companion_risk_prompt: str = _as_choice("COMPANION_RISK_PROMPT", "v9", ("v9", "v4"))
-    # 위험 판정 기준 (위험 '있' 확률). 비우면 프롬프트에 맞춘다: v9 = 0.99 (평범한 안부 통화 강제 알림 11% → 1% 미만) · v4 = 0.5 (재희 11/09 측정)
+    # 위험 판정 기준 (위험 '있' 확률). 비우면 경로에 맞춘다: v9 + 위험 어댑터 = 0.5 (11/15) · v9 기본 모델 = 0.99 (평범한 안부 통화 강제 알림 11% → 1% 미만) · v4 = 0.5 (재희 11/09 측정)
     companion_risk_threshold: float | None = _opt_float("COMPANION_RISK_THRESHOLD")
     # 위험 낱말 규칙: kw4('자살'·'자해'는 앞이 한글이면 제외 - '혼자 살다', 관용 '아파 죽겠' 제외, 11/10 기본) | jaehee(띄어쓰기만 지우고 찾음)
     companion_risk_keyword_rule: str = _as_choice("COMPANION_RISK_KEYWORD_RULE", "kw4", ("kw4", "jaehee"))
@@ -461,6 +461,9 @@ class Settings(BaseModel):
     companion_mood_lora_subdir: str = os.getenv("COMPANION_MOOD_LORA_SUBDIR", "companion/llm/lora-mood-e900")
     # 대답 어댑터 기본값 cc7 (11/13, 11/12 DGX 비교에서 cc5 대신 채택). cc5로 되돌리려면 COMPANION_REPLY_LORA_SUBDIR=companion/llm/lora-reply-cc5
     companion_reply_lora_subdir: str = os.getenv("COMPANION_REPLY_LORA_SUBDIR", "companion/llm/lora-reply-cc7")
+    # 위험 판단 어댑터 (11/15, DGX r1: risk-v9 프롬프트로 학습). 얹히면 v9 위험 확률을 이 어댑터로 계산하고 기준은 0.5.
+    # 폴더가 없거나 못 올리면 전처럼 기본 모델 + 0.99. 빈 값이면 끈다 (COMPANION_RISK_LORA_SUBDIR=)
+    companion_risk_lora_subdir: str = os.getenv("COMPANION_RISK_LORA_SUBDIR", "companion/llm/lora-risk-r1").strip()
     # 공감 대답(꼬리질문 턴) 생성을 대답 어댑터로: true(11/10 기본) | false(재희: 기본 모델). 프롬프트·규칙 검사는 같다
     companion_reply_lora: bool = _as_bool("COMPANION_REPLY_LORA", True)
     # 한 줄 요약 앞의 "요약:"·"기록:" 머리말을 지운다 (false 면 재희 그대로)

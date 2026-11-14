@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 # LoRA 어댑터 이름 (11/10). None = 어댑터를 끈 기본 모델 (위험·신호·요약·마지막 인사)
 MOOD_ADAPTER = "mood"
 REPLY_ADAPTER = "reply"
+RISK_ADAPTER = "risk"  # 11/15 위험 판단 r1 (v9 프롬프트 전용)
 
 
 class LlmUnavailable(Exception):
@@ -207,7 +208,10 @@ class ExaoneLlm:
     def adapter_dirs(self) -> dict[str, Path]:
         s = get_settings()
         base = Path(s.model_base_path)
-        return {MOOD_ADAPTER: base / s.companion_mood_lora_subdir, REPLY_ADAPTER: base / s.companion_reply_lora_subdir}
+        dirs = {MOOD_ADAPTER: base / s.companion_mood_lora_subdir, REPLY_ADAPTER: base / s.companion_reply_lora_subdir}
+        if s.companion_risk_lora_subdir:  # 빈 값이면 위험 어댑터를 올리지 않는다 (v9 기본 모델 + 0.99)
+            dirs[RISK_ADAPTER] = base / s.companion_risk_lora_subdir
+        return dirs
 
     def _attach_adapters(self, model):
         """있는 어댑터만 얹는다. 하나도 없으면 기본 모델 그대로 (재희 동작).
@@ -293,6 +297,9 @@ class ExaoneLlm:
                 model.eval()
                 model = self._attach_adapters(model)
                 self._tokenizer, self._model = tokenizer, model
+                from app.services.companion.risk import log_risk_path  # 순환 import 를 피해 여기서
+
+                log_risk_path(RISK_ADAPTER in self._adapters)
             except Exception as exc:
                 self._load_error = f"LLM 을 불러오지 못했습니다 ({type(exc).__name__})"
                 raise LlmUnavailable(self._load_error, code="LOAD") from exc

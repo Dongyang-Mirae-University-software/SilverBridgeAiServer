@@ -41,13 +41,14 @@
   "face": { "label": "Happiness", "confidence": 0.8, "frameCount": 3, "usable": true },
   "signals": { "emotion": "positive", "activityMotivation": "mid", "socialContact": "unknown", "physicalCondition": "unknown", "futureOrientation": "unknown", "responseEvasion": false, "riskFlag": false },
   "textMood": { "label": "기쁨", "turnLabel": "기쁨", "confidence": 0.9, "usable": true, "reason": null },
-  "riskFlag": false, "riskProbability": 0.0123,
+  "riskFlag": false, "riskProbability": 0.0123, "riskModel": "v9+lora-risk-r1",
   "ended": false, "endReason": null
 }
 ```
 
 - `riskFlag`: 이 턴의 위험 여부. 낱말 규칙(kw4) 또는 모델 확률이 기준(v9 0.99) 이상이면 `true`. `signals`가 `null`이어도 항상 채운다.
 - `riskProbability` (2026-11-11): v9 위험 모델의 '있' 확률(0~1, 소수 4자리). 백엔드가 날짜별 최댓값을 모아 여러 날 위험을 판단하는 데 쓴다. 다음이면 `null`: 무응답 턴, 단어 확인 턴에서 위험 모델을 끈 경우(`COMPANION_CONFIRM_RISK_MODEL=false`), 계산 실패·시간 초과, 위험 프롬프트가 v9가 아닌 경우(`COMPANION_RISK_PROMPT=v4` - 척도가 다르다). 낱말 규칙·`signals.riskFlag` 대체 판정은 확률이 아니므로 섞지 않는다(낱말 규칙으로 `riskFlag=true`여도 이 값은 모델 확률 그대로). AI 서버는 저장·로그에 남기지 않는다.
+- `riskModel` (2026-11-15): 위 `riskProbability`의 눈금. `"v9"` = 기본 모델(즉시 위험 기준 0.99), `"v9+lora-risk-r1"` = 위험 판단 어댑터(즉시 위험 기준 0.5, `+` 뒤는 `COMPANION_RISK_LORA_SUBDIR`의 폴더 이름). `riskProbability`가 `null`이면 `null`. 두 눈금은 같은 숫자라도 뜻이 달라, 백엔드 여러 날 누적 기준(0.97, v9 눈금)을 어댑터 확률에 그대로 쓰면 0.97 이상인 턴은 이미 즉시 위험 알림이 나간 턴이라 누적 규칙이 사실상 쉬게 된다(DGX r1 7일 흉내 시험은 누적 기준 0.3으로 쟀다).
 - `textMood`: 글 기분 분류 결과(백엔드 시험 계정 화면용). 무응답·확인 턴은 `null`. 저장하지 않는다.
 
 - `reply/audio`는 `transcript`(받아 적은 글)도 응답에 넣는다. 글은 저장하지 않는다.
