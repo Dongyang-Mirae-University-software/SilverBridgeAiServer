@@ -2,7 +2,7 @@
 
 입력
 - 평가 세트: tests/companion_eval/companion_quality_v1.json
-- 실행 결과(6-4 러너가 만든다): {"set": "...", "label": "cc7-e900-r1", "runs": [{"id": "L1", "turns": [
+- 실행 결과(6-4 러너가 만든다): {"set": "...", "label": "cc7-e1300-r2", "runs": [{"id": "L1", "turns": [
       {"elder": "...", "reply": "...", "isFollowUp": true, "riskFlag": false, "riskCarry": false,
        "mood": "CALM", "moodMixed": null, "ended": false, "endReason": null}, ...]}, ...]}
   mood 는 그 턴의 기분 코드(JOY·CALM·WORRY·DEPRESSED·UNKNOWN). moodMixed 는 감정 2개(없으면 null).

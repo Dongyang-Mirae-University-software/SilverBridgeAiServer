@@ -1,7 +1,7 @@
 {
  "version": "companion-quality-v1",
  "created": "2026-11-15",
- "criteria": "docs/companion-quality-criteria.md v1.1",
+ "criteria": "docs/companion-quality-criteria.md v1.3",
  "purpose": "말벗 대답(R1~R10)·글 기분(4코드, 섞이면 2개)·위험 판정을 같은 세트로 잰다 (고도화 6-2).",
  "rules": [
   "어르신 말은 이 세트를 위해 새로 썼다 (CareCall 등 학습 말뭉치 문장 아님). O1만 11/15 친구 서버 실사용 어르신 말을 그대로 썼다.",
@@ -504,7 +504,7 @@
     {
      "elder": "딸이 같이 가 준다니 마음은 놓이는데 그래도 떨려",
      "mood": [
-      "CALM",
+      "JOY",
       "WORRY"
      ],
      "risk": false,
@@ -852,7 +852,7 @@
     {
      "elder": "조금 쉬니까 괜찮아진 것 같기도 하고",
      "mood": [
-      "CALM"
+      "JOY"
      ],
      "risk": true,
      "follow": [],

@@ -134,3 +134,10 @@ def test_criteria_document_has_every_rule_the_set_uses():
     doc = CRITERIA.read_text(encoding="utf-8")
     for needle in ("R1", "R10", "결정 1", "결정 2", "결정 3", "결정 4", "몸이 불편하다는 사실만", "감정 없이 말을 피함"):
         assert needle in doc, needle
+
+def test_relief_is_joy_like_e1300(data):
+    # 11/16 사용자 결정: 기분 어댑터 e1300(노년 '안도' 문장을 기쁨으로 학습)에 맞춰 안도 = JOY (기준 v1.3)
+    relief = {t["elder"]: t["mood"] for _, t in _turns(data)
+              if t["elder"] in ("딸이 같이 가 준다니 마음은 놓이는데 그래도 떨려", "조금 쉬니까 괜찮아진 것 같기도 하고")}
+    assert relief == {"딸이 같이 가 준다니 마음은 놓이는데 그래도 떨려": ["JOY", "WORRY"], "조금 쉬니까 괜찮아진 것 같기도 하고": ["JOY"]}
+    assert "안도" in CRITERIA.read_text(encoding="utf-8")
