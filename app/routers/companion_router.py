@@ -342,7 +342,7 @@ def _risk_probability_out(p) -> float | None:
 
 
 def _risk_model_out(result: dict) -> str | None:
-    """riskProbability 를 내보낼 때만 그 눈금 (v9 · v9+lora-risk-r1). 확률이 null 이면 null."""
+    """riskProbability 를 내보낼 때만 그 눈금 (v9 · v9+lora-risk-r2). 확률이 null 이면 null."""
     if _risk_probability_out(result.get("riskProbability")) is None:
         return None
     return result.get("riskModel")
