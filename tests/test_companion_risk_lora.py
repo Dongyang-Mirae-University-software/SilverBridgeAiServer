@@ -31,7 +31,7 @@ def settings(monkeypatch):
     s = get_settings()
     monkeypatch.setattr(s, "companion_risk_prompt", "v9")
     monkeypatch.setattr(s, "companion_risk_threshold", None)
-    monkeypatch.setattr(s, "companion_risk_lora_subdir", "companion/llm/lora-risk-r1")
+    monkeypatch.setattr(s, "companion_risk_lora_subdir", "companion/llm/lora-risk-r2")
 
     def set_(**kw):
         for k, v in kw.items():
@@ -70,7 +70,7 @@ def test_with_risk_adapter_uses_it_and_threshold_half(settings):
     assert llm.calls == [RISK_ADAPTER]
     assert risk_threshold(llm) == 0.5
     assert is_risk(0.6, llm) is True and is_risk(0.49, llm) is False
-    assert risk_model(llm) == "v9+lora-risk-r1"
+    assert risk_model(llm) == "v9+lora-risk-r2"
 
 
 def test_without_risk_adapter_falls_back_to_base_and_099(settings):
@@ -114,7 +114,7 @@ def test_start_log_line(settings, caplog):
         log_risk_path(True)
         log_risk_path(False)
     lines = [r.getMessage() for r in caplog.records]
-    assert "[COMPANION-RISK] path=v9+lora-risk-r1 threshold=0.50" in lines
+    assert "[COMPANION-RISK] path=v9+lora-risk-r2 threshold=0.50" in lines
     assert "[COMPANION-RISK] path=v9 threshold=0.99" in lines
 
 
@@ -129,7 +129,7 @@ def test_pipeline_flags_at_half_with_adapter(settings, risk_first):
     settings(companion_risk_first=risk_first)
     r = _turn(_Llm(0.7, adapters={RISK_ADAPTER}))
     assert r["riskFlag"] is True and r["replySource"] == "SAFETY"
-    assert r["riskProbability"] == 0.7 and r["riskModel"] == "v9+lora-risk-r1"
+    assert r["riskProbability"] == 0.7 and r["riskModel"] == "v9+lora-risk-r2"
 
 
 @pytest.mark.parametrize("risk_first", [True, False])
@@ -143,11 +143,11 @@ def test_low_confidence_turn_uses_adapter_threshold(settings):
     settings(companion_confirm_mode="logprob")
     r = pipeline.run_turn("음 그게 뭐더라", {}, CLASSIFY, _Llm(0.7, adapters={RISK_ADAPTER}), "q", None, False, 1,
                           stt_logprob=-9.0)
-    assert r["riskFlag"] is True and r["riskModel"] == "v9+lora-risk-r1"
+    assert r["riskFlag"] is True and r["riskModel"] == "v9+lora-risk-r2"
 
 
 def test_risk_model_out_only_with_probability(settings):
-    assert _risk_model_out({"riskProbability": 0.7, "riskModel": "v9+lora-risk-r1"}) == "v9+lora-risk-r1"
+    assert _risk_model_out({"riskProbability": 0.7, "riskModel": "v9+lora-risk-r2"}) == "v9+lora-risk-r2"
     assert _risk_model_out({"riskProbability": None, "riskModel": "v9"}) is None
     settings(companion_risk_prompt="v4")
     assert _risk_model_out({"riskProbability": 0.7, "riskModel": "v4"}) is None  # v4 확률은 내보내지 않는다
@@ -158,8 +158,23 @@ def test_risk_model_out_only_with_probability(settings):
 def test_adapter_dirs_include_risk_by_default(settings, tmp_path):
     settings(model_base_path=str(tmp_path))
     dirs = ExaoneLlm().adapter_dirs()
-    assert dirs[RISK_ADAPTER] == tmp_path / "companion/llm/lora-risk-r1"
+    assert dirs[RISK_ADAPTER] == tmp_path / "companion/llm/lora-risk-r2"
     assert {MOOD_ADAPTER, REPLY_ADAPTER} <= set(dirs)
+
+
+@pytest.mark.parametrize("field, env, expected", [
+    ("companion_risk_lora_subdir", "COMPANION_RISK_LORA_SUBDIR", "companion/llm/lora-risk-r2"),
+    ("companion_mood_lora_subdir", "COMPANION_MOOD_LORA_SUBDIR", "companion/llm/lora-mood-e1300"),
+    ("companion_reply_lora_subdir", "COMPANION_REPLY_LORA_SUBDIR", "companion/llm/lora-reply-cc7"),
+])
+def test_code_default_adapter_dirs(field, env, expected):
+    """11/15: 위험 r2 · 기분 e1300 · 대답 cc7 (기본값은 불러올 때 정해져, 환경변수가 있으면 건너뛴다)."""
+    import os
+
+    from app.core.config import Settings
+    if os.getenv(env) is not None:
+        pytest.skip(f"{env} 가 설정돼 있다")
+    assert Settings.model_fields[field].default == expected
 
 
 def test_empty_subdir_turns_risk_adapter_off(settings, tmp_path):
