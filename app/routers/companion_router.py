@@ -24,7 +24,7 @@ from app.services.companion.face_service import FaceResult, FaceUnavailable, fac
 from app.services.companion.llm_client import llm_client
 from app.services.companion.multipart_memory import read_file_part, read_file_parts
 from app.services.companion import reply_service
-from app.services.companion.reply_service import REPLY_PROMPT_VERSION
+from app.services.companion.reply_service import reply_prompt_version
 from app.services.companion.review_store import STATUSES, review_store
 from app.services.companion.stt_engine import get_stt_api_transcriber, transcribe_turn_audio
 from app.services.companion.audio_decode import TARGET_RATE, decode_to_pcm16k
@@ -105,6 +105,25 @@ class ReviewDecision(BaseModel):
     decision: Literal["approved", "rejected"]
 
 
+def _reply_history(d: Dialogue) -> tuple[tuple[str, str | None], ...]:
+    """이번 턴 앞까지의 대화 흐름 ((말벗 문장, 어르신 말), ...) 오래된 것부터 (11/15, COMPANION_REPLY_HISTORY).
+
+    d.replies = [여는 질문, 1턴 뒤 말벗 문장, ...] 이고 d.turns[i] 는 d.replies[i] 에 대한 어르신 턴이다.
+    어르신 말은 턴의 한 줄 요약만 쓴다 (대답 원문은 AI가 보관하지 않는다). 무응답·되묻기·요약 실패는 정해진 표시로 둔다.
+    길이가 어긋나면 짧은 쪽에 맞춘다.
+    """
+    pairs = []
+    for bot, turn in zip(d.replies, d.turns):
+        if turn.source == "NO_RESPONSE":
+            elder = reply_service.HISTORY_NO_ANSWER
+        elif turn.needsCheck:
+            elder = reply_service.HISTORY_UNCLEAR
+        else:
+            elder = turn.summary  # None 이면 프롬프트에서 "(요약 없음)"
+        pairs.append((bot, elder))
+    return tuple(pairs)
+
+
 def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_logprob: float | None = None,
               input_kind: str = "voice") -> dict:
     """턴 하나를 처리하고, 직전 신호와 검수 목록을 갱신한다. 답이 비었으면 무응답 턴이다 (S7-8)."""
@@ -126,6 +145,7 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
             stt_logprob=stt_logprob,
             past_replies=tuple(d.replies),
             input_kind=input_kind,  # 11/13: 글 대답은 되묻지 않는다 (받아쓰기가 없다)
+            history=_reply_history(d),  # 11/15: 대화 흐름 (말벗 문장 + 어르신 말 한 줄 요약). off 면 프롬프트에 안 들어감
         )
         if result["signals"] is not None:  # 신호가 없는 턴(무응답·다시 확인)은 직전 신호를 그대로 둔다
             store.set_last_signals(d.dialogueId, result["signals"])
@@ -232,7 +252,7 @@ def _queue_for_review(d: Dialogue, result: dict) -> None:
     위험 = 최상위 riskFlag 또는 signals.riskFlag. 다시 확인 턴과 신호 추출이 시간을 넘긴 턴은 signals 가 null 이고
     위험을 최상위에만 싣는다 - signals 만 보면 그 턴의 위험 표시가 빠진다 (백엔드 턴 처리와 같은 규칙).
     """
-    version = REPLY_PROMPT_VERSION if result["replySource"] == "LLM" else reply_service.FALLBACK_VERSION
+    version = reply_prompt_version() if result["replySource"] == "LLM" else reply_service.FALLBACK_VERSION
     signals = result.get("signals") or {}
     risk = bool(result.get("riskFlag")) or bool(signals.get("riskFlag"))
     review_store.add(d.dialogueId, d.turnNo + 1, result["reply"]["text"], version, risk=risk, ward_id=d.wardId)

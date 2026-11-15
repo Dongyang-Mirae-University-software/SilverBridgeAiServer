@@ -13,6 +13,18 @@ from app.services.companion.risk import body_emergency_only
 logger = logging.getLogger(__name__)
 
 REPLY_PROMPT_VERSION = "reply-v2"  # 응답 프롬프트 파일을 고치면 올린다 (v2: 대답 속 낱말을 이어 가는 꼬리질문)
+# 11/15: 대화 흐름(말벗 문장 + 어르신 말 한 줄 요약)을 넣은 프롬프트 (COMPANION_REPLY_HISTORY=summary).
+#   꼬리질문 reply-v3-followup · 마지막 인사 reply-v2-last(직전 질문도 넣는다). off 면 위 reply-v2 그대로
+REPLY_HISTORY_PROMPT_VERSION = "reply-v3"
+HISTORY_EMPTY = "(아직 없음 - 첫 대답입니다)"
+HISTORY_NO_ANSWER = "(대답 없음)"
+HISTORY_NO_SUMMARY = "(요약 없음)"
+HISTORY_UNCLEAR = "(잘 알아듣지 못한 말)"
+
+
+def reply_prompt_version() -> str:
+    """지금 설정에서 쓰는 대답 프롬프트 버전 (검수 목록·대화 결과의 promptVersion)."""
+    return REPLY_HISTORY_PROMPT_VERSION if get_settings().companion_reply_history == "summary" else REPLY_PROMPT_VERSION
 # 대답과 관계없는 문장을 거를 때 기준으로 삼지 않는 흔한 낱말의 앞 두 글자 (조사가 붙은 말도 걸리도록 앞 글자로 본다)
 COMMON_STEMS = {"그냥", "오늘", "어제", "요즘", "정말", "너무", "조금", "많이", "그래", "있어", "없어",
                 "했어", "같아", "좋아", "괜찮", "아니", "그럼", "이제", "다시"}
@@ -190,11 +202,35 @@ def _signal_line(prev_signals: dict | None) -> str:
     return "직전 턴 신호: " + ", ".join(f"{k}={v}" for k, v in prev_signals.items())
 
 
-def build_reply_prompt(question: str, transcript: str, prev_signals: dict | None, is_last_turn: bool) -> str:
-    name = "reply-v1-last.txt" if is_last_turn else "reply-v2-followup.txt"
+def history_lines(history, max_pairs: int) -> str:
+    """대화 흐름을 프롬프트 줄로. history = ((말벗 문장, 어르신 말 요약 또는 None), ...) 오래된 것부터.
+
+    최근 max_pairs 쌍만 넣는다 (0 이하면 전부). 어르신 말은 한 줄 요약이다 - 대답 원문은 AI가 보관하지 않는다.
+    """
+    pairs = list(history or ())
+    if max_pairs > 0:
+        pairs = pairs[-max_pairs:]
+    if not pairs:
+        return HISTORY_EMPTY
+    out = []
+    for bot, elder in pairs:
+        out.append(f"- 말벗: {' '.join((bot or '').split())}")
+        out.append(f"- 어르신: {' '.join((elder or HISTORY_NO_SUMMARY).split())}")
+    return "\n".join(out)
+
+
+def build_reply_prompt(question: str, transcript: str, prev_signals: dict | None, is_last_turn: bool,
+                       history=()) -> str:
+    """대답 프롬프트. COMPANION_REPLY_HISTORY=summary 면 대화 흐름을 넣은 v3(꼬리질문)·v2-last(마지막 인사)를 쓴다."""
+    s = get_settings()
+    if s.companion_reply_history == "summary":
+        name = "reply-v2-last.txt" if is_last_turn else "reply-v3-followup.txt"
+    else:
+        name = "reply-v1-last.txt" if is_last_turn else "reply-v2-followup.txt"
     template = (_PROMPT_DIR / name).read_text(encoding="utf-8")
     return (template
             .replace("{{PREV_SIGNALS}}", _signal_line(prev_signals))
+            .replace("{{HISTORY}}", history_lines(history, s.companion_reply_history_turns))
             .replace("{{QUESTION}}", question)
             .replace("{{TRANSCRIPT}}", transcript))
 
@@ -319,6 +355,7 @@ def generate_reply(
     turn_no: int,
     text_mood: dict | None = None,
     past_replies=(),
+    history=(),
 ) -> ReplyResult:
     """응답 문장을 만든다. (S6-3, D20)
 
@@ -327,9 +364,10 @@ def generate_reply(
     text_mood 는 규칙 검사에 넘긴다 (평온·기쁨 턴 완화, 11/12). 없으면 전 규칙.
     past_replies: 이 대화에서 말벗이 이미 한 문장 (11/13). 규칙을 통과한 대답이 그 가운데 하나와 매우 비슷하면
     COMPANION_REPLY_REDO_TEMPERATURE 로 한 번 다시 만들고, 그래도 비슷하거나 규칙에 걸리면 대체 문장을 쓴다 (실패 이름 "반복").
+    history: 이번 턴 앞까지의 대화 흐름 (11/15). COMPANION_REPLY_HISTORY=summary 일 때만 프롬프트에 들어간다.
     """
     s = get_settings()
-    prompt = build_reply_prompt(question, transcript, prev_signals, is_last_turn)
+    prompt = build_reply_prompt(question, transcript, prev_signals, is_last_turn, history)
     failures: list[str] = []
     redone = False
     llm_code = "-"  # LLM 실패 원인 코드 (TIMEOUT·ERROR·LOAD·ADAPTER, 11/14 점검 L-3). 메시지는 남기지 않는다
