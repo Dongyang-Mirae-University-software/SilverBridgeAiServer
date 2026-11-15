@@ -514,6 +514,8 @@ class Settings(BaseModel):
     companion_avoid_end_count: int = _as_int("COMPANION_AVOID_END_COUNT", 2)
     # 몸 응급 낱말(숨·가슴·쓰러짐·뇌졸중 징후)만 걸린 위험 턴은 몸 응급용 안내 문장으로 답한다 (11/12). 끄면 전과 같다
     companion_body_safety_reply: bool = _as_bool("COMPANION_BODY_SAFETY_REPLY", True)
+    # 위험 이어짐 (11/15): 직전 턴이 위험이고 이번 말이 넘기는 말("괜찮겠지", "해 본 소리야")이면 위험·안전 안내를 이어 간다
+    companion_risk_carry: bool = _as_bool("COMPANION_RISK_CARRY", True)
     # 단어 확인(되묻기) 턴에서도 위험 모델을 돌리고, 위험이면 안전 안내 문장으로 답한다 (H-3). 끄면 낱말 규칙만
     companion_confirm_risk_model: bool = _as_bool("COMPANION_CONFIRM_RISK_MODEL", True)
     # 말벗 생성(신호·요약·대답) 동시 실행 상한. 0이면 상한 없음. 위험·기분 확률 계산은 상한 밖 (H-5, GPU 자원)

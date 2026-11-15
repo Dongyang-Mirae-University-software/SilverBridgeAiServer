@@ -8,7 +8,8 @@ from pathlib import Path
 
 from app.core.config import get_settings
 from app.services.companion.llm_client import REPLY_ADAPTER, LlmClient, LlmUnavailable
-from app.services.companion.risk import body_emergency_only
+from app.services.companion import risk_carry
+from app.services.companion.risk import body_emergency_only, keyword_risk
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,13 @@ BODY_SAFETY_REPLY = (
 
 def safety_reply(transcript: str) -> str:
     """위험 턴의 안내 문장. 몸 응급 낱말만 걸렸으면 몸 응급용, 아니면 기존 안내 (스위치를 끄면 늘 기존 안내)."""
-    if get_settings().companion_body_safety_reply and body_emergency_only(transcript):
+    if not get_settings().companion_body_safety_reply:
+        return SAFETY_REPLY
+    if body_emergency_only(transcript):
+        return BODY_SAFETY_REPLY
+    # 11/15 I-21: 위험 낱말이 하나도 없이 모델로만 위험인데 몸 증상이 보이면("가슴이 꽉 조이고 숨이 차", "오른팔에 힘이 없어")
+    #   몸 응급 안내. 다른 위험 낱말(자해·죽음)이 있거나 마음 쪽 표시가 있으면 지금처럼 마음 쪽 안내. 판정은 바꾸지 않는다
+    if not keyword_risk(transcript) and risk_carry.is_body_risk(transcript):
         return BODY_SAFETY_REPLY
     return SAFETY_REPLY
 

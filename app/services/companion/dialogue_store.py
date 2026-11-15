@@ -35,6 +35,8 @@ class Dialogue:
     endReason: str | None = None
     endedAt: str | None = None  # 대화가 끝난 시각 (UTC ISO 문자열)
     riskSeen: bool = False  # 이 대화 안에서 위험 플래그가 한 번이라도 켜졌는지
+    lastRisk: bool = False  # 직전(대답이 있던) 턴이 위험이었는지 - 위험 이어짐용 (11/15). 원문은 두지 않는다
+    lastRiskBody: bool = False  # 그 위험이 몸 응급 낱말만 걸린 것이었는지
     resultSent: bool = False  # 대화 결과를 백엔드로 보냈는지 (한 번만 보낸다)
     lastSignals: dict | None = None  # 직전 턴의 7개 신호. 다음 턴 응답 프롬프트에 쓴다 (S7-1)
     noResponseStreak: int = 0  # 연속 무응답 횟수 (D15). 무응답 턴이 아니면 0으로 돌아간다
