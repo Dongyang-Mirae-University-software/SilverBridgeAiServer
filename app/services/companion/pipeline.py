@@ -327,7 +327,7 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
         "riskFlag": risk_flag,  # 대화 한 번의 위험 여부 (낱말 규칙 또는 모델. 신호 추출이 실패해도 판정한다)
         # 모델 위험 확률만 (낱말 규칙·signals 대체 판정은 섞지 않는다). 계산 못 했거나 시간 초과면 None. 저장·로그 없음
         "riskProbability": risk_prob,
-        "riskModel": risk_model(llm) if risk_prob is not None else None,  # 확률 눈금: v9 · v9+lora-risk-r1 (11/15)
+        "riskModel": risk_model(llm) if risk_prob is not None else None,  # 확률 눈금: v9 · v9+lora-risk-r2 (11/15)
         # 말을 피한 턴인가 (11/12). 위험 턴이면 안전 안내가 나가도 감지 여부는 그대로 남긴다. 원문은 싣지 않는다
         "avoided": avoided,
     }

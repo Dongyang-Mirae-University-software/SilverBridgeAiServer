@@ -458,12 +458,15 @@ class Settings(BaseModel):
     # 위험 낱말 규칙: kw4('자살'·'자해'는 앞이 한글이면 제외 - '혼자 살다', 관용 '아파 죽겠' 제외, 11/10 기본) | jaehee(띄어쓰기만 지우고 찾음)
     companion_risk_keyword_rule: str = _as_choice("COMPANION_RISK_KEYWORD_RULE", "kw4", ("kw4", "jaehee"))
     # LoRA 어댑터 (MODEL_BASE_PATH 아래). 폴더가 없으면 그 단계만 기본 모델로 돌린다
-    companion_mood_lora_subdir: str = os.getenv("COMPANION_MOOD_LORA_SUBDIR", "companion/llm/lora-mood-e900")
+    # 기분 어댑터 기본값 e1300 (11/15, e1200 자료 + 노년 '안도' 문장을 편안 → 기쁨, 프롬프트·출력 형식은 e900 과 같음.
+    # DGX 3분류 macro F1 0.769 → 0.835). e900 으로 되돌리려면 COMPANION_MOOD_LORA_SUBDIR=companion/llm/lora-mood-e900
+    companion_mood_lora_subdir: str = os.getenv("COMPANION_MOOD_LORA_SUBDIR", "companion/llm/lora-mood-e1300")
     # 대답 어댑터 기본값 cc7 (11/13, 11/12 DGX 비교에서 cc5 대신 채택). cc5로 되돌리려면 COMPANION_REPLY_LORA_SUBDIR=companion/llm/lora-reply-cc5
     companion_reply_lora_subdir: str = os.getenv("COMPANION_REPLY_LORA_SUBDIR", "companion/llm/lora-reply-cc7")
-    # 위험 판단 어댑터 (11/15, DGX r1: risk-v9 프롬프트로 학습). 얹히면 v9 위험 확률을 이 어댑터로 계산하고 기준은 0.5.
-    # 폴더가 없거나 못 올리면 전처럼 기본 모델 + 0.99. 빈 값이면 끈다 (COMPANION_RISK_LORA_SUBDIR=)
-    companion_risk_lora_subdir: str = os.getenv("COMPANION_RISK_LORA_SUBDIR", "companion/llm/lora-risk-r1").strip()
+    # 위험 판단 어댑터 (11/15, DGX r2: risk-v9 프롬프트로 학습, r1 대신 - 7일 흉내 안전 주 헛알림 30%·19% → 4%).
+    # 얹히면 v9 위험 확률을 이 어댑터로 계산하고 기준은 0.5. 폴더가 없거나 못 올리면 전처럼 기본 모델 + 0.99.
+    # r1 로 되돌리려면 COMPANION_RISK_LORA_SUBDIR=companion/llm/lora-risk-r1, 빈 값이면 끈다 (COMPANION_RISK_LORA_SUBDIR=)
+    companion_risk_lora_subdir: str = os.getenv("COMPANION_RISK_LORA_SUBDIR", "companion/llm/lora-risk-r2").strip()
     # 공감 대답(꼬리질문 턴) 생성을 대답 어댑터로: true(11/10 기본) | false(재희: 기본 모델). 프롬프트·규칙 검사는 같다
     companion_reply_lora: bool = _as_bool("COMPANION_REPLY_LORA", True)
     # 한 줄 요약 앞의 "요약:"·"기록:" 머리말을 지운다 (false 면 재희 그대로)
