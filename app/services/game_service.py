@@ -940,10 +940,15 @@ class GameService:
 
     /* 미로 찾기: 칸 위에 캐릭터(walker)를 따로 올려 칸 사이를 미끄러지듯 걷게 한다 */
     .maze-board { position: relative; display: grid; gap: 6px; padding: 10px; background: #e9e4da; border-radius: 22px; }
+    /* 칸 한 변(--maze-cell)은 fitMazeBoard 가 남은 높이·너비에 맞춰 정한다 */
     .maze-cell {
-      width: 56px; height: 56px; border-radius: 12px;
+      width: var(--maze-cell, 56px); height: var(--maze-cell, 56px); border-radius: 12px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 30px; background-size: cover; background-position: center;
+      font-size: calc(var(--maze-cell, 56px) * 0.54); background-size: cover; background-position: center;
+    }
+    /* 넓은 화면(태블릿 가로)은 방향 버튼을 미로 옆에 두어 미로 높이를 확보한다 */
+    @media (min-aspect-ratio: 5/4) and (min-width: 700px) {
+      .board.maze-layout { flex-direction: row; justify-content: center; gap: 40px; }
     }
     .maze-wall { background-color: #a8b0bb; }
     .maze-path { background-color: var(--surface); }
@@ -1048,8 +1053,18 @@ class GameService:
       .question { font-size: 44px; padding: 20px 12px; }
       .tile { width: 80px; height: 80px; font-size: 46px; }
       .option-btn { font-size: 28px; min-height: 80px; }
-      .maze-cell { width: 46px; height: 46px; font-size: 24px; }
-      .dir-btn { width: 84px; height: 76px; }
+      .dir-btn { width: 84px; height: 68px; }
+      .direction-pad { gap: 10px; }
+      /* 폰: 여백·위 막대·아래 버튼을 줄여 게임 칸(미로)과 방향 버튼(64px 이상)이 축소 없이 들어가게 */
+      .shell { gap: 8px; padding: 8px; }
+      .topbar { gap: 8px; padding: 10px 14px; }
+      .topbar-row { gap: 8px; }
+      .score { padding: 6px 12px; font-size: 18px; }
+      .sound-btn { min-height: 44px; font-size: 16px; }
+      .game-card { gap: 10px; padding: 12px; }
+      .prompt { font-size: 21px; }
+      .board { gap: 10px; }
+      .btn { min-height: 64px; font-size: 22px; }
     }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
   </style>
@@ -1259,6 +1274,7 @@ class GameService:
         updateMemory();
       } else if (type === 'maze') {
         const grid = payload.grid;
+        els.stageBody.classList.add('maze-layout');
         els.stageBody.innerHTML = `
           <div class="maze-board" style="grid-template-columns: repeat(${grid[0].length}, auto)">
             ${grid.map((row, y) => row.map((cell, x) => {
@@ -1288,6 +1304,7 @@ class GameService:
             `<button type="button" class="option-btn ${state.choice === String(i) ? 'selected' : ''}" data-idx="${i}">${opt}</button>`
           ).join('')}</div>`;
       }
+      if (type !== 'maze') els.stageBody.classList.remove('maze-layout');
       fitToViewport();
     }
 
@@ -1355,15 +1372,37 @@ class GameService:
       grid.style.setProperty('--card-size', `${cardSize}px`);
       grid.style.justifyContent = 'center';
     }
+    // 미로도 칸 크기를 남은 공간에 맞춘다. 전체 축소(zoom)로 방향 버튼까지 작아지지 않게(어르신 터치 64px 이상).
+    // 칸을 0으로 두고 잰 나머지 높이에서 칸 한 변을 구한다. 옆 배치면 방향 버튼 높이만큼은 미로가 그냥 차지할 수 있다.
+    function fitMazeBoard(shell) {
+      const board = document.querySelector('.maze-board');
+      const grid = state.stage?.payload?.grid;
+      if (!board || !grid) return;
+      const rows = grid.length;
+      const cols = grid[0].length;
+      board.style.setProperty('--maze-cell', '0px');
+      const usedHeight = shell.offsetHeight;
+      const boardHeight = board.offsetHeight;
+      const boardWidth = board.offsetWidth;
+      const pad = document.querySelector('.direction-pad');
+      const sideBySide = getComputedStyle(els.stageBody).flexDirection === 'row';
+      const bodyGap = parseFloat(getComputedStyle(els.stageBody).columnGap) || 0;
+      const availWidth = els.stageBody.clientWidth - (sideBySide && pad ? pad.offsetWidth + bodyGap : 0) - boardWidth;
+      const freeHeight = window.innerHeight - usedHeight + (sideBySide && pad ? Math.max(0, pad.offsetHeight - boardHeight) : 0);
+      const size = Math.min(availWidth / cols, freeHeight / rows, 72);
+      board.style.setProperty('--maze-cell', `${Math.max(22, Math.floor(size))}px`);
+    }
     function fitToViewport() {
       const shell = document.querySelector('.shell');
       document.body.style.zoom = '';
       shell.style.minHeight = '0';
       fitMemoryGrid(shell);
+      fitMazeBoard(shell);
       const contentHeight = shell.offsetHeight;
       const zoom = contentHeight > window.innerHeight ? window.innerHeight / contentHeight : 1;
       document.body.style.zoom = zoom;
       shell.style.minHeight = `${window.innerHeight / zoom}px`;
+      updateMaze(false);  // 칸 크기가 바뀌면 캐릭터 자리도 다시 맞춘다
     }
     window.addEventListener('resize', () => { fitToViewport(); updateMaze(false); });
 
