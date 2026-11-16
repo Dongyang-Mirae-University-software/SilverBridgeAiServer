@@ -458,9 +458,11 @@ class Settings(BaseModel):
     # 위험 낱말 규칙: kw4('자살'·'자해'는 앞이 한글이면 제외 - '혼자 살다', 관용 '아파 죽겠' 제외, 11/10 기본) | jaehee(띄어쓰기만 지우고 찾음)
     companion_risk_keyword_rule: str = _as_choice("COMPANION_RISK_KEYWORD_RULE", "kw4", ("kw4", "jaehee"))
     # LoRA 어댑터 (MODEL_BASE_PATH 아래). 폴더가 없으면 그 단계만 기본 모델로 돌린다
-    # 기분 어댑터 기본값 e1300 (11/15, e1200 자료 + 노년 '안도' 문장을 편안 → 기쁨, 프롬프트·출력 형식은 e900 과 같음.
-    # DGX 3분류 macro F1 0.769 → 0.835). e900 으로 되돌리려면 COMPANION_MOOD_LORA_SUBDIR=companion/llm/lora-mood-e900
-    companion_mood_lora_subdir: str = os.getenv("COMPANION_MOOD_LORA_SUBDIR", "companion/llm/lora-mood-e1300")
+    # 기분 어댑터 기본값 e1500 (11/16, e1300 자료 + 엇갈린 라벨 253개 재라벨 + 일상 부정 낱말 문장 281개(남의 일·일반론은 평온),
+    # 같은 설정·프롬프트·출력 형식). DGX 통일 기준 800문장 3분류 macro F1 82.4% → 84.5% (보정 없이, 시험 라벨은 Claude 가 붙인 것),
+    # 일상 부정 F1 54.1 → 64.0 · 평온을 부정으로 66 → 52개, 대신 평온을 기쁨으로 14 → 19개 (일상 기쁨 F1 48.6 → 39.0).
+    # e1300 으로 되돌리려면 COMPANION_MOOD_LORA_SUBDIR=companion/llm/lora-mood-e1300 (e1300·e900 폴더는 남겨 둠)
+    companion_mood_lora_subdir: str = os.getenv("COMPANION_MOOD_LORA_SUBDIR", "companion/llm/lora-mood-e1500")
     # 대답 어댑터 기본값 cc7 (11/13, 11/12 DGX 비교에서 cc5 대신 채택). cc5로 되돌리려면 COMPANION_REPLY_LORA_SUBDIR=companion/llm/lora-reply-cc5
     companion_reply_lora_subdir: str = os.getenv("COMPANION_REPLY_LORA_SUBDIR", "companion/llm/lora-reply-cc7")
     # 위험 판단 어댑터 (11/15, DGX r2: risk-v9 프롬프트로 학습, r1 대신 - 7일 흉내 안전 주 헛알림 30%·19% → 4%).

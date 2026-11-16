@@ -173,7 +173,7 @@ Written for: 팀원 전체 (BE·FE·관리자 화면·AI 담당). 노션 요구�
 | `COMPANION_KEEP_FIXED_REPLIES` | true | 되묻는 문장·안전 안내 문장은 같은 대화에서 반복돼도 다른 문장으로 바꾸지 않음. false면 재희 동작 |
 | `COMPANION_TURBO_MAX_NEW_TOKENS` | 224 | turbo 30초 조각 하나의 최대 토큰 수(한국어 음절당 약 0.83토큰) |
 | `COMPANION_TURBO_RETRY_SEC` | 60 | turbo 로드 실패 뒤 다시 시도할 때까지 초. 0이면 재시작 전까지 안 함 |
-| `COMPANION_TEXT_MOOD_ENGINE` | e900 | 글 기분: e900(EXAONE + 기분 LoRA, 4코드 JOY·CALM·WORRY·DEPRESSED, 11/10) · ggara02(재희 KcELECTRA). 어댑터 폴더 `COMPANION_MOOD_LORA_SUBDIR`=companion/llm/lora-mood-e1300 (11/15, 되돌리기 lora-mood-e900) |
+| `COMPANION_TEXT_MOOD_ENGINE` | e900 | 글 기분: e900(EXAONE + 기분 LoRA, 4코드 JOY·CALM·WORRY·DEPRESSED, 11/10) · ggara02(재희 KcELECTRA). 어댑터 폴더 `COMPANION_MOOD_LORA_SUBDIR`=companion/llm/lora-mood-e1500 (11/16, 800문장 macro F1 82.4→84.5%, 되돌리기 lora-mood-e1300) |
 | `COMPANION_MIN_TEXT_CHARS` | (비움) | 기분 판단에 쓰는 최소 글자 수. 비우면 e900 2자 · ggara02 10자 |
 | `COMPANION_FUSION_RULE` | prob_add | 말·표정 합치기: prob_add(글 4코드 확률 + 표정 코드 쪽으로 `COMPANION_FACE_WEIGHT`=0.2, 보류 없음) · plan41(재희: 방향 반대면 판단 보류) |
 | `COMPANION_FACE_HEAD` | head3 | 표정: head3(vgaf 특징 + 한국인 3분류 층, 부정은 `COMPANION_FACE_NEG_MIN`=0.8 이상만, 파일 `face-emotion/enet_b0_8_best_vgaf.onnx`·`head3_yunet.pt`) · hsemotion8(재희 afew). 파일이 없으면 hsemotion8 |
