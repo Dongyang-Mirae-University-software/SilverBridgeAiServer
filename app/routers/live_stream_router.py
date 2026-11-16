@@ -73,6 +73,31 @@ _FRAME_OPENAPI = {
 }
 
 
+def _error_example(message: str, error_code: str) -> dict:
+    return {"application/json": {"example": {"success": False, "message": message, "errorCode": error_code, "data": None}}}
+
+
+# 프레임 경로가 실제로 내는 오류를 openapi 에 적는다(최종 QA CAM-N59). 200·422 는 FastAPI 가 자동으로 넣는다.
+_FRAME_ERROR_RESPONSES = {
+    400: {
+        "description": "JPEG 가 아님(STREAM_FRAME_INVALID_TYPE) 또는 빈 프레임(STREAM_FRAME_EMPTY)",
+        "content": _error_example("JPEG 프레임만 허용됩니다.", "STREAM_FRAME_INVALID_TYPE"),
+    },
+    401: {
+        "description": "X-API-Key 없음 또는 틀림(AUTH_INVALID_KEY)",
+        "content": _error_example("유효하지 않은 API Key 입니다.", "AUTH_INVALID_KEY"),
+    },
+    404: {
+        "description": "없는 송출 세션(STREAM_SESSION_NOT_FOUND)",
+        "content": _error_example("스트림 세션을 찾을 수 없습니다.", "STREAM_SESSION_NOT_FOUND"),
+    },
+    413: {
+        "description": "프레임 크기 또는 해상도 상한 초과(STREAM_FRAME_TOO_LARGE)",
+        "content": _error_example("프레임이 너무 큽니다.", "STREAM_FRAME_TOO_LARGE"),
+    },
+}
+
+
 def _frame_too_large() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_413_CONTENT_TOO_LARGE,
@@ -126,7 +151,12 @@ def _check_jpeg_header(frame_bytes: bytes, max_side: int) -> None:
         raise _frame_too_large()
 
 
-@router.post("/api/v1/stream-sessions/{session_id}/frame", summary="iPad 프레임 수신", openapi_extra=_FRAME_OPENAPI)
+@router.post(
+    "/api/v1/stream-sessions/{session_id}/frame",
+    summary="iPad 프레임 수신",
+    openapi_extra=_FRAME_OPENAPI,
+    responses=_FRAME_ERROR_RESPONSES,
+)
 async def ingest_stream_frame(
     session_id: str,
     request: Request,
