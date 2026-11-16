@@ -102,6 +102,50 @@ def test_other_answers_are_not_detected(text):
     assert not is_avoidance(text), text
 
 
+# 11/16 돌려 말한 회피 - 새 패턴마다 한 문장 (avoidance.py 11/16 절)
+INDIRECT_AVOIDING = [
+    "애들한테도 말 안 했는데 뭘",
+    "말해서 뭐 해",
+    "뭐 하러 그런 얘기를 해",
+    "알아서 뭐 하게",
+    "하나 마나 한 얘기지",
+    "얘기해 봤자 달라질 게 없어",
+    "그 얘긴 됐고",
+    "그런 얘기 그만하자",
+    "딴 얘기 하자",
+    "얘기 꺼내기도 귀찮아",
+    "생각하기도 싫어",
+    "네가 알 거 없어",
+    "그걸 얘기 해서 뭐",
+    "다 지난 얘긴데 뭘",
+    "할 말은 아니야",
+    "그런 거 묻지 말고 노래나 틀어 줘",
+    "됐어 그런 얘기는",
+    "그런 말은 됐어",
+    "그건 말하기 좀 그래",
+    "신경 쓰지 말아",
+    "내 속은 나만 알아",
+]
+# 비슷하게 생겼지만 피하는 말이 아니다 - '안 했는데'·'뭐 하러'의 평범한 쓰임, 몸 증상, 털어놓는 말
+INDIRECT_NOT_AVOIDING = [
+    "별 얘기 안 했는데 다들 웃더라",
+    "뭐 하러 거기까지 갔나 몰라",
+    "숨이 차서 말을 못 하겠어",
+    "아직 아무한테도 말 안 했어, 너한테 처음 하는 거야",
+    "알 거 없잖아",  # 11/12 실기기 세션 203·212 - 짧은 대답(flat)으로 고정돼 있다
+]
+
+
+@pytest.mark.parametrize("text", INDIRECT_AVOIDING)
+def test_indirect_avoiding_answers_are_detected(text):
+    assert is_avoidance(text), text
+
+
+@pytest.mark.parametrize("text", INDIRECT_NOT_AVOIDING)
+def test_indirect_lookalikes_are_not_detected(text):
+    assert not is_avoidance(text), text
+
+
 @pytest.mark.parametrize("sentence", FALLBACK_AVOID)
 def test_avoid_sentences_pass_reply_rules(sentence):
     assert check_reply(sentence, is_last_turn=False) == [], sentence
