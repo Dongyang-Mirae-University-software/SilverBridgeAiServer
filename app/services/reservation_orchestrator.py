@@ -163,7 +163,8 @@ def _clear_stale_links(before: tuple[str | None, ...], draft: ReservationDraft, 
     cleared: list[str] = []
     # 진료과를 바꿨는데 병원이 그대로면 그 병원에 새 진료과가 없을 수 있다 - 고치기 흐름처럼 병원을 다시 찾는다(점검 M-1).
     # 병원은 정했는데 진료과가 비어 있다 처음 정해지는 경우(old_dept 없음)는 바뀐 것이 아니다.
-    if old_dept and new_dept != old_dept and new_hospital == old_hospital and draft.hospital_name:
+    # 진료과를 비우기만 한 경우([다른 과 고르기], #312 점검)도 바뀐 것이 아니다 - 병원을 남겨 그 병원의 진료과 목록을 낸다.
+    if old_dept and new_dept and new_dept != old_dept and new_hospital == old_hospital and draft.hospital_name:
         draft.hospital_name = None
         draft.hospital_id = None
         cleared.append("hospital")
@@ -199,6 +200,17 @@ def _with_ro(word: str) -> str:
 def _topic(word: str) -> str:
     """'내과는' / '병원은'."""
     return f"{word}{'은' if _final_consonant(word) else '는'}"
+
+
+# 확인 질문에 글로 답한 "네"(2026-11-17 #312 점검 M-1). 낱말 단위로만 본다 - 앞글자만 보면 "예약…"·"그래도…"·"응급…"이 '네'가 된다.
+_PLAIN_YES_RE = re.compile(r"^\s*(네|예|응|좋아요?|맞아요?|그래요?|그럼요)(?=$|[\s.,!~])")
+_NOT_YES_WORDS = ("말고", "아니", "다른", "싫", "바꿔", "바꾸")
+
+
+def _is_plain_yes(text: str | None) -> bool:
+    """'네 예약해 주세요'·'좋아요'는 참, '예약 말고 다른 과로'·'그래도 다른 과로'·'네 근데 다른 과로'는 거짓."""
+    value = text or ""
+    return bool(_PLAIN_YES_RE.match(value)) and not any(word in value for word in _NOT_YES_WORDS)
 
 
 def _gap_label(field: str) -> str:
@@ -872,7 +884,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
             draft.department_source = SOURCE_BUTTON
         elif (
             not fresh and draft.department_source == SOURCE_INFERRED and draft.department == prev[0]
-            and re.match(r"\s*(네|예|응|좋아|맞아|그래)", typed or "")
+            and _is_plain_yes(typed)
         ):
             # 확인 질문에 버튼 대신 글로 "네"라고 답한 경우(보호자 화면) - 같은 질문을 되풀이하지 않는다.
             draft.department_source = SOURCE_MESSAGE
@@ -927,7 +939,14 @@ class ReservationOrchestrator(ReservationFlowMixin):
             "engine": "claude",
             "modelName": self._loader.state.model_name,
             "type": "tool_result",
-            "ui": self._other_region_ui(req, draft.location),
+            # 지역을 모르면(이력 병원 카드) [다른 지역으로 찾기] 자리에 [다른 병원 찾기] - 버튼만 쓰는 화면에도 거절할 길을 둔다(#312 점검 L-1).
+            # 누르면 지역을 묻고, 지역을 고르면 그 지역에서 다시 찾는다(_apply_ui_selection location 이 병원을 비움).
+            "ui": self._other_region_ui(req, draft.location) or UiPayload(
+                kind="select",
+                field="location_confirm",
+                label="다른 병원을 찾으시려면 눌러 주세요",
+                options=[UiOption(value=OTHER_REGION_OPTION, label="다른 병원 찾기")],
+            ),
             "tool": "search_hospital",
             "data": rows,
             "summary": None,
@@ -1266,7 +1285,8 @@ class ReservationOrchestrator(ReservationFlowMixin):
         self._pin_ward_patient(req, draft)
         if draft.department and draft.department_source == SOURCE_INFERRED:
             return self._ask_department_confirm(meta, draft)
-        if draft.hospital_name and draft.hospital_id is None:
+        # 이전 대화에서만 나온 병원은 id 가 있어도(추출이 직접 준 값) 이름으로 다시 찾는다 - 카드의 이름·id 를 예약 서비스 값으로(#312 점검 L-2).
+        if draft.hospital_name and (draft.hospital_id is None or draft.hospital_source == SOURCE_INFERRED):
             draft.hospital_id, resolved_name = self._reservation.resolve_hospital(
                 draft.hospital_name,
                 api_key_override=reservation_api_key,

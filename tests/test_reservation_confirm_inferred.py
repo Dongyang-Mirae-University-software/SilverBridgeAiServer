@@ -16,6 +16,9 @@ from app.services.reservation_orchestrator import (
     _topic,
     _with_ro,
 )
+import pytest
+
+from app.services.reservation_orchestrator import _is_plain_yes
 from tests.reservation_flow_helpers import FakeReservation, make_orchestrator, make_request
 
 HISTORY_NAEGWA = [
@@ -31,14 +34,17 @@ def _stored(out: dict[str, Any] | None) -> dict[str, Any]:
 
 
 class _Session:
-    def __init__(self, fake: FakeReservation | None = None, extracted: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self, fake: FakeReservation | None = None, extracted: dict[str, Any] | None = None, ctx: dict[str, Any] | None = None
+    ) -> None:
         self.fake = fake or FakeReservation()
         self.orch = make_orchestrator(self.fake, extracted if extracted is not None else {})
         self.prev: dict[str, Any] | None = None
+        self.ctx = ctx
 
     def turn(self, message: str = "", ui: tuple[str, str] | None = None, history=None) -> dict[str, Any]:
         out = self.orch.handle(
-            make_request(message, ui=ui, history=history),
+            make_request(message, ui=ui, history=history, context=self.ctx),
             {"storedFlow": _stored(self.prev), "rawMessage": message},
         )
         assert out is not None
@@ -193,3 +199,115 @@ def test_typed_yes_to_department_confirm_proceeds() -> None:
     out = s.turn("네 예약해 주세요")
     assert _draft_trace(out)["department_source"] == SOURCE_MESSAGE
     assert out["tool"] == "search_hospital"
+
+
+# ---- 2026-11-17 #312 기능 점검 반영(M-1·L-1·L-2·L-3) ----
+
+WARD_CTX = {
+    "wardId": "ward-1", "wardName": "김영희", "wardPhone": "010-9999-0000", "name": "김영희", "phone": "010-9999-0000",
+    "location": None, "address": "서울특별시 강남구 테헤란로 1",
+}
+
+
+@pytest.mark.parametrize("typed", ["예약 말고 다른 과로 할래요", "그래도 다른 과로 예약할래요", "네 근데 다른 과로 예약해 주세요", "그래요? 그럼 다른 과로 예약할래요"])
+def test_typed_non_yes_is_not_taken_as_yes(typed: str) -> None:
+    # M-1: 앞글자만 '네·예·그래·응'인 답("예약…"·"그래도…"·"응급…")이나 다른 과를 말하는 답은 수락이 아니다 - 다시 확인한다.
+    s = _Session()
+    s.turn("병원 예약하고 싶어요", history=HISTORY_NAEGWA)
+    out = s.turn(typed)
+    assert _draft_trace(out)["department_source"] == SOURCE_INFERRED
+    assert out["ui"].field == "department" and out["ui"].options[0].label == "네, 내과"
+    assert s.fake.searched_regions == []
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("네", True), ("네 예약해 주세요", True), ("예, 그걸로 예약", True), ("좋아요 예약해 주세요", True), ("맞아요", True), ("응 예약해줘", True),
+    ("예약해 주세요", False), ("그래도 예약", False), ("응급실", False), ("좋아하는 병원으로 예약", False), ("네 근데 다른 과로", False),
+    ("아니요", False), ("", False), (None, False),
+])
+def test_is_plain_yes(text, expected) -> None:
+    assert _is_plain_yes(text) is expected
+
+
+def test_history_hospital_card_without_region_offers_other_hospital() -> None:
+    # L-1: 지역을 모르는(프로필 주소 없음) 피보호자에게 이력 병원 카드를 낼 때도 버튼으로 거절할 길이 있다.
+    fake = FakeReservation()
+    fake.regions = ["서울 강남구", "서울 서초구"]
+    s = _Session(fake, ctx={"location": None, "address": None})
+    history = [{"role": "user", "content": "강남메디내과 가봤는데 괜찮았어요"}, {"role": "assistant", "content": "다행이에요."}]
+    out = s.turn("병원 예약하고 싶어요", history=history)
+    assert out["ui"].field == "department" and "근처에서 찾을게요" not in out["reply"]  # 지역을 모르면 지역 문구 없음
+    out = s.turn("", ui=("department", "내과"))
+    assert [r["hospital"] for r in out["data"]] == ["강남메디내과"]
+    assert out["ui"].field == "location_confirm"
+    assert [(o.value, o.label) for o in out["ui"].options] == [(OTHER_REGION_OPTION, "다른 병원 찾기")]
+    out = s.turn("", ui=("location_confirm", OTHER_REGION_OPTION))
+    assert out["ui"].field in {"location", "location_sido"}
+    region_field = out["ui"].field
+    region_value = "서울 서초구" if region_field == "location" else "서울"
+    out = s.turn("", ui=(region_field, region_value))
+    if out["ui"] is not None and out["ui"].field == "location":
+        out = s.turn("", ui=("location", "서울 서초구"))
+    assert out["tool"] == "search_hospital" and len(out["data"]) == 2  # 고른 지역에서 다시 찾은 목록(이력 병원 아님)
+    assert _draft_trace(out).get("hospital_source") is None
+
+
+def test_history_hospital_with_extracted_id_is_resolved_by_name() -> None:
+    # L-2: 추출이 hospital_id 를 직접 줘도 이력 출처 병원은 이름으로 다시 찾아 예약 서비스의 이름·id 로 카드를 만든다.
+    s = _Session(extracted={"hospital_name": "튼튼내과의원", "hospital_id": 99})
+    out = s.turn("병원 예약하고 싶어요")
+    assert _draft_trace(out)["hospital_source"] == SOURCE_INFERRED
+    assert out["tool"] == "search_hospital"
+    assert [(r["id"], r["hospital"]) for r in out["data"]] == [(1, "강남메디내과")]
+
+
+def test_history_hospital_unknown_to_service_falls_back_to_search() -> None:
+    # L-2: 이름으로 다시 찾아도 없는 병원이면 그 병원(추출 id 포함)을 버리고 검색으로 넘긴다.
+    fake = FakeReservation()
+    fake.resolve_hospital = lambda name, *, api_key_override=None: (None, None)  # type: ignore[method-assign]
+    s = _Session(fake, extracted={"hospital_name": "없는의원", "hospital_id": 99, "department": "내과"})
+    out = s.turn("내과 예약하고 싶어요")
+    assert out["tool"] == "search_hospital" and len(out["data"]) == 2
+
+
+def test_guardian_proxy_same_rules() -> None:
+    # L-3: 보호자 대리 예약(wardId 문맥)도 같은 규칙 - 짐작한 진료과 확인(피보호자 주소 지역), 후보 1개는 카드.
+    fake = FakeReservation()
+    fake.search_rows = ONE_ROW
+    s = _Session(fake, ctx=WARD_CTX)
+    out = s.turn("병원 예약하고 싶어요", history=HISTORY_NAEGWA)
+    assert out["ui"].field == "department" and out["reply"].startswith("내과로 예약할까요?")
+    assert "강남구 근처에서 찾을게요" in out["reply"]
+    out = s.turn("", ui=("department", "내과"))
+    assert [r["hospital"] for r in out["data"]] == ["홍대내과"] and "한 곳이에요" in out["reply"]
+    out = s.turn("", ui=("hospital_confirm", "홍대내과"))
+    assert out["ui"].field == "date"
+
+
+def test_legacy_stored_draft_without_source_is_not_asked() -> None:
+    # L-3: 배포 전에 저장된 초안(출처 없음)은 진료과가 그대로면 묻지 않고 이어 간다.
+    s = _Session()
+    s.turn("내과 예약하고 싶어요")
+    flow = s.prev["meta"]["flowState"]
+    flow["draft"].pop("department_source", None)
+    flow["draft"].pop("hospital_source", None)
+    out = s.turn("", ui=("hospital_confirm", "강남메디내과"))
+    assert "department_confirm" not in [t.get("missing") for t in out["decisionTrace"]]
+    assert out["ui"].field == "date"
+
+
+def test_pick_other_department_with_hospital_fixed_lists_that_hospital() -> None:
+    # L-3: 이번 문장에서 병원을 정했고 진료과만 짐작이면 [다른 과 고르기]는 그 병원의 진료과 목록을 낸다.
+    fake = FakeReservation()
+    fake.departments_by_hospital = {1: ["내과", "정형외과"]}
+    s = _Session(fake)
+    out = s.turn("튼튼병원 예약할래요", history=HISTORY_NAEGWA)
+    assert _draft_trace(out)["hospital_source"] == SOURCE_MESSAGE
+    assert out["ui"].field == "department" and out["reply"] == "내과로 예약할까요?"  # 병원을 정했으면 지역 문구 없음
+    out = s.turn("", ui=("department", PICK_DEPARTMENT_OPTION))
+    assert out["ui"].field == "department"
+    assert [o.value for o in out["ui"].options][:2] == ["내과", "정형외과"]
+    assert "강남메디내과" in (out["ui"].label or "")
+    out = s.turn("", ui=("department", "정형외과"))
+    assert _draft_trace(out)["department_source"] == SOURCE_BUTTON
+    assert out["ui"].field == "date"
