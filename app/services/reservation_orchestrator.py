@@ -96,6 +96,11 @@ OTHER_REGION_OPTION = "__other__"  # 다른 지역으로 찾기(location_confirm
 OTHER_DEPARTMENT_OPTION = "__department__"  # 다른 진료과 고르기(location_confirm, 검색 결과 0건)
 # 병원 진료과 목록 끝의 [다른 병원에서 찾기](department) - 그 병원에 원하는 과가 없을 때 진료과·병원을 비우고 처음부터(2026-11-11).
 OTHER_HOSPITAL_OPTION = "__other_hospital__"
+PICK_DEPARTMENT_OPTION = "__pick_department__"  # 짐작한 진료과 확인에서 [다른 과 고르기](department)
+# 진료과·병원 출처(ReservationDraft.department_source·hospital_source, 2026-11-17).
+SOURCE_MESSAGE = "message"  # 이번 문장에서 직접 말함(진료과는 증상으로 정한 과 포함)
+SOURCE_BUTTON = "button"  # 선택지로 고름([가까운 ○○ 찾기]·진료과·병원 카드)
+SOURCE_INFERRED = "inferred"  # 이전 대화·추출로만 짐작 - 바로 쓰지 않고 먼저 확인받는다
 MORE_SIDO_OPTION = "__more_sido__"  # 다른 시·도 고르기(location)
 TYPE_LOCATION_OPTION = "__type__"  # 직접 입력(location·location_sido) - 선택지에 원하는 곳이 없을 때만
 _LOCATION_SPECIAL = {OTHER_REGION_OPTION, OTHER_DEPARTMENT_OPTION, MORE_SIDO_OPTION, TYPE_LOCATION_OPTION}
@@ -178,6 +183,22 @@ def _with_copula(word: str) -> str:
     code = ord(word[-1]) - 0xAC00
     has_final = 0 <= code < 11172 and code % 28 != 0
     return f"{word}{'이에요' if has_final else '예요'}"
+
+
+def _final_consonant(word: str) -> int:
+    """마지막 글자의 받침 번호(0 = 없음, 8 = ㄹ). 한글이 아니면 0."""
+    code = ord(word[-1]) - 0xAC00 if word else -1
+    return code % 28 if 0 <= code < 11172 else 0
+
+
+def _with_ro(word: str) -> str:
+    """'내과로' / '병원으로' - 받침이 없거나 ㄹ 받침이면 '로'."""
+    return f"{word}{'으로' if _final_consonant(word) not in (0, 8) else '로'}"
+
+
+def _topic(word: str) -> str:
+    """'내과는' / '병원은'."""
+    return f"{word}{'은' if _final_consonant(word) else '는'}"
 
 
 def _gap_label(field: str) -> str:
@@ -790,6 +811,11 @@ class ReservationOrchestrator(ReservationFlowMixin):
         if field in {"hospital", "hospital_confirm"}:
             draft.hospital_name = value or draft.hospital_name
         elif field == "department":
+            if value == PICK_DEPARTMENT_OPTION:
+                # 짐작한 진료과 확인에서 [다른 과 고르기] - 진료과만 비우면 _advance 가 진료과 선택지를 낸다(병원을 정했으면 그 병원의 진료과).
+                draft.department = None
+                draft.department_source = None
+                return None
             if value == OTHER_HOSPITAL_OPTION:
                 # [다른 병원에서 찾기] - 진료과·병원을 비우면 _advance 가 전체 진료과 목록부터 다시 낸다(날짜는 그대로).
                 draft.department = None
@@ -833,6 +859,79 @@ class ReservationOrchestrator(ReservationFlowMixin):
                 return None
             draft.location = value or draft.location
         return None
+
+    @staticmethod
+    def _tag_sources(draft: ReservationDraft, typed: str, ui_field: str | None, prev: tuple[Any, ...] | None) -> None:
+        """진료과·병원 출처를 정한다(2026-11-17). typed = 사용자가 이번 턴에 직접 친 문장(버튼 턴은 "").
+        선택지로 고른 값은 button, 이번 문장에 있으면 message, 그 밖(이전 대화·추출로만 채워짐)은 inferred.
+        이어 쓰는 초안은 이번 턴에 바뀐 값만 다시 정한다 - 출처가 없는 옛 초안(배포 전)은 그대로 둔다(묻지 않음)."""
+        fresh = prev is None
+        if not draft.department:
+            draft.department_source = None
+        elif ui_field == "department":
+            draft.department_source = SOURCE_BUTTON
+        elif fresh or draft.department != prev[0]:
+            in_message = bool(typed) and (
+                draft.department in typed or draft.department in (_find_department(typed), _symptom_department(typed))
+            )
+            draft.department_source = SOURCE_MESSAGE if in_message else SOURCE_INFERRED
+
+        if not draft.hospital_name and draft.hospital_id is None:
+            draft.hospital_source = None
+        elif ui_field in {"hospital", "hospital_confirm"}:
+            draft.hospital_source = SOURCE_BUTTON
+        elif fresh or (draft.hospital_name, draft.hospital_id) != (prev[1], prev[2]):
+            name = draft.hospital_name or ""
+            in_message = bool(typed) and ((bool(name) and name in typed) or _find_hospital_name(typed) is not None)
+            draft.hospital_source = SOURCE_MESSAGE if in_message else SOURCE_INFERRED
+
+    def _ask_department_confirm(self, meta: dict[str, Any], draft: ReservationDraft) -> dict[str, Any]:
+        """이전 대화에서 짐작한 진료과를 먼저 확인받는다: [네, ○○] [다른 과 고르기]. 지역을 알면 어디서 찾을지도 보여 준다."""
+        department = draft.department or ""
+        _trace(meta, "reservation_gap", missing="department_confirm", department_source=draft.department_source)
+        region = coarse_region(draft.location or "") if not (draft.hospital_name or draft.hospital_id) else None
+        reply = f"{_with_ro(department)} 예약할까요?"
+        if region:
+            reply += f" {region} 근처에서 찾을게요."
+        return self._ui_reply(
+            meta,
+            reply,
+            UiPayload(
+                kind="select",
+                field="department",
+                label="진료과를 확인해 주세요",
+                options=[
+                    UiOption(value=department, label=f"네, {department}"),
+                    UiOption(value=PICK_DEPARTMENT_OPTION, label="다른 과 고르기"),
+                ],
+            ),
+        )
+
+    def _hospital_choice_reply(
+        self, req: ChatRequest, meta: dict[str, Any], draft: ReservationDraft, reply: str, rows: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """병원 카드(예약하기 → hospital_confirm) + [다른 지역으로 찾기]. 후보가 1개여도 바로 고르지 않는다(2026-11-17)."""
+        _trace(meta, "hospital_selection_needed", candidate_count=len(rows))
+        return {
+            "reply": reply,
+            "riskLevel": "medium",
+            "recommendedAction": "guardian_contact",
+            "reservationRequired": True,
+            "intent": "hospital_reservation",
+            "engine": "claude",
+            "modelName": self._loader.state.model_name,
+            "type": "tool_result",
+            "ui": self._other_region_ui(req, draft.location),
+            "tool": "search_hospital",
+            "data": rows,
+            "summary": None,
+            "possibleCauses": [],
+            "homeCare": [],
+            "visitHospitalIf": [],
+            "emergencyWarning": [],
+            "meta": {**meta, "reservationCandidates": rows},
+            "decisionTrace": meta.get("decisionTrace") or [],
+        }
 
     def handle(self, req: ChatRequest, meta: dict[str, Any]) -> dict[str, Any] | None:
         reservation_api_key = str(meta.get("reservationApiKey") or "").strip() or None
@@ -1057,9 +1156,11 @@ class ReservationOrchestrator(ReservationFlowMixin):
         )
         replaces: dict[str, Any] | None = None
         before: tuple[str | None, ...] | None = None
+        prev_sources: tuple[Any, ...] | None = None  # 이어 쓰는 초안의 (진료과, 병원명, 병원 id) - 이번 턴에 바뀐 것만 출처를 다시 정한다
         if in_flow:
             draft = draft_from_dict(flow["draft"])  # type: ignore[index]
             before = _linked_fields(draft)
+            prev_sources = (draft.department, draft.hospital_name, draft.hospital_id)
             replaces = flow.get("replaces") if isinstance(flow.get("replaces"), dict) else None  # type: ignore[union-attr]
             if raw_message and not req.uiSelection:
                 extracted = self._extract_reservation_fields(req, history_text, normalized_loc or loc, meta, draft_state=draft)
@@ -1123,6 +1224,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
             draft.phone = draft.phone or (str(contact.get("phone") or "").strip() or None)
         ward_id = self._ward_id(req)
         ask = self._apply_ui_selection(draft, req.uiSelection.field, req.uiSelection.value.strip()) if req.uiSelection else None
+        self._tag_sources(draft, "" if req.uiSelection else raw_message, ui_field, prev_sources)
         if ask is not None:
             asked = self._ask_location(meta, draft.department, req=req, api_key=reservation_api_key, **ask)
             return self._remember_flow(asked, meta, draft, replaces, ward_id)
@@ -1139,6 +1241,8 @@ class ReservationOrchestrator(ReservationFlowMixin):
             reservation_time=draft.reservation_time,
             patient_name_len=len(draft.patient_name or ""),
             phone_last4=_phone_last4(draft.phone),
+            department_source=draft.department_source,
+            hospital_source=draft.hospital_source,
         )
 
         out = self._advance(req, meta, draft, reservation_api_key, replaces)
@@ -1154,6 +1258,8 @@ class ReservationOrchestrator(ReservationFlowMixin):
     ) -> dict[str, Any]:
         """초안에서 비어 있는 것을 순서대로 채우고(병원 → 날짜 → 시간 → 환자 정보), 다 채워지면 예약한다."""
         self._pin_ward_patient(req, draft)
+        if draft.department and draft.department_source == SOURCE_INFERRED:
+            return self._ask_department_confirm(meta, draft)
         if draft.hospital_name and draft.hospital_id is None:
             draft.hospital_id, resolved_name = self._reservation.resolve_hospital(
                 draft.hospital_name,
@@ -1165,6 +1271,17 @@ class ReservationOrchestrator(ReservationFlowMixin):
             else:
                 draft.hospital_name = resolved_name or draft.hospital_name  # 사용자가 줄여 말해도 화면엔 실제 병원명
             _trace(meta, "hospital_id_resolved", hospital_name=draft.hospital_name, hospital_id=draft.hospital_id)
+
+        if draft.hospital_source == SOURCE_INFERRED and (draft.hospital_name or draft.hospital_id is not None):
+            # 이전 대화에서만 나온 병원은 바로 쓰지 않고 카드 1장으로 확인받는다(2026-11-17). 이름이 없으면 검색으로 넘긴다.
+            if draft.hospital_name and draft.hospital_id is not None:
+                row = {"id": draft.hospital_id, "name": draft.hospital_name, "hospital": draft.hospital_name, "department": draft.department or "—"}
+                return self._hospital_choice_reply(
+                    req, meta, draft, f"{_with_ro(draft.hospital_name)} 예약할까요? 아래에서 눌러 주세요.", [row]
+                )
+            draft.hospital_name = None
+            draft.hospital_id = None
+            draft.hospital_source = None
 
         if draft.hospital_id is None and not draft.hospital_name:
             if not draft.department:
@@ -1244,32 +1361,12 @@ class ReservationOrchestrator(ReservationFlowMixin):
                     "decisionTrace": meta.get("decisionTrace") or [],
                 }
             if len(unique_rows) > 1:
-                _trace(meta, "hospital_selection_needed", candidate_count=len(unique_rows))
-                return {
-                    "reply": f"{region} 기준으로 찾은 {_with_copula(draft.department or '병원')}. 예약하려면 병원을 선택해 주세요.",
-                    "riskLevel": "medium",
-                    "recommendedAction": "guardian_contact",
-                    "reservationRequired": True,
-                    "intent": "hospital_reservation",
-                    "engine": "claude",
-                    "modelName": self._loader.state.model_name,
-                    "type": "tool_result",
-                    "ui": self._other_region_ui(req, draft.location),
-                    "tool": "search_hospital",
-                    "data": unique_rows,
-                    "summary": None,
-                    "possibleCauses": [],
-                    "homeCare": [],
-                    "visitHospitalIf": [],
-                    "emergencyWarning": [],
-                    "meta": {**meta, "reservationCandidates": unique_rows},
-                    "decisionTrace": meta.get("decisionTrace") or [],
-                }
-            draft.hospital_name = str(unique_rows[0].get("hospital") or "").strip() or draft.hospital_name
-            draft.hospital_id, _ = self._reservation.resolve_hospital(
-                draft.hospital_name or "",
-                api_key_override=reservation_api_key,
-            )
+                reply = f"{region} 기준으로 찾은 {_with_copula(draft.department or '병원')}. 예약하려면 병원을 선택해 주세요."
+            else:
+                # 후보가 1개여도 바로 고르지 않는다(2026-11-17) - 어느 지역의 어느 병원인지 보여 주고 [예약하기]·[다른 지역으로 찾기].
+                only = str(unique_rows[0].get("hospital") or "").strip() or "이 병원"
+                reply = f"{region} 근처 {_topic(draft.department or '병원')} {only} 한 곳이에요. 여기로 예약하시려면 예약하기를 눌러 주세요."
+            return self._hospital_choice_reply(req, meta, draft, reply, unique_rows)
 
         if draft.hospital_id is not None and not draft.department:
             edit_fallback = bool(meta.pop(DEPARTMENT_EDIT_FALLBACK_FLAG, False))

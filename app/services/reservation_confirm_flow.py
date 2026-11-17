@@ -39,7 +39,7 @@ _STOP = "__stop__"
 _EDIT_ITEMS = (("hospital", "병원"), ("department", "진료과"), ("date", "날짜"), ("time", "시간"))
 _DRAFT_KEYS = (
     "location", "hospital_name", "hospital_id", "department", "reservation_date", "reservation_time",
-    "patient_name", "phone", "birth_date", "symptom_summary", "memo",
+    "patient_name", "phone", "birth_date", "symptom_summary", "memo", "department_source", "hospital_source",
 )
 _PENDING_TTL_SECONDS = 1800  # 확인 카드는 30분 안에 눌러야 한다(오래된 카드가 며칠 뒤에 예약되지 않게)
 

@@ -51,6 +51,10 @@ class ReservationDraft:
     birth_date: str | None = None
     symptom_summary: str | None = None
     memo: str | None = None
+    # 진료과·병원을 어디서 정했나(2026-11-17): "message"(이번 문장)·"button"(선택지)·"inferred"(이전 대화·추출로만 짐작).
+    # inferred 면 _advance 가 바로 쓰지 않고 먼저 확인받는다. 저장 초안에 함께 남아 다음 턴에도 이어진다.
+    department_source: str | None = None
+    hospital_source: str | None = None
     search_hint: str | None = None
     source_text: str = ""
     extras: dict[str, Any] = field(default_factory=dict)
