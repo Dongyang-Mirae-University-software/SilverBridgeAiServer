@@ -870,6 +870,12 @@ class ReservationOrchestrator(ReservationFlowMixin):
             draft.department_source = None
         elif ui_field == "department":
             draft.department_source = SOURCE_BUTTON
+        elif (
+            not fresh and draft.department_source == SOURCE_INFERRED and draft.department == prev[0]
+            and re.match(r"\s*(네|예|응|좋아|맞아|그래)", typed or "")
+        ):
+            # 확인 질문에 버튼 대신 글로 "네"라고 답한 경우(보호자 화면) - 같은 질문을 되풀이하지 않는다.
+            draft.department_source = SOURCE_MESSAGE
         elif fresh or draft.department != prev[0]:
             in_message = bool(typed) and (
                 draft.department in typed or draft.department in (_find_department(typed), _symptom_department(typed))

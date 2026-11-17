@@ -184,3 +184,12 @@ def test_hospital_named_in_this_message_proceeds() -> None:
 def test_particles() -> None:
     assert _with_ro("내과") == "내과로" and _with_ro("병원") == "병원으로" and _with_ro("서울") == "서울로"
     assert _topic("내과") == "내과는" and _topic("병원") == "병원은"
+
+
+def test_typed_yes_to_department_confirm_proceeds() -> None:
+    # 보호자가 확인 질문에 버튼 대신 "네"라고 쳐도 같은 질문을 되풀이하지 않는다.
+    s = _Session()
+    s.turn("병원 예약하고 싶어요", history=HISTORY_NAEGWA)
+    out = s.turn("네 예약해 주세요")
+    assert _draft_trace(out)["department_source"] == SOURCE_MESSAGE
+    assert out["tool"] == "search_hospital"
