@@ -107,4 +107,6 @@
 - `chat_service.py` `_STORED_USER_CONTEXT_KEYS = ("role", "wardId")`·`_persistable_user_context` - 저장할 때만 허용 목록으로 거른다. 이번 턴 처리(예약 계정·초안·MedGemma·지역)는 요청 값 그대로.
 - 테스트 `tests/test_chat_log_user_context_strip.py`(대리·본인 상담 저장 키, 저장 행으로 대리 판정·탈퇴 정리, 허용 목록), `test_chat_profile_timeout.py`의 저장 단언을 새 기준으로 바꿈(초안 채우기는 저장 값이 아니라 요청 값을 쓴다 - `reservation_orchestrator.py:1083`).
 - 전체 pytest(로컬 임시 venv): 3061 passed, 실패 7·수집 오류 56은 수정 전 main과 같은 목록(로컬에 없는 모델 의존성).
-- 남은 일: 기존 행 정리(사용자 실행, 비가역), H-2 보관 기간은 별도 결정(이번 제외 - 사용자 결정), H-3 prod 대조, BE policy-chat 11/04 L-3 문장 갱신.
+- gosky 배포 11/17 16:55 KST(`8f7f9e6`, `/health` 200, BE AI WS 16:56 재연결), 롤백 태그 `sb-ai-rollback:20261117-uc-strip`(1d0da47 이미지) 1개.
+- 기존 행 정리(사용자 지시로 실행, 비가역): 백업 `/root/backup/ai-chatlogs-before-uc-strip-20261117.sql`(600, 11/24 이후 삭제) → 트랜잭션 UPDATE 489행. 정리 후 name·phone·address·birthDate 행 0, wardId 98·role 621·전체 859 그대로, 탈퇴 대조 결과도 정리 전과 같음.
+- 남은 일: H-2 보관 기간은 별도 결정(이번 제외 - 사용자 결정), H-3 prod 대조, M-2 옛 사본(10/04 덤프·5월 SQLite) 처리, BE policy-chat 11/04 L-3 문장 갱신.
