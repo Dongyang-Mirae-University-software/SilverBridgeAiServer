@@ -161,6 +161,13 @@ def _startup_housekeeping() -> None:
         purge_expired(start_loop=True)
     except Exception as exc:  # noqa: BLE001
         _LOG.warning("[COLLECT] 보관 정리 시작 실패 type=%s", type(exc).__name__)
+    try:
+        from app.services import chat_log_retention
+
+        # 챗 기록 보관 기간(CHAT_LOG_RETENTION_DAYS, 기본 90일)이 지난 행을 지우고 6시간 주기로 다시 본다(2026-11-17 H-2).
+        chat_log_retention.start_loop()
+    except Exception as exc:  # noqa: BLE001
+        _LOG.warning("[CHAT-RETENTION] 정리 시작 실패 type=%s", type(exc).__name__)
 
 
 def _llm_warmup_wanted() -> bool:

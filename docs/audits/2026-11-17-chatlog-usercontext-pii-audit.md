@@ -109,4 +109,14 @@
 - 전체 pytest(로컬 임시 venv): 3061 passed, 실패 7·수집 오류 56은 수정 전 main과 같은 목록(로컬에 없는 모델 의존성).
 - gosky 배포 11/17 16:55 KST(`8f7f9e6`, `/health` 200, BE AI WS 16:56 재연결), 롤백 태그 `sb-ai-rollback:20261117-uc-strip`(1d0da47 이미지) 1개.
 - 기존 행 정리(사용자 지시로 실행, 비가역): 백업 `/root/backup/ai-chatlogs-before-uc-strip-20261117.sql`(600, 11/24 이후 삭제) → 트랜잭션 UPDATE 489행. 정리 후 name·phone·address·birthDate 행 0, wardId 98·role 621·전체 859 그대로, 탈퇴 대조 결과도 정리 전과 같음.
-- 남은 일: H-2 보관 기간은 별도 결정(이번 제외 - 사용자 결정), H-3 prod 대조, M-2 옛 사본(10/04 덤프·5월 SQLite) 처리, BE policy-chat 11/04 L-3 문장 갱신.
+- 남은 일 처리(같은 날, 사용자 "추천대로 진행"): 아래 8절.
+
+## 8. 남은 일 처리 (2026-11-17)
+
+| ID | 처리 |
+|---|---|
+| H-2 | 보관 90일(사용자 결정). `app/services/chat_log_retention.py` - `created_at`이 `CHAT_LOG_RETENTION_DAYS`(기본 90, 0 이하 끔)일보다 오래된 행을 1,000행씩 기록째 삭제, 기동 때 데몬 스레드로 바로 한 번 + 6시간 주기. 로그는 `[CHAT-RETENTION] deleted=N days=90`만. 테스트 `tests/test_chat_log_retention.py` 8건. 가장 오래된 행이 10/08이라 첫 실제 삭제는 2027-01-06 무렵. FE 상담 기록 목록에서도 90일 지난 기록은 사라진다 |
+| H-3 | prod BE(`dmu-prod-db`) 회원 0명 - prod 회원이 아니다. 11명은 11/13 10:33~10:45 KST에 1턴씩(증상 상담, 예약 키 없음) 생긴 시험 계정으로 보이나 그날 로그가 남지 않아 원인 미확정. AI `DELETE /api/v1/chat/logs?userId=`(탈퇴 정리와 같은 경로)로 11행 삭제, 대조 결과 잔여 0 |
+| M-2 | 10/04 AI DB 덤프·5월 SQLite(`data/ai_server.db`, 미사용 - 서버는 Postgres) 삭제 |
+| M-3 | prod 회원이 0명이라 지금은 해당 없음 - prod에 회원이 생기면 `withdrawal_leftover_check.py`에 prod DB를 더한다 |
+| L-1 | BE policy-chat 반영(BE dev `fc218648`) |
