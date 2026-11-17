@@ -377,6 +377,8 @@ class Settings(BaseModel):
     collect_max_total_gb: float = _as_float("COLLECT_MAX_TOTAL_GB", 20.0)
     collect_min_free_gb: float = _as_float("COLLECT_MIN_FREE_GB", 5.0)
     collect_retention_days: int = _as_int("COLLECT_RETENTION_DAYS", 14)
+    # 챗 기록(chat_logs) 보관 일수(2026-11-17 개인정보 점검 H-2, 사용자 결정 90일). 지난 행은 기록째 삭제, 0 이하 = 끔.
+    chat_log_retention_days: int = _as_int("CHAT_LOG_RETENTION_DAYS", 90)
     # 무작위 장면 수집(모델 비교용). 점수·위험과 무관하게 세션별로 간격마다 1장(±30% 흔들림). 간격 0 = 끔.
     # 대상은 COLLECT_RANDOM_SESSION_IDS 의 정확한 세션 ID 만(와일드카드 거부). 비면 저장 0. COLLECT_ENABLED 도 켜져 있어야 한다.
     collect_random_interval_sec: float = _as_float("COLLECT_RANDOM_INTERVAL_SEC", 0.0)
