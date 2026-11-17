@@ -21,6 +21,7 @@ def kw4(monkeypatch):
     "열받아 죽겠어", "창피해 죽겠어", "부끄러워 죽겠네", "억울해 죽겠어", "분해 죽겠어", "지루해 죽겠다",
     # 죽음을 바라지 않는다는 부정
     "죽고 싶지 않아", "죽고 싶진 않아", "죽고 싶지는 않아", "죽고싶지않아", "아직은 죽고 싶지 않아요",
+    "나는 죽고 싶지 않습니다", "죽고 싶지 않다", "죽고 싶지 않아서 안절부절 못해", "죽고 싶지 않아요 오래 살고 싶어요",
 ])
 def test_idiom_and_negation_are_not_keyword_risk(text):
     assert keyword_risk(text) is False
@@ -32,14 +33,19 @@ def test_idiom_and_negation_are_not_keyword_risk(text):
     "화가 나서 죽고 싶어", "짜증 나 죽겠어 그냥 죽고 싶다", "죽고 싶진 않은데 살기 싫어", "죽고 싶지 않아 근데 사라지고 싶어",
     # 이중 부정은 위험으로 남긴다
     "죽고 싶지 않은 건 아니야", "죽고 싶지 않은 게 아니야", "죽고 싶지 않다면 거짓말이지", "죽고 싶지 않다고 하면 거짓말이야",
+    # 11/17 점검 H-1: 끝맺지 않은 부정 꼴(이중 부정·반어)은 모두 위험으로 남는다
+    "죽고 싶지 않은 것도 아니야", "죽고 싶지 않았던 적이 없어", "죽고 싶지 않다는 건 거짓말이야", "죽고 싶지 않을 리가 있겠어",
+    "죽고 싶지 않겠어? 매일 그래", "죽고 싶지 않냐고? 아니", "죽고 싶지 않아서가 아니라 무서워서야",
+    # 11/17 점검 L-1
+    "확 죽어버릴까", "그냥 죽어 버릴까 싶어",
 ])
 def test_real_risk_still_caught(text):
     assert keyword_risk(text) is True
 
 
-def test_negation_without_other_keyword_is_left_to_adapter():
-    # 낱말 없는 하소연은 낱말 규칙이 잡지 않는다 - 위험 어댑터(OR)가 맡는다 (사용자 결정 11/16)
-    assert keyword_risk("죽고 싶진 않은데 살기가 너무 힘들어") is False
+def test_unfinished_negation_stays_risk_even_without_other_keyword():
+    # 11/17 사용자 결정(11/16 결정 ② 번복): 끝맺지 않은 부정은 지우지 않아 낱말 규칙이 잡는다 (안전 쪽)
+    assert keyword_risk("죽고 싶진 않은데 살기가 너무 힘들어") is True
 
 
 def test_body_emergency_only_unchanged_by_negation():
