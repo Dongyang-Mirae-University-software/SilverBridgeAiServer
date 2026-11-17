@@ -36,6 +36,7 @@ from app.services.reservation_orchestrator import (
     OTHER_REGION_OPTION,
     TYPE_LOCATION_OPTION,
     ReservationOrchestrator,
+    _is_plain_yes,
     get_reservation_orchestrator,
 )
 
@@ -441,6 +442,20 @@ class ChatService:
                     prev = self._last_reservation_state(db, payload.userId, session_id, ward_id, latest=latest_log) or "병원 예약:"
                     route_info = {**route_info, "route": "reservation", "normalized_message": f"{prev} / {message}",
                                   "reason": "flow-continues-fallback", "awaiting_field": awaiting}
+            if (
+                not router_failed and message and self_harm_trigger is None and not route_info.get("emergency")
+                and not route_info.get("self_harm") and route_info["route"] != "reservation" and step_state is None
+                and _is_plain_yes(message)
+            ):
+                # 짐작한 진료과 확인("내과로 예약할까요?")에 글로 "네"만 답한 턴(2026-11-17 #312 점검 남은 것): 라우터는 예약 정보가 없는 짧은
+                # 답을 general 로 보낼 수 있어(라우터 규칙 "알겠어"류), 직전 턴이 진료과를 묻던 유효한 예약 흐름이면 그 답으로 잇는다.
+                # 라우터가 정상인 턴은 라우터 판단 그대로가 원칙이라 이 경우(진료과 칸 + 순수한 '네')로만 좁힌다.
+                active, awaiting = self._active_reservation_flow(latest_log, session_id, ward_id)
+                if active and awaiting == "department":
+                    _LOG.info("[CHAT-RESERVATION] department_confirm_yes=true")
+                    prev = self._last_reservation_state(db, payload.userId, session_id, ward_id, latest=latest_log) or "병원 예약:"
+                    route_info = {**route_info, "route": "reservation", "normalized_message": f"{prev} / {message}",
+                                  "reason": "department-confirm-yes", "awaiting_field": awaiting}
             # 버튼 턴도 직전 턴의 위기 표시를 읽는다 - 위기 응답 직후의 버튼 턴에도 109 한 줄이 붙게(I-9).
             prev_meta = (
                 self._previous_turn_meta(db, payload.userId, session_id, latest=latest_log, ward_id=ward_id)

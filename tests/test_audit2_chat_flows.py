@@ -151,6 +151,49 @@ def _seed_flow(env, *, session: str = "s1", ward: str = "", flow_ward: str | Non
 # ---- I-2 라우터 실패 중 예약 흐름 유지 -------------------------------------------------------------------------
 
 
+# ---- 2026-11-17 #312 점검 남은 것: 짐작한 진료과 확인에 글로 "네" ----------------------------------------------------
+
+
+@pytest.mark.parametrize("message", ["네", "네 그걸로요", "예", "좋아요", "응"])
+def test_router_ok_plain_yes_to_department_confirm_continues_flow(env, message: str) -> None:
+    # 라우터가 general 로 보내도 직전 턴이 진료과 확인을 묻던 예약 흐름이면 그 답으로 잇는다.
+    _seed_flow(env, ui_field="department")
+    env.router = _OkRouter(route="general")
+    out = _send(env, message)
+    assert len(env.orch.calls) == 1 and env.llm.calls == []
+    routed, meta = env.orch.calls[0]
+    assert routed == f"병원 예약: 내과 / {message}" and meta["rawMessage"] == message
+    assert meta["awaitingField"] == "department"
+    assert _ctx(env, out)["upstreamMeta"]["router"]["reason"] == "department-confirm-yes"
+
+
+@pytest.mark.parametrize("ui_field,message", [
+    ("location", "네"),  # 진료과 칸이 아니면 원칙대로 라우터 판단
+    ("department", "고마워"),  # '네'가 아닌 답
+    ("department", "그래도 다른 과로 할래요"),
+    ("department", "네 근데 다른 과로"),
+])
+def test_router_ok_other_answers_are_not_pinned(env, ui_field: str, message: str) -> None:
+    _seed_flow(env, ui_field=ui_field)
+    env.router = _OkRouter(route="general")
+    _send(env, message)
+    assert env.orch.calls == [] and len(env.llm.calls) == 1
+
+
+def test_router_ok_plain_yes_without_valid_flow_is_not_pinned(env) -> None:
+    _seed_flow(env, ui_field="department", age=10_000)  # 유효 시간이 지난 흐름
+    env.router = _OkRouter(route="general")
+    _send(env, "네")
+    assert env.orch.calls == []
+
+
+def test_router_ok_plain_yes_emergency_still_wins(env) -> None:
+    _seed_flow(env, ui_field="department")
+    env.router = _OkRouter(route="symptom", emergency=True)
+    _send(env, "네")
+    assert env.orch.calls == []
+
+
 @pytest.mark.parametrize("message", ["서울 강남구", "내일 오후 3시", "열한 시로 해줘"])
 def test_router_failure_keeps_free_text_in_the_reservation_flow(env, message: str) -> None:
     _seed_flow(env)
