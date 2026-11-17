@@ -116,8 +116,9 @@ def test_original_profile_still_used_for_chat_log_and_reservation(env, monkeypat
     _send(env, "어제부터 기침이 나요", wardId="ward-9", wardName="김순자", wardPhone="010-9999-8888", **_FULL)
     row = env.db.query(ChatLog).order_by(ChatLog.id.desc()).first()
     stored = json.loads(row.context_json)["userContext"]
-    # 챗 기록은 피보호자 구분(wardId)·예약 환자 정보를 그대로 갖는다(_row_ward_id·초안 채우기가 쓴다).
-    assert stored["wardId"] == "ward-9" and stored["name"] == "김순자" and stored["phone"] == "010-9999-8888"
+    # 챗 기록에는 피보호자 구분(wardId, _row_ward_id·탈퇴 정리가 쓴다)과 역할만 남는다(2026-11-17 개인정보 점검 H-1).
+    # 예약 환자 정보는 저장 값이 아니라 이번 요청 값으로 채운다 - 아래 예약 계정 확인이 그것을 본다.
+    assert stored == {"role": "GUARDIAN", "wardId": "ward-9"}
 
     seen_cred: list[dict] = []
 

@@ -101,3 +101,10 @@
 | ② 가려 저장 | 이름 길이·전화 끝 4자리 등 | 읽는 곳이 없어 가린 값도 쓸모가 없다 | 비추천 |
 | ③ 기존 행 정리 | `userContext`를 `role`·`wardId`만 남기도록 UPDATE(622행 대상). 비가역·운영 DB → 백업 후 사용자 실행 | 같음 | ① 배포 뒤 실행 |
 | (별도 결정) 보관 기간 | 예: 기록 N일 뒤 삭제 또는 예약 초안 칸만 비움(H-2·M-1) | 오래된 상담 기록이 FE 기록 목록에서 사라짐 | 사용자 결정 필요 |
+
+## 7. 반영 (2026-11-17, H-1)
+
+- `chat_service.py` `_STORED_USER_CONTEXT_KEYS = ("role", "wardId")`·`_persistable_user_context` - 저장할 때만 허용 목록으로 거른다. 이번 턴 처리(예약 계정·초안·MedGemma·지역)는 요청 값 그대로.
+- 테스트 `tests/test_chat_log_user_context_strip.py`(대리·본인 상담 저장 키, 저장 행으로 대리 판정·탈퇴 정리, 허용 목록), `test_chat_profile_timeout.py`의 저장 단언을 새 기준으로 바꿈(초안 채우기는 저장 값이 아니라 요청 값을 쓴다 - `reservation_orchestrator.py:1083`).
+- 전체 pytest(로컬 임시 venv): 3061 passed, 실패 7·수집 오류 56은 수정 전 main과 같은 목록(로컬에 없는 모델 의존성).
+- 남은 일: 기존 행 정리(사용자 실행, 비가역), H-2 보관 기간은 별도 결정(이번 제외 - 사용자 결정), H-3 prod 대조, BE policy-chat 11/04 L-3 문장 갱신.
