@@ -173,6 +173,18 @@ def test_urgent_flag_on_emergency_self_harm_and_crisis_followup(emoji: bool) -> 
         assert out["layout"]["headline"]  # 상자에 넣을 핵심 줄이 있다
 
 
+@pytest.mark.parametrize("emoji", [True, False])
+def test_crisis_flag_only_on_self_harm_and_crisis_followup(emoji: bool) -> None:
+    """자해 고정 답(경고 박스 있음)·위기 뒤 해제 턴에만 layout.crisis - 의료 응급에는 없다(2026-11-17 FE #277 점검 H-1)."""
+    crisis = [MedicalLlmService.self_harm_response(), MedicalLlmService.self_harm_response(family=True), _crisis_followup_raw()]
+    for raw in crisis:
+        out = chat_layout.apply(dict(raw), DRUG_ALCOHOL_SENTENCES, emoji=emoji)
+        assert out["layout"]["crisis"] is True
+    assert MedicalLlmService.self_harm_response()["emergencyWarning"]  # 경고가 있어도 위기다 - FE 가 경고 유무로 가르면 안 되는 이유
+    medical = chat_layout.apply(dict(_gen("숨을 못 쉬겠어요", "emergency_guidance", symptoms="호흡 곤란")), DRUG_ALCOHOL_SENTENCES, emoji=emoji)
+    assert medical["layout"]["urgent"] is True and "crisis" not in medical["layout"]
+
+
 def test_crisis_followup_urgent_does_not_change_judgment_fields() -> None:
     """표시 칸만 더한다 - 위기 뒤 해제 턴의 위험도·경고 박스는 그대로(되묻기·답 칩 판정이 바뀌지 않게)."""
     raw = _crisis_followup_raw()
@@ -193,6 +205,8 @@ def test_non_urgent_answers_have_no_urgent_flag(emoji: bool) -> None:
         assert ("urgent" in layout) == bool(urgent)
         if urgent:
             assert layout["urgent"] is True
+        crisis = bool(out["meta"].get("selfHarm") or out["meta"].get("crisisFollowup"))
+        assert ("crisis" in layout) == crisis
 
 
 def _side(raw: dict[str, Any], **extra: Any) -> dict[str, Any]:
@@ -216,7 +230,7 @@ def test_crisis_followup_on_reservation_or_ui_answer_gets_small_urgent_layout(ex
     assert out["layout"] == {
         "headline": _CRISIS_FOLLOWUP,
         "body": ["어느 병원으로 예약할까요?", "가까운 곳부터 보여 드릴게요."],
-        "questions": [], "homeCare": [], "visitHospitalIf": [], "urgent": True,
+        "questions": [], "homeCare": [], "visitHospitalIf": [], "urgent": True, "crisis": True,
     }
     assert {k: out.get(k) for k in before} == before  # reply·선택지·도구·판정 칸 그대로
 

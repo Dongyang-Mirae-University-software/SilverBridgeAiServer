@@ -348,7 +348,7 @@ def split_warning(items: list[str] | None) -> list[str]:
 
 def _crisis_followup_side_layout(result: dict[str, Any]) -> dict[str, Any] | None:
     """예약·선택지·도구 답(모양을 바꾸지 않는 답)에 위기 뒤 해제 109 줄이 붙었을 때만 작은 layout(2026-11-09, FE #229 점검 L-5).
-    핵심 줄 = 맨 앞 109 줄, 본문 = 나머지 reply 줄 그대로(문장·순서 불변), urgent = true - FE 가 109 줄을 "긴급" 상자에 넣는다.
+    핵심 줄 = 맨 앞 109 줄, 본문 = 나머지 reply 줄 그대로(문장·순서 불변), urgent·crisis = true - FE 가 109 줄을 "긴급" 상자에 넣고 109 안내를 붙인다.
     reply·ui·tool·type·intent·판정 칸은 건드리지 않는다. 그 밖의 예약·선택지 답은 지금처럼 layout 없음(None)."""
     meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
     reply = result.get("reply")
@@ -357,7 +357,7 @@ def _crisis_followup_side_layout(result: dict[str, Any]) -> dict[str, Any] | Non
     lines = [line.strip() for line in reply.split("\n") if line.strip()]
     if not lines or not _CALL_109.search(lines[0]):
         return None
-    return {"headline": lines[0], "body": lines[1:], "questions": [], "homeCare": [], "visitHospitalIf": [], "urgent": True}
+    return {"headline": lines[0], "body": lines[1:], "questions": [], "homeCare": [], "visitHospitalIf": [], "urgent": True, "crisis": True}
 
 
 def apply(
@@ -401,6 +401,12 @@ def apply(
         # 위기 뒤 해제 턴(crisisFollowup)은 경고 박스·위험도 high 가 없어 FE 가 알아볼 칸이 따로 필요했다.
         # 표시 전용 - riskLevel·emergencyWarning·되묻기·답 칩 판정은 이 칸을 보지 않는다. 그 밖의 답에는 칸을 두지 않는다.
         layout["urgent"] = True
+        flags = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+        if kind == "crisis" or flags.get("selfHarm"):
+            # 자해·위기(109) 답 표시(2026-11-17, FE #277 점검 H-1): FE 가 119 키패드 아래 109 안내를 붙이는 근거.
+            # FE 에는 meta 가 가지 않고 자해 고정 답에도 경고 박스가 있어, 경고 유무로는 의료 응급과 가를 수 없었다.
+            # 표시 전용 - 판정 칸은 이 칸을 보지 않는다. 의료 응급 답에는 두지 않는다.
+            layout["crisis"] = True
     if concise:
         before = len([s for line in reply.split("\n") for s in _sentences(line) if not _FILLER.match(s)])
         after = len(_sentences(flatten(layout).replace("\n", " ")))
