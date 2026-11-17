@@ -166,6 +166,19 @@ def _persistable_meta(meta: Any) -> dict:
     return {k: v for k, v in meta.items() if k not in _UNSTORED_META_KEYS}
 
 
+# 챗 기록(context_json)의 userContext 에는 다시 읽는 키만 남긴다(2026-11-17 개인정보 점검 H-1).
+# wardId - 대리 상담 판정(_row_ward_id)·탈퇴/연결 해제 대리 기록 삭제(_proxy_ward_ids), role - 관리자 통계 역할별 집계.
+# 이름·전화·주소·생년월일 등 프로필은 이번 턴 처리(예약 계정·초안·MedGemma·지역)에만 요청 값으로 쓰고 저장하지 않는다.
+# 허용 목록이라 요청 context 에 새 키가 늘어도 자동으로 빠진다 - 차단 목록으로 바꾸지 말 것.
+_STORED_USER_CONTEXT_KEYS = ("role", "wardId")
+
+
+def _persistable_user_context(user_context: Any) -> dict:
+    if not isinstance(user_context, dict):
+        return {}
+    return {k: user_context[k] for k in _STORED_USER_CONTEXT_KEYS if user_context.get(k) not in (None, "")}
+
+
 def _mark_generation_failed(result: dict) -> dict:
     """생성 실패로 고정 안내가 나간 턴 표시(챗 기록 upstreamMeta.generationFailed). 자해 고정 응답처럼 engine 이 fallback 이
     아니어도 집계(/chat/stats fallbackReplies)가 실패 턴으로 셀 수 있게 한다. 응답 필드는 바뀌지 않는다."""
@@ -781,7 +794,7 @@ class ChatService:
 
         context_payload = {
             "sessionId": session_id,
-            "userContext": user_context,
+            "userContext": _persistable_user_context(user_context),
             "historyLength": len(history),
             "engine": result.get("engine", "fallback"),
             "modelName": result.get("modelName"),
