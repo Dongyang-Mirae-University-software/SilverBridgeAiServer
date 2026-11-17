@@ -38,6 +38,10 @@ def test_idiom_and_negation_are_not_keyword_risk(text):
     "죽고 싶지 않겠어? 매일 그래", "죽고 싶지 않냐고? 아니", "죽고 싶지 않아서가 아니라 무서워서야",
     # 11/17 점검 L-1
     "확 죽어버릴까", "그냥 죽어 버릴까 싶어",
+    # 피하는 말·kw4 점검(2026-11-17-companion-avoid-kw4-audit) H-2: '않을 리가 없'·'않은 날/적/때가 없' (r2 도 "않을 리가 없지" 0.06)
+    "죽고 싶지 않을 리가 없지", "죽고 싶지 않은 날이 없어", "하루도 죽고 싶지 않은 날이 없어", "죽고싶지않은때가없어",
+    # 같은 점검 L-1: 조사 '도'가 낀 '살기 싫'
+    "살기도 싫어", "죽고 싶지 않아 근데 살기도 싫어",
 ])
 def test_real_risk_still_caught(text):
     assert keyword_risk(text) is True
