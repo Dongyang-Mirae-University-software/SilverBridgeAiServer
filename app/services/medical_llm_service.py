@@ -7,7 +7,7 @@ from typing import Any, NamedTuple
 
 from app.core.config import Settings, get_settings
 from app.models.medgemma_loader import MedGemmaLoader
-from app.prompts.medical_chat_prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_CARE, build_user_prompt
+from app.prompts.medical_chat_prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_CARE, build_user_prompt, instruction_text
 from app.services.chat_deadline import call_timeout, gen_min_sec
 from app.services import chat_keywords, followup_steps
 from app.services.chat_keywords import symptom_department as _symptom_department
@@ -374,6 +374,17 @@ _PERSISTING_SENTENCE = "말씀하신 상태라면 미루지 말고 {department} 
 _PROMPT_LEAK = re.compile(
     r"규칙 ?\d|119 ?문장은|\[(응급 키워드|권장 진료과|현재 증상|사용자 (정보|질문)|최근 대화|의도)|advice|empathy|symptoms|features|JSON|json|예시 ?\d|형식만 보여|자리표시|키 이름|진료과 힌트|라고 쓴다|라고 써라|라고 쓰고"
 )
+# 2026-11-18: 위 낱말에 안 걸리는 지시 문장 노출 - 지시문과 공백·문장부호를 뺀 20자 이상이 그대로 같은 문장(관리 질문 줄 등).
+_LEAK_WINDOW = 20
+_NORM = re.compile(r"[\s.,·!?()\[\]'\"“”‘’~-]+")
+_INSTRUCTION_WINDOWS = frozenset(
+    (lambda t: {t[k:k + _LEAK_WINDOW] for k in range(len(t) - _LEAK_WINDOW + 1)})(_NORM.sub("", instruction_text()))
+)
+
+
+def _copies_instruction(sentence: str) -> bool:
+    t = _NORM.sub("", sentence or "")
+    return any(t[k:k + _LEAK_WINDOW] in _INSTRUCTION_WINDOWS for k in range(len(t) - _LEAK_WINDOW + 1))
 
 
 class _EmergencyAction(NamedTuple):
@@ -989,12 +1000,12 @@ class MedicalLlmService:
 
     @staticmethod
     def drop_prompt_leak(reply: str) -> tuple[str, int]:
-        """프롬프트 규칙 문구가 든 문장을 뺀다(I-3). 다 빠지면 상의 권유 한 줄. (고친 답, 뺀 문장 수)."""
+        """프롬프트 규칙 문구가 든 문장·지시문을 20자 이상 그대로 옮긴 문장을 뺀다(I-3, 2026-11-18). 다 빠지면 상의 권유 한 줄. (고친 답, 뺀 문장 수)."""
         removed = 0
         lines: list[str] = []
         for line in (reply or "").split("\n"):
             sentences = _SENTENCE_SPLIT.split(line)
-            kept = [x for x in sentences if not _PROMPT_LEAK.search(x)]
+            kept = [x for x in sentences if not _PROMPT_LEAK.search(x) and not _copies_instruction(x)]
             if len(kept) == len(sentences):
                 lines.append(line)
                 continue

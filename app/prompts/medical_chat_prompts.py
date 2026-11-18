@@ -125,3 +125,21 @@ def build_user_prompt(
 - 의도가 general_chat이면 reply만 채우고 나머지는 ""로 둔다.
 - 권장 진료과 힌트가 있으면 advice에서 그 과를 권한다(예약 안내와 같은 과여야 한다).
 {care_line}{ward_line}"""
+
+
+# 지시문 노출 판정용(2026-11-18): 모델이 프롬프트의 지시 문장을 답에 그대로 옮겨 쓰는 경우가 있다(앞 턴 없는 기침 칩에서 관리 질문 줄
+# "답을 짧게 써야 할 때도 이 첫 문장은 빼지 않고…"가 최종 답에 나감). 규칙·지시 줄만 모으고 예시 답(예시 1·2)과 따옴표 안의 권장 문장
+# ("…계속되거나 심해지면 꼭 진료를 받아 보세요." 처럼 모델이 써도 되는 문장)은 뺀다.
+_USER_PROMPT_INSTRUCTIONS = (
+    "- 한국어로, JSON 한 개만 출력하고 끝낸다.\n"
+    "- 권장 진료과 힌트가 있으면 advice에서 그 과를 권한다(예약 안내와 같은 과여야 한다).\n"
+)
+
+
+def instruction_text() -> str:
+    """지시문 노출 판정에 쓰는 지시 문장 묶음(예시 답·따옴표 안 권장 문장 제외)."""
+    import re as _re
+
+    rules = SYSTEM_PROMPT.split("예시 1 (질문: ")[0]
+    text = "\n".join([rules, _USER_PROMPT_INSTRUCTIONS, _CARE_QUESTION_LINE, _WARD_CONCISE_LINE])
+    return _re.sub(r'"[^"\n]*"|“[^”\n]*”', " ", text)
