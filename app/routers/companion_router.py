@@ -23,6 +23,7 @@ from app.services.companion.dialogue_store import Dialogue, store
 from app.services.companion.face_service import FaceResult, FaceUnavailable, face_label_ko, face_service
 from app.services.companion.llm_client import llm_client
 from app.services.companion.multipart_memory import read_file_part, read_file_parts
+from app.services.companion import mood_adjust
 from app.services.companion import reply_service
 from app.services.companion import risk_carry
 from app.services.companion.risk import body_emergency_only
@@ -152,6 +153,8 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
         if result["signals"] is not None:  # 신호가 없는 턴(무응답·다시 확인)은 직전 신호를 그대로 둔다
             store.set_last_signals(d.dialogueId, result["signals"])
         _carry_risk(d, transcript, result)
+        if get_settings().companion_avoid_mood:  # 회피를 평온으로 읽던 것을 괴로움으로 보정 (11/19)
+            mood_adjust.adjust_avoid_mood(transcript, result.get("textMood"))
         if result.get("riskFlag"):
             store.mark_risk(d.dialogueId)  # 대화 결과의 alertLevel(URGENT)에 쓴다
     limit = get_settings().companion_confirm_streak_limit

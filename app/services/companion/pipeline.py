@@ -124,6 +124,10 @@ def analyze_turn_result(
             "confidence": round(float(r.confidence), 4) if r is not None else None,
             "usable": text_usable,
             "reason": text_reason,
+            # 4클래스 확률 (2026-11-19, 품질 측정·부정 민감 보정·섞인 감정 판정용). 토큰 확률을 못 얻으면 null.
+            # 더한 필드라 백엔드는 몰라도 된다.
+            "scores": ({c: round(float(r.scores[c]), 4) for c in MOOD_CODES}
+                       if (r is not None and r.scores and all(c in r.scores for c in MOOD_CODES)) else None),
         })
     face_label = HSEMOTION_TO_TURN.get(face["label"]) if face.get("label") else None
     face_usable = bool(face.get("usable") and face_label)

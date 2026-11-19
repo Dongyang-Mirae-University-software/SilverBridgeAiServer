@@ -504,7 +504,7 @@
     {
      "elder": "딸이 같이 가 준다니 마음은 놓이는데 그래도 떨려",
      "mood": [
-      "JOY",
+      "CALM",
       "WORRY"
      ],
      "risk": false,
@@ -852,7 +852,7 @@
     {
      "elder": "조금 쉬니까 괜찮아진 것 같기도 하고",
      "mood": [
-      "JOY"
+      "CALM"
      ],
      "risk": true,
      "follow": [],
