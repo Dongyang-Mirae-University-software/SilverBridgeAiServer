@@ -1,0 +1,17 @@
+{
+ "version": "v8",
+ "split": "dev",
+ "created": "2026-11-20",
+ "note": "dev = 팀이 이미 본 세트 전부(강등). 파일은 그대로 두고 목록만 적는다. 실패 문항 원문을 팀 전원이 볼 수 있다. 판정 층 기준선은 tools/eval/v8/rule_grader.py --legacy 로 옛 expect 를 옮겨 채점한다.",
+ "sets": [
+  {"file": "tests/eval/eval_set_v7.json", "count": 142},
+  {"file": "tests/eval/holdout_set_v1.json", "count": 40},
+  {"file": "tests/eval/holdout_set_v2.json", "count": 36},
+  {"file": "tests/eval/holdout_set_v3.json", "count": 40},
+  {"file": "tests/eval/holdout_set_v4.json", "count": 41},
+  {"file": "tests/eval/holdout_set_v5.json", "count": 36},
+  {"file": "tests/eval/holdout_set_v6.json", "count": 88},
+  {"file": "tests/eval/chip_set_v1.json", "count": 163}
+ ],
+ "total": 586
+}

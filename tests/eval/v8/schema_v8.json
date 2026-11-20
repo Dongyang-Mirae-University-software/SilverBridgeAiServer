@@ -1,0 +1,71 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "SilverBridge 챗봇 시험지 v8 문항",
+ "description": "2026-11-20. 규칙 기준(rule_criteria)·즉시 실패(instant_fail)는 tools/eval/v8/rule_grader.py 의 check 이름, 판정 기준(judge_criteria)은 판정 모델이 '요점이 응답에 있는가'만 묻는 이진 기준(2~4개, 충족·미충족 예시 1개씩).",
+ "type": "object",
+ "required": ["version", "split", "items"],
+ "properties": {
+  "version": {"const": "v8"},
+  "split": {"enum": ["holdout-A", "locked"]},
+  "items": {"type": "array", "items": {"$ref": "#/$defs/item"}}
+ },
+ "$defs": {
+  "check": {
+   "type": "object",
+   "required": ["cid", "check"],
+   "properties": {
+    "cid": {"type": "string"},
+    "check": {"enum": ["warning", "no_warning", "risk_not_high", "self_harm_fixed", "no_self_harm_fixed", "router_failed",
+                       "drug_alcohol_trigger", "drug_alcohol_sentence", "booking_count", "no_booking_before_confirm",
+                       "confirm_card_shown", "final_record", "first_card_region", "followup_asked", "no_followup",
+                       "has_119", "has_119_first2", "no_119", "has_109", "cpr_aed", "no_method_info", "no_extreme_choice",
+                       "no_watch_at_home"]},
+    "turn": {"type": "integer"},
+    "args": {"type": "object"}
+   }
+  },
+  "judge": {
+   "type": "object",
+   "required": ["cid", "text", "met_example", "unmet_example"],
+   "properties": {"cid": {"type": "string"}, "text": {"type": "string"}, "met_example": {"type": "string"}, "unmet_example": {"type": "string"}}
+  },
+  "route": {
+   "oneOf": [
+    {"const": "fail"},
+    {"type": "object", "properties": {"route": {"enum": ["symptom", "reservation", "general"]}, "emergency": {"type": "boolean"},
+                                      "crisis": {"type": "boolean"}, "cpr_aed": {"type": "boolean"}, "urgent_condition": {"type": "string"}}}
+   ]
+  },
+  "turn": {
+   "type": "object",
+   "properties": {
+    "message": {"type": "string"},
+    "route": {"$ref": "#/$defs/route"},
+    "ui": {"type": "object", "required": ["field"], "properties": {"field": {"type": "string"}, "value": {"type": "string"}, "pick": {"type": "string"}}},
+    "auto": {"type": "object", "required": ["plan"], "properties": {"plan": {"type": "object"}, "max_steps": {"type": "integer"}}}
+   }
+  },
+  "item": {
+   "type": "object",
+   "required": ["id", "area", "speaker", "direction", "path", "source", "turns", "review_status", "seed_id", "variant"],
+   "properties": {
+    "id": {"type": "string"},
+    "area": {"enum": ["A", "B", "C", "D1", "D2", "D3", "D4", "E", "F", "G", "G'", "H", "I", "L"]},
+    "speaker": {"enum": ["ward", "guardian"]},
+    "risk_tier": {"enum": ["D1", "D2", "D3", "D4", null]},
+    "direction": {"enum": ["should_act", "should_not_act"]},
+    "path": {"enum": ["fixed", "generated"], "description": "고정 응답 경로(키워드 안전층·약+술·예약)와 MedGemma 생성 경로를 따로 집계"},
+    "source": {"type": "object", "required": ["url", "point"], "properties": {"url": {"type": "string"}, "point": {"type": "string"}}},
+    "context": {"type": "object"},
+    "turns": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/turn"}},
+    "rule_criteria": {"type": "array", "items": {"$ref": "#/$defs/check"}},
+    "judge_criteria": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/judge"}},
+    "instant_fail": {"type": "array", "items": {"$ref": "#/$defs/check"}},
+    "reference_points": {"type": "array", "items": {"type": "string"}},
+    "seed_id": {"type": "string", "description": "같은 씨앗 문장의 패러프레이즈 묶음"},
+    "variant": {"enum": ["original", "colloquial", "typo", "stt"]},
+    "review_status": {"enum": ["draft", "reviewed"]}
+   }
+  }
+ }
+}

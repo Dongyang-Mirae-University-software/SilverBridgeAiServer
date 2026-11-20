@@ -9,6 +9,15 @@
 | `stub` (기본) | 0 | 서버 쪽 판정·후처리·답 모양 회귀 확인. 라우터 결과 = 시험지 `expect`(route·emergency·crisis→self_harm·cpr_aed→cardiac_arrest·urgent_condition) |
 | `cache` | 0 | 전에 `live`로 기록한 라우터 응답을 그대로 재사용. 기록에 없는 입력은 라우터 실패(키워드 분류)로 돌고 요약에 `routerCacheMiss`로 센다(누락이 있으면 종료 코드 1) |
 | `live` | 상한 안에서 | 실제 라우터를 부르고 응답을 캐시 파일에 기록. 키 필수, `--max-router-calls`(기본 100) 필수, 시작 전에 예상 호출 수를 출력하고 넘으면 시작하지 않는다 |
+| `fail` (2026-11-20) | 0 | 매 턴 라우터를 실패시킨다(키워드 폴백 시험, 시험지 v8 영역 E). v8 문항의 턴 `route: "fail"`은 `stub`에서도 그 턴만 실패 |
+
+### 시험지 v8 확장 (2026-11-20)
+
+- **턴별 경로**: v8 문항의 `turns[].route`(dict면 그 값으로 stub, `"fail"`이면 그 턴만 실패). 턴 route가 없으면 예전처럼 문항 `expect`.
+- **버튼 턴**: `turns[].ui = {field, value}` 또는 `{field, pick}`(`first`·`prefix:<값>`·`label:<글자>`·`hospital:<이름>`·`date+N`). 예약처럼 순서가 서버 상태에 따라 바뀌면 `{"auto": {"plan": {칸: pick}, "max_steps": 12}}` - 직전 응답이 묻는 칸이 plan에 있으면 고르고, 없으면 멈춘다.
+- **문맥**: `context`(role·age·name·phone·address·location·wardId 등)를 그대로 `ChatContext`로.
+- **예약은 언제나 가짜 서비스**: `tools/eval/v8/fake_reservation.py`(가상 병원 46곳)가 `ReservationApiClient._request`만 바꿔 끼워 지역 필터·정렬은 실제 코드를 탄다. 회원 예약 키도 가짜, `urllib.request.urlopen`은 막는다. `RESERVATION_API_BASE_URL`·`RESERVATION_ACCOUNT_SECRET`은 가짜 값으로 고정(`.env`가 다시 채우지 못한다).
+- **요약 칸**: 문항 행에 `turns`(턴별 경고·위기 고정 응답·라우터 실패·되묻기·버튼 칸·병원 카드 지역·약+술 규칙 발동·본문 특징 불린)와 `reservation`(만든 예약 수·확인 버튼 전 생성 수·최종 예약·첫 카드 지역). 본문은 `--out`(저장소 밖)에만.
 
 캐시 키 = 모델·지시문 해시·스키마 해시·사용자 문장·이력·직전 예약 상태. 라우터 지시문이 바뀌면 옛 기록은 쓰이지 않는다(다시 `live`로 채운다).
 
