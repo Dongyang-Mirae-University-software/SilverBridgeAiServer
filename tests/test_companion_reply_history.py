@@ -87,7 +87,8 @@ def _say(d, llm, text, logprob=-0.1):
 
 
 def _history_block(prompt: str) -> str:
-    return re.search(r"지금까지의 대화 \(어르신 말은 한 줄 요약\):\n(.*?)\n\n질문:", prompt, re.S).group(1)
+    # v4(11/21)는 흐름 블록이 맨 앞이라 '질문:' 앞이 아니다 - 첫 빈 줄까지 읽는다 (마지막 인사 v2-last 도 같다)
+    return re.search(r"지금까지의 대화 \(어르신 말은 한 줄 요약\):\n(.*?)\n\n", prompt, re.S).group(1)
 
 
 # --- 흐름 줄 ------------------------------------------------------------------------------------------
@@ -140,9 +141,9 @@ def test_off_mode_is_exactly_the_old_prompts(settings):
 
 
 def test_prompt_version_follows_switch(settings):
-    assert reply_prompt_version() == "reply-v3"
+    assert reply_prompt_version() == "reply-v4"
     d = store.create("ward-hist-ver", "s-ver", "12:00", OPENING, 8, None)
-    assert build_dialogue_result(d)["promptVersion"]["reply"] == "reply-v3"
+    assert build_dialogue_result(d)["promptVersion"]["reply"] == "reply-v4"
     settings(companion_reply_history="off")
     assert build_dialogue_result(d)["promptVersion"]["reply"] == "reply-v2"
 
@@ -207,3 +208,19 @@ def test_default_is_off():
     """11/20: 품질 세트 재생에서 summary 가 off 보다 대답 실패가 많아(33.3% vs 28.4%) 기본은 off. 설정으로만 켠다."""
     from app.core.config import Settings
     assert Settings.model_fields["companion_reply_history"].default == "off"
+
+
+def test_v4_puts_history_first_and_keeps_v2_body(settings):
+    """11/21 reply-v4: 흐름은 맨 앞 참고 블록, 뒤는 v2 본문 형식 + "정확히 두 문장" (v3 는 세 문장·화제 이탈이 늘었다)."""
+    from pathlib import Path
+    p = build_reply_prompt(R1, A2, None, False, ((OPENING, SUMMARY[A1]),))
+    assert p.index("지금까지의 대화") < p.index("당신은 혼자 지내시는 어르신과") < p.index(f"질문: {R1}")
+    assert "정확히 두 문장으로 씁니다: 공감 한 문장, 질문 한 문장." in p
+    v2 = (Path(__file__).resolve().parents[1] / "app/services/companion/prompts/reply-v2-followup.txt").read_text(encoding="utf-8")
+    assert v2.splitlines()[0] in p  # 대답 LoRA(cc7)가 배운 v2 첫 줄 그대로
+
+
+def test_history_turns_default_is_three():
+    from app.core.config import Settings
+    assert Settings.model_fields["companion_reply_history_turns"].default == 3
+
