@@ -104,7 +104,7 @@ class _DrugAlcoholRule(NamedTuple):
 
 _DRUG_ALCOHOL_RULES = (
     _DrugAlcoholRule("diabetes", _DIABETES_MED_WORDS, (
-    "당뇨약을 드시는 중에 술을 마시면 저혈당(식은땀·떨림·어지럼)이 늦게 올 수 있어요. 드시기 전에 의사·약사와 꼭 상의하세요."
+    "당뇨약을 드시는 중에 술을 마시면 몇 시간 뒤나 밤사이에 저혈당(식은땀·떨림·어지럼)이 올 수 있어요. 드시기 전에 의사·약사와 꼭 상의하세요."
     ), re.compile("저혈당"), _GLUCOSE_UP),
     _DrugAlcoholRule(
         "sedative",
@@ -407,9 +407,11 @@ _EMERGENCY_ACTIONS = (
     _EmergencyAction(
         "chest_stroke",
         re.compile(r"가슴이?(아|조|쪼|통증|찢)|가심이|심장이아|말이어눌|발음이(이상|꼬|자꾸)|혀가꼬|한쪽(팔|다리|얼굴|이)|얼굴이한쪽|입이돌아|팔다리에힘|갑자기앞이안보|벼락|갑자기심한두통|망치로맞은"),
-        "직접 운전하거나 혼자 움직이지 마세요.",
+        # 2026-11-20 팀원 검수: 운전 금지에 이유(구급차에서 바로 처치·맞는 병원)를 붙인다.
+        "직접 운전하거나 혼자 움직이지 마시고 119 구급차로 가세요(구급차에서 바로 처치를 시작하고 맞는 병원으로 가요).",
     ),
-    _EmergencyAction("seizure", re.compile(r"경련|발작|거품을물"), "바닥에 편히 누우시고, 곁에 있는 분께 억지로 붙잡거나 입에 물건을 넣지 말라고 알려 주세요."),
+    # 2026-11-20 팀원 검수: 본인판은 경련이 올 것 같을 때 할 일, 가족판은 곁에서 할 일(표의 대리 문장).
+    _EmergencyAction("seizure", re.compile(r"경련|발작|거품을물"), "경련이 올 것 같으면 바로 바닥에 누우시고, 곁에 있는 분께 붙잡거나 입에 물건을 넣지 말라고 알려 주세요."),
     # 2026-10-29 G-2. 질식·목에 걸림은 앉은 자세 안내가 맞지 않아 뺀다(신호 정규식이 "질식"·"목에걸려"를 보지 않는다).
     _EmergencyAction(
         "breathing",
@@ -445,7 +447,7 @@ _URGENT_CONDITIONS = (
     _UrgentCondition("urinary_retention", "소변이 마려운데 전혀 나오지 않으면 소변길이 막힌 것(급성 요폐)일 수 있어 오늘 응급실에서 진료를 받아 보세요. 아랫배가 심하게 아프면 미루지 마세요."),
 )
 # 2026-10-30 J-3: 응급 답의 설명 한 줄(판정자 6명 공통 지적 - B2 운전 금지·C5 출혈 신호·F3 심근경색 가능성).
-_BREATHING_NO_DRIVE = "직접 운전해서 병원에 가지 마세요."
+_BREATHING_NO_DRIVE = "직접 운전해서 병원에 가지 마시고 119 구급차를 부르세요(구급차에서 바로 처치를 시작하고 맞는 병원으로 가요)."
 _VOMIT_BLOOD_INFO = "커피색이나 검은색으로 토하는 것은 위나 장의 출혈일 수 있어요."
 _CHEST_INDIGESTION = re.compile(r"소화불량|소화가안|체한|체했|체해서|체기|속이(쓰|더부룩|안좋)")
 _CHEST_INDIGESTION_INFO = "소화불량처럼 느껴져도 심근경색 증상일 수 있어요."
@@ -484,7 +486,10 @@ _ANALYSIS_NOTE = re.compile(r"언급되지|언급 ?없|언급이 없|말씀하�
 # 저혈당은 "저혈당"이라는 말 또는 혈당 수치 70 미만일 때만 - "혈당이 300"에 단 음식을 권하면 반대가 된다.
 _HYPOGLYCEMIA_WORD = re.compile(r"저혈당")
 _GLUCOSE_VALUE = re.compile(r"혈당(?:이|은|가|수치가?)?(\d{2,3})")
-_HYPOGLYCEMIA_SENTENCE = "의식이 있으면 사탕이나 단 음료를 드시고, 의식이 흐리면 억지로 먹이지 마세요."
+# 2026-11-20 팀원 검수: 본인판 주어 오류("억지로 먹이지 마세요")를 고쳤다 - 본인에게는 혼자 해결하지 말고 119.
+_HYPOGLYCEMIA_SENTENCE = "의식이 있으면 사탕이나 단 음료를 드시고, 어지럽고 정신이 흐려지면 혼자 해결하려 하지 말고 바로 119에 연락하세요."
+# 2026-11-20 팀원 검수: 위기가 아닌 우울 질문(chat_keywords.depression_help_question)의 상담 답 끝 한 줄. 위기 고정 답이 아니다.
+_DEPRESSION_109 = "마음이 많이 힘드실 때는 자살예방 상담전화 109(24시간)에서도 이야기를 들어 줘요."
 # 2026-10-30 K-4 qa.C6: 기준 R2(다시 재고, 계속 낮으면 의사에게 연락)
 _HYPOGLYCEMIA_RECHECK = "15분쯤 뒤 혈당을 다시 재 보고, 계속 낮거나 증상이 이어지면 의사에게 알리세요."
 
@@ -587,10 +592,11 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_RED_FLAG_119_SENTENCE": ("neutral", None),
     "_DOUBLE_DOSE_SENTENCE": ("self", "놓친 약을 다음에 두 번 몫으로 한꺼번에 드시게 하지는 마세요."),
     "_PERSISTING_SENTENCE": ("neutral", None),
-    "_BREATHING_NO_DRIVE": ("self", "직접 운전해서 병원에 모시고 가지 마세요."),
+    "_BREATHING_NO_DRIVE": ("self", "직접 운전해서 병원에 모시고 가지 마시고 119 구급차를 부르세요(구급차에서 바로 처치를 시작하고 맞는 병원으로 가요)."),
     "_VOMIT_BLOOD_INFO": ("neutral", None),
     "_CHEST_INDIGESTION_INFO": ("neutral", None),
-    "_HYPOGLYCEMIA_SENTENCE": ("self", "의식이 있으시면 사탕이나 단 음료를 드시게 하고, 의식이 흐리시면 억지로 먹이지 마세요."),
+    "_HYPOGLYCEMIA_SENTENCE": ("self", "의식이 있으시면 사탕이나 단 음료를 드시게 하고, 의식이 흐리시면 억지로 먹이지 마시고 바로 119에 연락하세요."),
+    "_DEPRESSION_109": ("self", "가족분이 힘들어 보이시면 자살예방 상담전화 109(24시간)에서 가족도 상담받을 수 있어요."),
     "_HYPOGLYCEMIA_RECHECK": ("self", "15분쯤 뒤 혈당을 다시 재 드리고, 계속 낮거나 증상이 이어지면 의사에게 알려 주세요."),
     "_FOLLOWUP_INTRO": ("own_variant", None),
     "_DEPT_INFO_EXAM_OPEN": ("self", "{department}에서는 먼저 어르신께 언제부터, 어떻게 불편하신지 자세히 여쭤보고 진찰해요."),
@@ -608,7 +614,7 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_FOLLOWUP_CLOSING": ("own_variant", None),
     "_DEGRADED_NOTICE": ("neutral", None),
     "_DEGRADED_INPUT_NOTICE": ("neutral", None),
-    "_DRUG_ALCOHOL_RULES.diabetes": ("self", "어르신이 당뇨약을 드시는 중에 술을 드시면 저혈당(식은땀·떨림·어지럼)이 늦게 올 수 있어요. 드시기 전에 의사·약사와 꼭 상의해 주세요."),
+    "_DRUG_ALCOHOL_RULES.diabetes": ("self", "어르신이 당뇨약을 드시는 중에 술을 드시면 몇 시간 뒤나 밤사이에 저혈당(식은땀·떨림·어지럼)이 올 수 있어요. 드시기 전에 의사·약사와 꼭 상의해 주세요."),
     "_DRUG_ALCOHOL_RULES.sedative": ("self", "어르신이 수면제나 안정제를 술과 함께 드시면 숨이 약해지거나 깨어나기 어려울 만큼 위험할 수 있어요. 술과 함께 드시지 않게 해 주세요."),
     "_DRUG_ALCOHOL_RULES.acetaminophen": ("self", "어르신이 타이레놀(아세트아미노펜)을 드시는 중에 술을 드시면 간이 상할 수 있어요. 함께 드시지 않게 해 주시고, 술을 자주 드시면 의사·약사와 상의해 주세요."),
     "_DRUG_ALCOHOL_RULES.anticoagulant": ("self", "어르신이 와파린 같은 피를 묽게 하는 약을 드시는 중에 술을 드시면 출혈 위험이 커지고 약 효과가 달라질 수 있어요. 드시기 전에 의사·약사와 꼭 상의해 주세요."),
@@ -641,10 +647,10 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_URGENT_CONDITIONS.head_injury_anticoagulant": ("neutral", None),
     "_URGENT_CONDITIONS.acute_glaucoma": ("neutral", None),
     "_URGENT_CONDITIONS.urinary_retention": ("neutral", None),
-    "_EMERGENCY_ACTIONS.chest_stroke": ("self", "직접 운전해서 모시고 가지 마시고, 혼자 움직이시게 두지 마세요."),
-    "_EMERGENCY_ACTIONS.seizure": ("self", "억지로 붙잡거나 입에 물건을 넣지 마세요."),
+    "_EMERGENCY_ACTIONS.chest_stroke": ("self", "직접 운전해서 모시고 가거나 혼자 움직이시게 두지 마시고 119 구급차를 부르세요(구급차에서 바로 처치를 시작하고 맞는 병원으로 가요)."),
+    "_EMERGENCY_ACTIONS.seizure": ("self", "억지로 붙잡거나 입에 물건을 넣지 말고, 옆으로 눕힌 뒤 주변의 위험한 물건을 치워 주세요."),
     "_EMERGENCY_ACTIONS.breathing": ("self", "편하게 앉은 자세로 숨을 쉬게 하고, 꽉 끼는 옷은 풀어 주세요."),
-    "_EMERGENCY_ACTIONS.vomiting_blood": ("self", "토한 것이 목에 걸리지 않게 옆으로 눕히고, 아무것도 먹거나 마시지 마세요."),
+    "_EMERGENCY_ACTIONS.vomiting_blood": ("self", "토한 것이 목에 걸리지 않게 옆으로 눕히고, 아무것도 먹이거나 마시게 하지 마세요."),
     "_EMERGENCY_ACTIONS.collapse_fall": ("self", "무리하게 일으키지 말고 편한 자세로 눕혀 두세요."),
 }
 
@@ -728,6 +734,16 @@ class MedicalLlmService:
         if not _THIRD_PERSON_SUBJECT.search(text):
             return False
         return not _SPEAKER_AS_SUBJECT.search(_FAMILY_CARER_SPEAKER.sub(" ", text))
+
+    @classmethod
+    def depression_109_line(cls, message: str, reply: str, proxy: bool = False) -> str | None:
+        """위기가 아닌 우울 질문의 답 끝 109 한 줄(2026-11-20). 자해 신호가 있거나 답에 이미 109가 있으면 None -
+        자해 신호 문장은 위기 고정 답이 먼저 나가고, 같은 안내를 두 번 붙이지 않는다. 가족 이야기면 가족판."""
+        if not message or cls.self_harm_signals(message) or not chat_keywords.depression_help_question(message):
+            return None
+        if "109" in (reply or ""):
+            return None
+        return _DEPRESSION_109.pick(proxy or cls.about_family(message) or cls.proxy_subject(message))
 
     @classmethod
     def self_harm_in_history(cls, history: list[dict[str, str]]) -> bool:

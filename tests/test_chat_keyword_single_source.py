@@ -249,7 +249,8 @@ _ALLOWED = {
     "_DRUG_DIRECT_RULES.bp_med_stop": {"self_adjust"},  # G10 이 G6·G8 뒤에 붙인다
 }
 # 119 는 응급·위기·위험 신호 문장에만 - 약 문의 119 빼기(G13)는 응급 답·위기 응답에 닿지 않고, 위험 신호 줄은 G13 뒤에 붙는다.
-_ALLOWED_119 = re.compile(r"^(_EMERGENCY_REPLY|_SELF_HARM_\w+|_RED_FLAG_119_SENTENCE|_EMERGENCY_ACTIONS\.\w+)$")
+# 숨참 운전 금지·저혈당 줄도 응급 행동 줄(emergency_action_sentences)로만 붙는다 - 2026-11-20 팀원 검수로 119 구급차·119 연락이 들어갔다.
+_ALLOWED_119 = re.compile(r"^(_EMERGENCY_REPLY|_SELF_HARM_\w+|_RED_FLAG_119_SENTENCE|_EMERGENCY_ACTIONS\.\w+|_BREATHING_NO_DRIVE|_HYPOGLYCEMIA_SENTENCE)$")
 
 
 def test_no_fixed_sentence_is_removed_by_a_drop_rule() -> None:
