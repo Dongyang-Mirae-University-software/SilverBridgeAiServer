@@ -1,5 +1,7 @@
 # 기분 어댑터 재학습 계획 (2026-11-19, DGX)
 
+> **2026-11-20 결정: 이 재학습 방향(평온 줄이기)과 `mood-retrain-seed.jsonl` 학습은 반영하지 않는다.** 기분 어댑터는 e1600soup 그대로이고, 이 문서와 seed 파일은 기록으로만 둔다(학습·설정에 연결하지 않음). 평가 세트 `companion_quality_v1`은 학습에 쓰지 않고 기분 모델 교체 조건의 시험지로 쓴다.
+
 평가 세트 142턴·현재 git(e1600soup·r2) 실측에서 나온 **구조적 오류**를 근거로, 재학습 목표·데이터·기대 수치를 정한다.
 측정은 `tools/eval/score_companion_quality.py`, 세트는 `tests/companion_eval/companion_quality_v1.json`.
 

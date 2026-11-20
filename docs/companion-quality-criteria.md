@@ -4,7 +4,7 @@
 결정·확인 항목은 모두 사용자(재희)가 11/15에 정했다. 기준값(0.3·0.35 등)은 평가 세트로 다시 맞춘다.
 
 근거 코드 (main fc11aaf + 브랜치 feat/companion-reply-history)
-- 기분 정의: `app/services/companion/prompts/mood-e900.txt` (JOY·CALM·WORRY·DEPRESSED·UNKNOWN). 기분 어댑터는 e1300(11/15 원격 main a226e82, 프롬프트·출력 형식은 e900과 같음 - 프롬프트 파일 이름은 그대로 mood-e900.txt)
+- 기분 정의: `app/services/companion/prompts/mood-e900.txt` (JOY·CALM·WORRY·DEPRESSED·UNKNOWN). 기분 어댑터는 e1600soup(11/18 main b1e8988, 그 전 e1300·e1500. 프롬프트·출력 형식은 e900과 같음 - 프롬프트 파일 이름은 그대로 mood-e900.txt)
 - 대답 검사: `reply_service.check_reply` - 비어 있음·길이(`COMPANION_REPLY_MAX_CHARS`)·질병명 6개·과거 가정·물음표·대답과 무관·권유·반복
 - 위험: `risk.py` (v9 + 위험 LoRA r2, 기준 0.5) + 낱말 규칙 kw4, 위험 턴은 `safety_reply`
 
@@ -45,7 +45,7 @@
 
 ## 2. 기분 정답 기준
 
-정의는 지금 기분 프롬프트(mood-e900.txt, 어댑터 e1300)를 그대로 쓴다 (서버·백엔드·화면이 이미 이 4코드를 쓴다).
+정의는 지금 기분 프롬프트(mood-e900.txt, 어댑터 e1600soup)를 그대로 쓴다 (서버·백엔드·화면이 이미 이 4코드를 쓴다).
 
 | 코드 | 정의 (mood-e900.txt) |
 |---|---|
@@ -82,7 +82,7 @@
 
 ### 결정 3 (사용자, 11/15): 섞인 감정은 감정 2개로 나타내고, 그래도 애매하면 '확인 필요'
 
-- 지금 기분 어댑터(e1300, e900 엔진)는 4코드 확률을 이미 계산한다(`mood_service.classify`의 scores). 재학습 없이 여기서 감정 2개를 뽑을 수 있다.
+- 지금 기분 어댑터(e1600soup, e900 엔진)는 4코드 확률을 이미 계산한다(`mood_service.classify`의 scores). 재학습 없이 여기서 감정 2개를 뽑을 수 있다.
 - 초안 규칙:
   - 1등 확률과 2등 확률이 모두 0.3 이상이고 한쪽이 긍정(JOY·CALM), 한쪽이 부정(WORRY·DEPRESSED)이면 **감정 2개**로 낸다.
   - 4개가 모두 0.35 미만으로 고르게 퍼지면 **확인 필요**로 낸다.
@@ -103,7 +103,7 @@
 
 - 위험 판정(v9 + r2)은 그 턴의 말 하나만 본다. '위험 (이어짐)'은 **위험 이어짐 규칙**(`app/services/companion/risk_carry.py`, `COMPANION_RISK_CARRY`, 11/15)이 맡는다: 직전 턴이 위험이고 이번 말이 넘기는 말이면 위험·안전 안내를 이어 가고 턴 응답 `riskCarry=true`. 도움을 받겠다는 말은 이어 가지 않는다. 평가 세트의 위험 다음 턴 라벨과 이 규칙의 결과가 같은지 시험이 확인한다(`tests/test_companion_risk_carry.py`).
 
-## 4. 지표와 채택 기준 (6-8에서 cc7·e1300·r2와 새 모델 비교)
+## 4. 지표와 채택 기준 (6-8에서 cc7·e1600soup·r2와 새 모델 비교 - 11/15 작성 때 기준은 e1300)
 
 | 영역 | 지표 | 채택 조건 (초안) |
 |---|---|---|
