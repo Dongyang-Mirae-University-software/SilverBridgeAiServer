@@ -185,10 +185,21 @@ def test_wilson_matches_report_values() -> None:
 
 
 def test_verdicts_follow_area_targets() -> None:
+    # 2026-11-20 사용자 결정: 전 영역 상황 단위 점추정 ≥80%, D1 만 100%. Wilson 은 판정에 쓰지 않는다.
     assert report.verdict("D1", 20, 20) == "충족" and report.verdict("D1", 19, 20) == "미달"
-    assert report.verdict("C", 29, 30) == "충족" and report.verdict("C", 27, 30) == "미달"
-    assert report.verdict("D4", 14, 15) == "충족" and report.verdict("D4", 13, 15) == "미달"
-    assert report.verdict("F", 40, 50) == "충족"
+    assert report.verdict("A", 8, 8) == "충족" and report.verdict("C", 4, 4) == "충족"  # 하한이 80% 아래여도 충족
+    for area in ("A", "B", "C", "D2", "D3", "D4", "E", "F", "G", "G'", "H", "I", "L"):
+        assert report.verdict(area, 4, 5) == "충족", area  # 경계값 80% 정확히
+        assert report.verdict(area, 7, 9) == "미달", area  # 77.8%
+    assert "기준: 점추정 ≥80%(D1 100%)" in report.markdown([])
+
+
+def test_d1_fails_with_a_single_failed_situation() -> None:
+    graded = [{"id": f"x{i}", "seed_id": f"s{i}", "area": "D1", "graded": True, "pass": i != 0} for i in range(10)]
+    (row,) = report.table(graded, "holdout-A")
+    assert (row["n"], row["pass"]) == (10, 9) and row["verdict"] == "미달"
+    graded[0]["pass"] = True
+    assert report.table(graded, "holdout-A")[0]["verdict"] == "충족"
     rows = report.table([{"graded": True, "pass": True, "area": "D1"}, {"graded": False, "area": "F"}], "holdout-A")
     assert [r["area"] for r in rows] == ["D1"] and "| D1 |" in report.markdown(rows)
 
