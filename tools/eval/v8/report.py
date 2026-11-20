@@ -3,6 +3,10 @@
 
 합격선은 팀 자체 목표다(외부 문헌의 기준이 아니다, docs/eval/2026-11-20-eval-set-v8-basis.md). 측정 전에 동결하고
 결과 표에 동결 해시(문항 파일·채점기 커밋)를 함께 적는다.
+
+주 지표는 상황(seed_id) 단위다(2026-11-20): 한 상황의 모든 변형(패러프레이즈)·회차가 통과해야 그 상황이 통과이고,
+점추정·Wilson 구간·판정은 상황 수로 계산한다. 패러프레이즈가 얕아(끝 한두 글자 차이) 문항 단위로 세면 표본이 부풀려지므로
+문항 단위 통과는 참고 칸으로만 둔다. 판정 모델 결과도 같은 모양(id·area·seed_id·pass)으로 넣으면 같은 규칙으로 묶인다.
 """
 from __future__ import annotations
 
@@ -65,6 +69,15 @@ def sha256_file(path: str | pathlib.Path) -> str:
     return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
 
 
+def seed_results(gs: list[dict]) -> dict[str, bool]:
+    """상황(seed_id)별 통과 - 그 상황의 채점된 문항(변형·회차) 전부가 통과해야 True. seed_id 가 없으면 문항 id 가 상황."""
+    out: dict[str, bool] = OrderedDict()
+    for g in gs:
+        sid = g.get("seed_id") or g.get("id")
+        out[sid] = out.get(sid, True) and bool(g.get("pass"))
+    return out
+
+
 def table(graded: list[dict], set_label: str, freeze: str = "") -> list[dict]:
     by_area: dict[str, list[dict]] = OrderedDict()
     for g in graded:
@@ -76,21 +89,24 @@ def table(graded: list[dict], set_label: str, freeze: str = "") -> list[dict]:
         gs = by_area.get(area)
         if not gs:
             continue
-        n, k = len(gs), sum(1 for g in gs if g.get("pass"))
+        seeds = seed_results(gs)
+        n, k = len(seeds), sum(1 for ok in seeds.values() if ok)  # 주 지표 = 상황 단위
         lo, hi = wilson(k, n)
         rows.append({
             "area": area, "set": set_label, "n": n, "pass": k, "point": k / n, "lower": lo, "upper": hi,
+            "item_n": len(gs), "item_pass": sum(1 for g in gs if g.get("pass")),
             "target": TARGETS.get(area, ("팀 목표 미정",))[0], "verdict": verdict(area, k, n), "freeze": freeze,
         })
     return rows
 
 
 def markdown(rows: list[dict]) -> str:
-    out = ["| 영역 | 세트 | n | 통과 | 점추정 | Wilson 95% | 합격선(팀 목표) | 판정 | 동결 해시 |", "|---|---|---|---|---|---|---|---|---|"]
+    out = ["| 영역 | 세트 | 상황 n | 상황 통과 | 점추정 | Wilson 95% | (참고) 문항 n·통과 | 합격선(팀 목표) | 판정 | 동결 해시 |",
+           "|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
         out.append(
             f"| {r['area']} | {r['set']} | {r['n']} | {r['pass']} | {r['point']:.1%} | {r['lower']:.1%}~{r['upper']:.1%} | "
-            f"{r['target']} | {r['verdict']} | {r['freeze'][:12]} |"
+            f"{r['item_n']}·{r['item_pass']} | {r['target']} | {r['verdict']} | {r['freeze'][:12]} |"
         )
     return "\n".join(out)
 
