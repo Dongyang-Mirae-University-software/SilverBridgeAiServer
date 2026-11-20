@@ -300,6 +300,20 @@ def _upstream_meta(db_factory, log_id: Any) -> dict:
     return meta if isinstance(meta, dict) else {}
 
 
+def fixed_sentence_in_reply(sentence: Any, reply: str) -> bool:
+    """고정 문장(본인판 또는 대리판)이 답에 있는가. 답 모양(chat_layout)이 문장마다 줄을 나누고 줄 머리 이모지를 붙이므로
+    이모지를 지우고 공백을 하나로 모은 뒤 문장 조각마다 본다(2026-11-21 - 통째 일치로 보다가 붙은 문장을 못 찾았다)."""
+    from app.services.chat_keywords import strip_layout_emoji
+    from app.services.medical_llm_service import _SENTENCE_SPLIT
+
+    plain = " ".join(" ".join(strip_layout_emoji(line).split()) for line in (reply or "").split("\n"))
+    for text in (str(sentence), getattr(sentence, "proxy", None) or ""):
+        parts = [" ".join(p.split()) for p in _SENTENCE_SPLIT.split(text) if p.strip()]
+        if parts and all(p in plain for p in parts):
+            return True
+    return False
+
+
 def turn_features(message: str, res: dict | None, meta: dict, creates: int) -> dict:
     """턴 하나의 본문 없는 특징(rule_grader 가 채점한다)."""
     from app.services.medical_llm_service import MedicalLlmService
@@ -310,11 +324,7 @@ def turn_features(message: str, res: dict | None, meta: dict, creates: int) -> d
     ui = res.get("ui")
     ui_field = (ui.get("field") if isinstance(ui, dict) else getattr(ui, "field", None)) if ui else None
     rules = MedicalLlmService.drug_alcohol_rules(message) if message else []
-    sentences = []
-    for r in rules:
-        texts = [str(r.sentence), getattr(r.sentence, "proxy", None) or ""]
-        if any(t and t in reply for t in texts):
-            sentences.append(r.name)
+    sentences = [r.name for r in rules if fixed_sentence_in_reply(r.sentence, reply)]
     data = res.get("toolData")
     rows = data if isinstance(data, list) else (data or {}).get("rows") if isinstance(data, dict) else None
     return {

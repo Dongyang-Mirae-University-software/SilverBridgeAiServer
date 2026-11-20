@@ -82,9 +82,13 @@ _FAMILY_CARER_SPEAKER = re.compile(r"(?:제가|저는|저도|내가|나는|나�
 # ("의사·약사에게 물어보세요"만으로는 진료 권유가 아니다).
 _CLINIC_SENTENCE = "증상이 계속되거나 걱정되시면 병원 진료를 받아 보세요."
 # 당뇨약 + 술 문의에 붙이는 저혈당 문장(2026-10-27 점검 M-2 - qa.D5 에서 저혈당 미언급 4/4·방향 반대 1/4). 약 종류별 규칙은 _DRUG_ALCOHOL_RULES.
-_DIABETES_MED_WORDS = re.compile(r"당뇨|혈당약|혈당 ?약|인슐린")
-# "수술"·"기술"·"예술"·"마술"·"미술"의 "술"은 술이 아니다.
-_ALCOHOL_WORDS = re.compile(r"(?<![수기예마미])술|음주|소주|맥주|막걸리|와인|양주|알코올|알콜")
+# 2026-11-21 v8 holdout-A 측정 일반화: 성분명·상품명 계열로 넓힌다(메트포르민 계열·설포닐우레아·DPP-4·SGLT-2 대표 이름).
+_DIABETES_MED_WORDS = re.compile(
+    r"당뇨|혈당약|혈당 ?약|인슐린|메트포르민|글루코파지|다이아벡스|글리메피리드|아마릴|글리클라지드|다이아미크롱|"
+    r"시타글립틴|자누비아|리나글립틴|트라젠타|다파글리플로진|포시가|엠파글리플로진|자디앙"
+)
+# "수술"·"기술"·"예술"·"마술"·"미술"의 "술"은 술이 아니다. 반주(식사 때 곁들이는 술)·양주 이름도 술이다(2026-11-21 일반화).
+_ALCOHOL_WORDS = re.compile(r"(?<![수기예마미])술|음주|소주|맥주|막걸리|와인|양주|알코올|알콜|반주|폭탄주|위스키|보드카|칵테일|하이볼|고량주|사케|샴페인")
 # 술이 혈당을 올린다고 쓴 문장(방향이 반대, 2026-10-27 재측정 4/5). "저혈당"이 든 문장은 건드리지 않는다.
 _GLUCOSE_UP = re.compile(r"혈당[^.!?。]{0,12}(높|오르|올라|올리|올려|상승)")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?。])\s+")
@@ -108,7 +112,7 @@ _DRUG_ALCOHOL_RULES = (
     ), re.compile("저혈당"), _GLUCOSE_UP),
     _DrugAlcoholRule(
         "sedative",
-        re.compile(r"수면제|수면 ?유도제|수면 ?보조제|신경 ?안정제|안정제|진정제|항불안제|졸피뎀|스틸녹스|자낙스|알프라졸람|로라제팜"),
+        re.compile(r"수면제|수면 ?유도제|수면 ?보조제|신경 ?안정제|안정제|진정제|항불안제|졸피뎀|스틸녹스|자낙스|알프라졸람|로라제팜|아티반|디아제팜|바리움|클로나제팜|리보트릴"),
         "수면제나 안정제를 술과 함께 드시면 숨이 약해지거나 깨어나기 어려울 만큼 위험할 수 있어요. 술과 함께 드시지 마세요.",
         re.compile(r"(함께|같이) (드시지|복용하지|먹지) 마"),
         None,
@@ -122,7 +126,7 @@ _DRUG_ALCOHOL_RULES = (
     ),
     _DrugAlcoholRule(
         "anticoagulant",
-        re.compile(r"와파린|쿠마딘|항응고제|피 ?묽게|피를 ?묽게|혈액 ?희석"),
+        re.compile(r"와파린|쿠마딘|항응고제|피 ?묽게|피를 ?묽게|혈액 ?희석|아픽사반|엘리퀴스|리바록사반|자렐토|에독사반|릭시아나|다비가트란|프라닥사"),
         "와파린 같은 피를 묽게 하는 약을 드시는 중에 술을 마시면 출혈 위험이 커지고 약 효과가 달라질 수 있어요. 드시기 전에 의사·약사와 꼭 상의하세요.",
         re.compile(r"출혈|피가 (잘 )?안 멈|피가 멈추지"),
         # 술이 응고(혈전) 위험을 높인다고 쓴 문장 - 실제로는 출혈 위험(2026-10-27 측정 2/3).
@@ -130,7 +134,7 @@ _DRUG_ALCOHOL_RULES = (
     ),
     _DrugAlcoholRule(
         "blood_pressure",
-        re.compile(r"고혈압약|혈압약|혈압 ?약"),
+        re.compile(r"고혈압약|혈압약|혈압 ?약|암로디핀|노바스크|로사르탄|발사르탄|디오반|텔미사르탄|미카르디스|올메사르탄|올메텍"),
         # 술은 바로는 혈압약 효과를 키워 혈압을 떨어뜨리고, 자주 마시면 혈압을 올린다 - 모델이 한쪽만 써도 어긋나지 않게 두 방향을 함께 쓴다
         # (2026-10-27 측정: 모델 "혈압이 더 높아질" + 옛 고정 문장 "혈압이 너무 떨어져"가 반대로 읽힘 1/3).
         "혈압약을 드시는 중에 술을 마시면 혈압이 갑자기 떨어져 어지럽거나 넘어질 수 있고, 자주 마시면 오히려 혈압이 올라 약 효과가 떨어질 수 있어요. 드시기 전에 의사·약사와 상의하세요.",
@@ -505,6 +509,8 @@ _FOLLOWUP_CONTEXT = re.compile(
 _FOLLOWUP_MILD = re.compile(r"조금|약간|살짝|좀")
 _FOLLOWUP_MILD_MAX_LEN = 12
 _FOLLOWUP_SYMPTOM_NOUN = chat_keywords.FOLLOWUP_SYMPTOM_NOUN
+_NUMB_WORDS = frozenset({"저리", "저려"})
+_NUMB_LIMBS = frozenset({"손", "발", "다리", "팔"})
 # 감정·괴로움 표현이 섞이면 되묻지 않는다 - 위기 신호일 수 있는 말("다 그만두고 싶어")에 고정 질문으로 답하지 않게.
 _FOLLOWUP_DISTRESS = re.compile(r"그만두|그만하|힘들|힘드|싫어|싫다|우울|죽겠|못살|외로|불안|무서|괴로|속상|열받|열이받")
 # 증상 낱말("배")이 들어 있어도 증상이 아닌 말 - 되묻기·답 칩("먹고 나면 더 아파요")이 어색하다(2026-11-03 답 칩 점검 M-2).
@@ -1062,6 +1068,10 @@ class MedicalLlmService:
         if len(compact) > _FOLLOWUP_MILD_MAX_LEN and _FOLLOWUP_MILD.search(compact):
             return False
         nouns = set(_FOLLOWUP_SYMPTOM_NOUN.findall(compact))
+        # 저림은 팔·다리·손·발의 증상이라 "다리가 저려요"는 한 가지 호소다 - 부위와 저림을 서로 다른 증상 둘로 세지 않는다
+        # (2026-11-21 v8 holdout-A 측정 일반화, "가려움"을 피부와 두 번 세지 않게 한 것과 같은 판단).
+        if nouns & _NUMB_WORDS and nouns & _NUMB_LIMBS:
+            nouns -= _NUMB_WORDS
         if len(nouns) >= 2:
             return False
         return bool(nouns) or bool(_symptom_department(message or ""))
