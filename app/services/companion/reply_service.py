@@ -15,8 +15,10 @@ logger = logging.getLogger(__name__)
 
 REPLY_PROMPT_VERSION = "reply-v2"  # 응답 프롬프트 파일을 고치면 올린다 (v2: 대답 속 낱말을 이어 가는 꼬리질문)
 # 11/15: 대화 흐름(말벗 문장 + 어르신 말 한 줄 요약)을 넣은 프롬프트 (COMPANION_REPLY_HISTORY=summary).
-#   꼬리질문 reply-v3-followup · 마지막 인사 reply-v2-last(직전 질문도 넣는다). off 면 위 reply-v2 그대로
-REPLY_HISTORY_PROMPT_VERSION = "reply-v3"
+#   꼬리질문 reply-v4-followup · 마지막 인사 reply-v2-last(직전 질문도 넣는다). off 면 위 reply-v2 그대로
+#   11/21 v3 → v4: 흐름 블록을 맨 앞 참고로 옮기고 뒤는 대답 LoRA(cc7)가 배운 v2 본문 그대로, 길이는 "정확히 두 문장".
+#   v3 는 흐름을 이어 붙여 세 문장(2문장 초과 11 vs off 6)·화제 이탈이 늘었다 (reply-v3-followup.txt 는 기록으로 둔다)
+REPLY_HISTORY_PROMPT_VERSION = "reply-v4"
 HISTORY_EMPTY = "(아직 없음 - 첫 대답입니다)"
 HISTORY_NO_ANSWER = "(대답 없음)"
 HISTORY_NO_SUMMARY = "(요약 없음)"
@@ -231,7 +233,7 @@ def build_reply_prompt(question: str, transcript: str, prev_signals: dict | None
     """대답 프롬프트. COMPANION_REPLY_HISTORY=summary 면 대화 흐름을 넣은 v3(꼬리질문)·v2-last(마지막 인사)를 쓴다."""
     s = get_settings()
     if s.companion_reply_history == "summary":
-        name = "reply-v2-last.txt" if is_last_turn else "reply-v3-followup.txt"
+        name = "reply-v2-last.txt" if is_last_turn else "reply-v4-followup.txt"
     else:
         name = "reply-v1-last.txt" if is_last_turn else "reply-v2-followup.txt"
     template = (_PROMPT_DIR / name).read_text(encoding="utf-8")
