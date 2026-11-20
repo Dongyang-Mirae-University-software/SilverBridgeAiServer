@@ -230,10 +230,17 @@ def history_lines(history, max_pairs: int) -> str:
 
 def build_reply_prompt(question: str, transcript: str, prev_signals: dict | None, is_last_turn: bool,
                        history=()) -> str:
-    """대답 프롬프트. COMPANION_REPLY_HISTORY=summary 면 대화 흐름을 넣은 v3(꼬리질문)·v2-last(마지막 인사)를 쓴다."""
+    """대답 프롬프트. COMPANION_REPLY_HISTORY=summary 면 대화 흐름을 넣은 v4(꼬리질문)·v2-last(마지막 인사)를 쓴다.
+
+    COMPANION_REPLY_HISTORY_LAST=false 면 summary 에서도 마지막 인사는 흐름 없는 v1-last 를 쓴다 (11/21 - v2-last 가 앞 대화의
+    음식을 끌어와 하지 않은 일을 한 것처럼 말하는 치명이 반복돼, 두 가지를 나란히 시험한다).
+    """
     s = get_settings()
     if s.companion_reply_history == "summary":
-        name = "reply-v2-last.txt" if is_last_turn else "reply-v4-followup.txt"
+        if is_last_turn:
+            name = "reply-v2-last.txt" if s.companion_reply_history_last else "reply-v1-last.txt"
+        else:
+            name = "reply-v4-followup.txt"
     else:
         name = "reply-v1-last.txt" if is_last_turn else "reply-v2-followup.txt"
     template = (_PROMPT_DIR / name).read_text(encoding="utf-8")

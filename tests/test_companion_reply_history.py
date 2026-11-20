@@ -224,3 +224,14 @@ def test_history_turns_default_is_three():
     from app.core.config import Settings
     assert Settings.model_fields["companion_reply_history_turns"].default == 3
 
+
+def test_summary_last_turn_can_drop_history(settings):
+    """11/21: COMPANION_REPLY_HISTORY_LAST=false 면 summary 에서도 마지막 인사는 흐름 없는 v1-last (꼬리질문은 v4 그대로)."""
+    settings(companion_reply_history_last=False)
+    last = build_reply_prompt(R2, A3, None, True, ((OPENING, SUMMARY[A1]),))
+    assert "지금까지의 대화" not in last and SUMMARY[A1] not in last
+    follow = build_reply_prompt(R1, A2, None, False, ((OPENING, SUMMARY[A1]),))
+    assert "지금까지의 대화" in follow
+    settings(companion_reply_history_last=True)
+    assert "지금까지의 대화" in build_reply_prompt(R2, A3, None, True, ((OPENING, SUMMARY[A1]),))
+
