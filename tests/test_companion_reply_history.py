@@ -201,3 +201,9 @@ def test_reply_that_only_follows_history_is_still_unrelated(settings):
     llm = ScriptedLlm(["국수는 어떻게 만드셨어요?"])
     r = generate_reply(llm, R1, A2, None, False, 2, None, history=((OPENING, SUMMARY[A1]),))
     assert r.source == "FALLBACK" and "대답과 무관" in r.failures
+
+
+def test_default_is_off():
+    """11/20: 품질 세트 재생에서 summary 가 off 보다 대답 실패가 많아(33.3% vs 28.4%) 기본은 off. 설정으로만 켠다."""
+    from app.core.config import Settings
+    assert Settings.model_fields["companion_reply_history"].default == "off"

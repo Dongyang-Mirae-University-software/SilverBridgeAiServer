@@ -491,7 +491,8 @@ class Settings(BaseModel):
     companion_reply_redo_temperature: float = _as_float("COMPANION_REPLY_REDO_TEMPERATURE", 0.7)
     # 대답 프롬프트에 이 대화의 흐름을 넣는다 (11/15, A안). summary = 말벗 문장 + 어르신 말 한 줄 요약(원문 아님),
     #   마지막 인사에도 직전 질문을 넣는다(reply-v3 · reply-v2-last). off = 직전 문장 하나 + 이번 대답만(reply-v2, 전과 같음)
-    companion_reply_history: str = _as_choice("COMPANION_REPLY_HISTORY", "summary", ("summary", "off"))
+    #   기본 off (11/20 품질 세트 DGX 재생: summary 대답 실패 33.3%·치명 2 > off 28.4%·치명 1 - 나빠져서 설정으로만 켠다)
+    companion_reply_history: str = _as_choice("COMPANION_REPLY_HISTORY", "off", ("summary", "off"))
     # 흐름에 넣을 최근 쌍 수 (말벗 문장 1 + 어르신 요약 1 = 1쌍). 0 이하면 전부 (한 대화는 최대 8턴)
     companion_reply_history_turns: int = _as_int("COMPANION_REPLY_HISTORY_TURNS", 6)
     # 별 내용 없는 짧은 대답이 이 횟수만큼 이어지면 아직 묻지 않은 일상 화제 질문으로 넘어간다 (11/13). 0이면 끈다.

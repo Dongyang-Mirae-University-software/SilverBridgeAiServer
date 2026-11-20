@@ -5,7 +5,7 @@
 외부 API(Anthropic 등)를 부르지 않는다.
 
 실행 (DGX, 저장소 사본 루트에서):
-  MODEL_BASE_PATH=<companion/llm/... 가 있는 폴더> COMPANION_REPLY_HISTORY=summary \
+  MODEL_BASE_PATH=<companion/llm/... 가 있는 폴더> COMPANION_REPLY_HISTORY=summary|off \
     python tools/eval/companion_quality_dgx_run.py <run.json> --label summary
   python tools/eval/score_companion_quality.py <run.json> <out_dir>
 
