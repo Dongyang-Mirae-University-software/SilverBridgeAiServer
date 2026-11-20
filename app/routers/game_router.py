@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from app.core.response import error_response, success_response
-from app.core.security import require_game_api_key
+from app.core.security import require_api_key, require_game_api_key
 from app.database.session import get_db
 from app.schemas.game_schema import GameAnswerRequest, GameStartRequest
 from app.services.game_service import GameService
@@ -62,6 +62,14 @@ def list_user_progress(userId: int, db: Session = Depends(get_db)) -> dict:
 def list_user_activity(userId: int, days: int = 182, db: Session = Depends(get_db)) -> dict:
     service = GameService(db)
     return success_response("사용자별 활동량 조회 완료", service.list_activity_for_user(userId, days))
+
+
+@router.delete("/records", summary="회원의 게임 기록 전체 삭제 (회원 탈퇴 정리용)", dependencies=[Depends(require_api_key)])
+def delete_user_records(userId: int = Query(..., ge=1), db: Session = Depends(get_db)) -> dict:
+    # BE 탈퇴 정리(AFTER_COMMIT)가 부른다. 조회 경로와 달리 GAME_REQUIRE_API_KEY 스위치를 따르지 않고 항상 키를 요구한다 -
+    # 스위치를 끈 환경에서도 키 없이 남의 기록을 지울 수 없게. userId 는 필수(없으면 422, 전 회원 삭제 방지).
+    service = GameService(db)
+    return success_response("게임 기록 삭제 완료", service.delete_records_for_user(userId))
 
 
 @router.post("/{game_slug}/answer", summary="게임 정답 제출")

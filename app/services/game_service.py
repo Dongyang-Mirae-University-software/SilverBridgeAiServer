@@ -774,6 +774,13 @@ class GameService:
             "games": games,
         }
 
+    def delete_records_for_user(self, user_id: int) -> dict[str, int]:
+        """회원의 게임 진행·풀이 기록 전부 삭제(회원 탈퇴 정리용, BE 게임 중계 점검 M-1). 없으면 0건 - 여러 번 불러도 같다."""
+        attempts = self.db.query(GameAttempt).filter(GameAttempt.user_id == user_id).delete(synchronize_session=False)
+        progress = self.db.query(GameProgress).filter(GameProgress.user_id == user_id).delete(synchronize_session=False)
+        self.db.commit()
+        return {"progressDeleted": int(progress), "attemptsDeleted": int(attempts)}
+
     def list_activity_for_user(self, user_id: int, days: int = 182) -> dict[str, Any]:
         """날짜(KST)별 풀이 횟수·정답 수·획득 점수. 활동이 있는 날만 돌려준다."""
         days = max(1, min(days, 366))
