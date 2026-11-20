@@ -743,6 +743,23 @@ class ChatService:
             result.setdefault("meta", {})
             if isinstance(result["meta"], dict):
                 result["meta"]["emergencyFollowup"] = True
+        # 위기가 아닌 우울 질문(2026-11-20 팀원 검수): 평소 상담 답 끝에 109 한 줄. 위기 고정 답·위험도는 바꾸지 않고,
+        # 위기 답·응급 답·예약 흐름·되묻기 턴에는 붙이지 않는다(이미 109가 있으면 depression_109_line 이 None).
+        meta_now = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+        if (
+            message and not ui_selection and isinstance(result.get("reply"), str)
+            and route_info.get("route") != "reservation" and not result.get("ui")
+            and result.get("riskLevel") != "high" and not result.get("emergencyWarning")
+            and not meta_now.get("selfHarm") and not meta_now.get("followupAsked")
+        ):
+            depression_line = MedicalLlmService.depression_109_line(message, result["reply"], self._is_proxy(payload, proxy_text))
+            if depression_line:
+                result["reply"] = f"{result['reply']}\n{depression_line}"
+                safety_lines.append(depression_line)
+                result.setdefault("meta", {})
+                if isinstance(result["meta"], dict):
+                    result["meta"]["depression109"] = True
+                _LOG.info("[CHAT-SAFETY] depression_109=true")
         # 되묻기 턴이면 이어서 물어볼 질문 대신 눌러서 답하는 고정 칩(2026-11-02). 모델을 부르지 않고, 판정은 이미 끝났다.
         suggested = followup_answer_chips.answer_chips(result, message)
         suggested_kind = followup_answer_chips.KIND if suggested else None

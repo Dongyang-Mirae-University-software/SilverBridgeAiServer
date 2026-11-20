@@ -637,3 +637,20 @@ def layout_emoji(sentence: str) -> str:
         if pattern.search(plain):
             return emoji
     return LAYOUT_DEFAULT_EMOJI
+
+
+# ---- 위기가 아닌 우울 질문(2026-11-20 팀원 검수) ------------------------------------------------------------------
+# 본인·가족이 우울(우울증)의 도움·검사·치료를 묻는 말이면 평소 상담 답 끝에 109 안내 한 줄을 붙인다(chat_service).
+# 위기 고정 답으로 바꾸지 않고 위험도도 올리지 않는다. 자해 신호("우울해서 죽고 싶다")는 기존 위기 경로가 먼저다.
+DEPRESSION_WORD = re.compile(r"우울")
+# 질문 꼴(도움·검사·치료를 묻거나 할 일을 묻는 말). 공백 뺀 문장에서 본다.
+_DEPRESSION_ASK = re.compile(
+    r"도와|도움|돕|검사|진단|치료|상담|병원|진료|어디서|어디로|어디에|어떻게|어떡|뭘해|무엇을|뭐를|방법|약을?먹|약이|좋아지|나아지|극복|"
+    r"\?|나요|까요|가요|인가|일까|건가|을까|ㄹ까|되나|돼요|궁금"
+)
+
+
+def depression_help_question(text: str) -> bool:
+    """위기가 아닌 우울 질문인가 - 우울 낱말 + 질문 꼴. 자해 신호는 여기서 보지 않는다(호출 쪽이 위기 경로를 먼저 본다)."""
+    c = compact(text)
+    return bool(DEPRESSION_WORD.search(c)) and bool(_DEPRESSION_ASK.search(c))
