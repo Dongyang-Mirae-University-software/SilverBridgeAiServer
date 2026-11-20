@@ -18,7 +18,7 @@ def test_text_out_filled_and_return_shape_unchanged():
     out: dict = {}
     r = pipeline.analyze_turn_result("오늘은 손주가 와서 정말 기분이 좋아요", NO_FACE, _clf("기쁨"), text_out=out)
     assert r == {"label": "기쁨", "source": "TEXT"}  # 반환값 모양은 그대로
-    assert out == {"label": "기쁨", "turnLabel": "기쁨", "confidence": 0.9, "usable": True, "reason": None}
+    assert out == {"label": "기쁨", "turnLabel": "기쁨", "confidence": 0.9, "usable": True, "reason": None, "scores": None}
 
 
 def test_text_out_low_confidence_is_not_usable():
@@ -35,7 +35,7 @@ def test_text_out_short_text(monkeypatch):
     monkeypatch.setattr(get_settings(), "companion_text_mood_engine", "ggara02")  # 10자 미만은 분류하지 않는다
     out: dict = {}
     pipeline.analyze_turn_result("네 좋아요", NO_FACE, _clf("기쁨"), text_out=out)
-    assert out == {"label": None, "turnLabel": None, "confidence": None, "usable": False, "reason": "SHORT"}
+    assert out == {"label": None, "turnLabel": None, "confidence": None, "usable": False, "reason": "SHORT", "scores": None}
 
 
 def test_text_out_model_unavailable():
@@ -44,7 +44,7 @@ def test_text_out_model_unavailable():
 
     out: dict = {}
     pipeline.analyze_turn_result("오늘은 손주가 와서 정말 기분이 좋아요", NO_FACE, broken, text_out=out)
-    assert out == {"label": None, "turnLabel": None, "confidence": None, "usable": False, "reason": "UNAVAILABLE"}
+    assert out == {"label": None, "turnLabel": None, "confidence": None, "usable": False, "reason": "UNAVAILABLE", "scores": None}
 
 
 def test_no_response_turn_has_no_text_mood():

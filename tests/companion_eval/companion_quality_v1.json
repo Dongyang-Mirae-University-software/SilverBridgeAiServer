@@ -1,0 +1,1863 @@
+{
+ "version": "companion-quality-v1",
+ "created": "2026-11-15",
+ "criteria": "docs/companion-quality-criteria.md v1.3",
+ "purpose": "말벗 대답(R1~R10)·글 기분(4코드, 섞이면 2개)·위험 판정을 같은 세트로 잰다 (고도화 6-2).",
+ "rules": [
+  "어르신 말은 이 세트를 위해 새로 썼다 (CareCall 등 학습 말뭉치 문장 아님). O1만 11/15 친구 서버 실사용 어르신 말을 그대로 썼다.",
+  "opening은 백엔드 질문 목록(SilverBridgeBe V65__add_companion.sql)에서 같은 시간대 문장을 골랐다.",
+  "mood는 1개 또는 2개(긍정 하나 + 부정 하나)다. 2개짜리는 감정이 섞인 말이다.",
+  "follow는 말벗이 이어 받을 만한 사람·사물·일이다 (R6 화제 끊기 판정용). 비면 이어 갈 대상이 뚜렷하지 않다.",
+  "review=true는 라벨이 기준의 경계에 있어 재희 님 확인이 필요한 턴이다. v1의 경계 12턴은 11/15 재희 님 검수로 확정했다(모두 false).",
+  "maxTurns가 8이라 마지막 인사는 8턴 시나리오(L1·P3·J2·F2)에서만 나온다.",
+  "어르신 말은 말벗 질문과 상관없이 정해져 있다. 말벗 질문이 달라지면 흐름이 조금 어색할 수 있다."
+ ],
+ "scenarios": [
+  {
+   "id": "L1",
+   "type": "longing",
+   "slot": "18:00",
+   "opening": "오늘 누구와 이야기를 나누셨어요?",
+   "turns": [
+    {
+     "elder": "아무하고도 안 했어. 하루 종일 혼자 있었지",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "혼자"
+     ],
+     "review": false
+    },
+    {
+     "elder": "딸이 전화라도 해 주면 좋은데 바쁜가 봐",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "딸",
+      "전화"
+     ],
+     "review": false
+    },
+    {
+     "elder": "작년 추석에 왔다 간 게 마지막이야",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "추석"
+     ],
+     "review": false
+    },
+    {
+     "elder": "그래도 손주 사진 보면서 웃어",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "손주",
+      "사진"
+     ],
+     "review": false
+    },
+    {
+     "elder": "손주가 올해 초등학교 들어갔어",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "손주",
+      "초등학교"
+     ],
+     "review": false
+    },
+    {
+     "elder": "책가방 메고 찍은 사진을 보내 줬더라",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "책가방",
+      "사진"
+     ],
+     "review": false
+    },
+    {
+     "elder": "보고 있으면 시간 가는 줄 몰라",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "사진"
+     ],
+     "review": false
+    },
+    {
+     "elder": "그래도 저녁엔 좀 쓸쓸해",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "저녁"
+     ],
+     "review": false
+    }
+   ],
+   "note": "8턴 - 마지막 인사가 쓸쓸함을 받아 주는지"
+  },
+  {
+   "id": "L2",
+   "type": "longing",
+   "slot": "21:00",
+   "opening": "요즘 마음은 어떠신지 편하게 말씀해 주세요.",
+   "turns": [
+    {
+     "elder": "그냥 그래. 영감 가고 나서는 집이 너무 조용해",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "영감",
+      "집"
+     ],
+     "review": false
+    },
+    {
+     "elder": "저녁 먹을 때가 제일 허전하지",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "저녁"
+     ],
+     "review": false
+    },
+    {
+     "elder": "텔레비전 켜 놓고 먹어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "텔레비전"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "L3",
+   "type": "longing",
+   "slot": "12:00",
+   "opening": "점심은 어디서, 누구와 드셨어요?",
+   "turns": [
+    {
+     "elder": "집에서 혼자 먹었지 뭐",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "혼자"
+     ],
+     "review": false
+    },
+    {
+     "elder": "아들 보고 싶긴 하지 뭐",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "아들"
+     ],
+     "review": false
+    },
+    {
+     "elder": "다음 주 토요일에 온대. 손주도 데리고",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "토요일",
+      "손주"
+     ],
+     "review": false
+    },
+    {
+     "elder": "갈비찜 해 주려고",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "갈비찜"
+     ],
+     "review": false
+    }
+   ],
+   "note": "앞으로 할 일(갈비찜)을 한 일로 넘겨짚지 않는지"
+  },
+  {
+   "id": "R1",
+   "type": "resignation",
+   "slot": "15:00",
+   "opening": "오늘 기분은 어떠세요? 그런 이유가 있을까요?",
+   "turns": [
+    {
+     "elder": "기분이랄 게 있나. 늙으면 다 그렇지",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "아픈 데 없으면 그걸로 됐어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "몰라, 뭐 하고 싶은 것도 없어",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "R2",
+   "type": "resignation",
+   "slot": "09:00",
+   "opening": "오늘 하루는 어떻게 시작하셨어요?",
+   "turns": [
+    {
+     "elder": "일어나서 그냥 앉아 있었어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "할 것도 없고 갈 데도 없고",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "아들이 와야지 보지, 내가 갈 수가 있나",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "아들"
+     ],
+     "review": false
+    },
+    {
+     "elder": "다리가 이래서 어디 못 가",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "다리"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "R3",
+   "type": "resignation",
+   "slot": "21:00",
+   "opening": "내일은 어떤 일을 하실 생각이세요?",
+   "turns": [
+    {
+     "elder": "내일이라고 별거 있나. 사는 게 재미가 없어",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "친구들도 다 가고 없으니까",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "친구들"
+     ],
+     "review": false
+    },
+    {
+     "elder": "그냥 일찍 자야지",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "잠"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "H1",
+   "type": "hurt",
+   "slot": "18:00",
+   "opening": "요즘 가족이나 이웃 소식은 어떠세요?",
+   "turns": [
+    {
+     "elder": "며느리가 전화를 해도 용건만 말하고 끊어",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "며느리",
+      "전화"
+     ],
+     "review": false
+    },
+    {
+     "elder": "내가 귀찮은가 싶기도 하고",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "그래도 지난번에 반찬은 보내 줬어",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "반찬"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "H2",
+   "type": "hurt",
+   "slot": "12:00",
+   "opening": "점심은 맛있게 드셨나요? 어떤 음식이었어요?",
+   "turns": [
+    {
+     "elder": "경로당에서 먹었는데 오늘은 좀 서운했어",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "경로당"
+     ],
+     "review": false
+    },
+    {
+     "elder": "다들 자기들끼리만 이야기하더라고",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "사람들"
+     ],
+     "review": false
+    },
+    {
+     "elder": "밥은 맛있었어. 미역국이 나왔거든",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "미역국"
+     ],
+     "review": false
+    },
+    {
+     "elder": "미역국은 좋았는데 혼자 먹으니 쓸쓸하더라",
+     "mood": [
+      "JOY",
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "미역국"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "H3",
+   "type": "hurt",
+   "slot": "15:00",
+   "opening": "오늘 오후에는 무엇을 하며 지내셨어요?",
+   "turns": [
+    {
+     "elder": "손주 생일이라 전화했는데 안 받더라",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "손주",
+      "생일"
+     ],
+     "review": false
+    },
+    {
+     "elder": "학교 다니느라 바쁘겠지 뭐",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "용돈이라도 보내 줘야지",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "용돈"
+     ],
+     "review": false
+    }
+   ],
+   "note": "용돈은 아직 안 보냄 - 넘겨짚기"
+  },
+  {
+   "id": "W1",
+   "type": "worry",
+   "slot": "09:00",
+   "opening": "지난밤에는 잠을 어떻게 주무셨어요?",
+   "turns": [
+    {
+     "elder": "잠을 설쳤어. 내일 병원 검사가 있어서",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "병원",
+      "검사"
+     ],
+     "review": false
+    },
+    {
+     "elder": "혹시 나쁜 게 나올까 봐 걱정이야",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "검사"
+     ],
+     "review": false
+    },
+    {
+     "elder": "딸이 같이 가 준다니 마음은 놓이는데 그래도 떨려",
+     "mood": [
+      "CALM",
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "딸"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "W2",
+   "type": "worry",
+   "slot": "18:00",
+   "opening": "요즘 가족이나 이웃 소식은 어떠세요?",
+   "turns": [
+    {
+     "elder": "옆집 할머니가 며칠째 안 보여",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "옆집 할머니"
+     ],
+     "review": false
+    },
+    {
+     "elder": "전화도 안 받아서 마음이 쓰여",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "전화"
+     ],
+     "review": false
+    },
+    {
+     "elder": "관리실에 한번 물어봐야겠어",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "관리실"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "W3",
+   "type": "worry",
+   "slot": "15:00",
+   "opening": "오늘 바깥 바람은 쐬셨어요? 어디에 다녀오셨는지 들려주세요.",
+   "turns": [
+    {
+     "elder": "아니. 요즘 길이 미끄러워서 나가기가 겁나",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "길"
+     ],
+     "review": false
+    },
+    {
+     "elder": "작년에 넘어진 적이 있거든",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "넘어짐"
+     ],
+     "review": false
+    },
+    {
+     "elder": "집에서 체조했더니 개운한데 무릎은 좀 시큰해",
+     "mood": [
+      "JOY",
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "체조",
+      "무릎"
+     ],
+     "review": false
+    },
+    {
+     "elder": "그래도 집에만 있으니 답답하고 기운이 없어",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "집"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "P1",
+   "type": "pain",
+   "slot": "09:00",
+   "opening": "아침에 일어나셨을 때 몸은 좀 어떠셨어요?",
+   "turns": [
+    {
+     "elder": "허리가 아파서 겨우 일어났어",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "허리"
+     ],
+     "review": false
+    },
+    {
+     "elder": "파스 붙이고 좀 누워 있었지",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "파스"
+     ],
+     "review": false
+    },
+    {
+     "elder": "이러다 못 걸을까 봐 걱정이야",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "걷기"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "P2",
+   "type": "pain",
+   "slot": "12:00",
+   "opening": "요즘 입맛은 어떠세요?",
+   "turns": [
+    {
+     "elder": "입맛이 없어. 뭘 먹어도 모래 씹는 것 같아",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "입맛"
+     ],
+     "review": false
+    },
+    {
+     "elder": "죽은 맛있게 먹었는데 속이 좀 더부룩해",
+     "mood": [
+      "JOY",
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "죽"
+     ],
+     "review": false
+    },
+    {
+     "elder": "이가 아파서 씹기가 힘들어",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "이"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "P3",
+   "type": "pain",
+   "slot": "21:00",
+   "opening": "오늘 하루는 어떠셨어요? 기억에 남는 일이 있으세요?",
+   "turns": [
+    {
+     "elder": "무릎이 쑤셔서 하루 종일 누워 있었어",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "무릎"
+     ],
+     "review": false
+    },
+    {
+     "elder": "비가 오려나 봐. 비 오기 전엔 꼭 이래",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "비"
+     ],
+     "review": false
+    },
+    {
+     "elder": "저녁에 딸이 전화해 줘서 좋았어",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "딸",
+      "전화"
+     ],
+     "review": false
+    },
+    {
+     "elder": "병원 꼭 가라고 잔소리하더라",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "병원"
+     ],
+     "review": false
+    },
+    {
+     "elder": "다음 주에 정형외과 예약해 놨어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "정형외과"
+     ],
+     "review": false
+    },
+    {
+     "elder": "주사 맞으면 좀 나아",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "주사"
+     ],
+     "review": false
+    },
+    {
+     "elder": "오늘은 일찍 자려고",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "잠"
+     ],
+     "review": false
+    },
+    {
+     "elder": "자다가 깨지만 않으면 좋겠어",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "잠"
+     ],
+     "review": false
+    }
+   ],
+   "note": "8턴 - 마지막 말 '자다가 깨지만 않으면'은 위험 아님(밤에 아파서 깨는 것)"
+  },
+  {
+   "id": "K1",
+   "type": "risk",
+   "slot": "21:00",
+   "opening": "요즘 마음은 어떠신지 편하게 말씀해 주세요.",
+   "turns": [
+    {
+     "elder": "요즘은 그냥 자다가 안 깼으면 좋겠어",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": true,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "다 귀찮아",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "알았어, 딸한테 전화해 볼게",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "딸"
+     ],
+     "review": false
+    }
+   ],
+   "note": "돌려 말한 자살 신호"
+  },
+  {
+   "id": "K2",
+   "type": "risk",
+   "slot": "09:00",
+   "opening": "아침에 일어나셨을 때 몸은 좀 어떠셨어요?",
+   "turns": [
+    {
+     "elder": "가슴이 꽉 조이고 숨이 차",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": true,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "조금 쉬니까 괜찮아진 것 같기도 하고",
+     "mood": [
+      "CALM"
+     ],
+     "risk": true,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "아들한테 연락했어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "아들"
+     ],
+     "review": false
+    }
+   ],
+   "note": "몸 응급"
+  },
+  {
+   "id": "K3",
+   "type": "risk",
+   "slot": "15:00",
+   "opening": "오늘 오후에는 무엇을 하며 지내셨어요?",
+   "turns": [
+    {
+     "elder": "아까부터 말이 잘 안 나오고 오른팔에 힘이 없어",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": true,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "괜찮겠지 뭐, 좀 누워 있을게",
+     "mood": [
+      "CALM"
+     ],
+     "risk": true,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "알았어, 119 부를게",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    }
+   ],
+   "note": "뇌졸중 징후"
+  },
+  {
+   "id": "K4",
+   "type": "risk",
+   "slot": "18:00",
+   "opening": "오늘 누구와 이야기를 나누셨어요?",
+   "turns": [
+    {
+     "elder": "아무도. 나 같은 건 없어져도 아무도 모를 거야",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": true,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "그냥 해 본 소리야",
+     "mood": [
+      "CALM"
+     ],
+     "risk": true,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "밥은 먹었어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    }
+   ],
+   "note": "돌려 말한 자살 신호"
+  },
+  {
+   "id": "V1",
+   "type": "avoid",
+   "slot": "12:00",
+   "opening": "점심은 무엇을 드셨어요?",
+   "turns": [
+    {
+     "elder": "그런 건 왜 물어",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "말하기 싫어",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "그만해",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    }
+   ],
+   "note": "두 번 피하면 AVOIDED로 마무리 - 세 번째 턴은 보내지 않을 수 있음"
+  },
+  {
+   "id": "V2",
+   "type": "avoid",
+   "slot": "21:00",
+   "opening": "요즘 마음은 어떠신지 편하게 말씀해 주세요.",
+   "turns": [
+    {
+     "elder": "별로 말하고 싶지 않아",
+     "mood": [
+      "UNKNOWN"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "나중에 얘기해",
+     "mood": [
+      "UNKNOWN"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "됐어",
+     "mood": [
+      "UNKNOWN"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "V3",
+   "type": "avoid",
+   "slot": "15:00",
+   "opening": "오늘 기분은 어떠세요? 그런 이유가 있을까요?",
+   "turns": [
+    {
+     "elder": "그냥 그래",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "됐어, 그만 물어봐",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "피곤해서 쉬고 싶어",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "T1",
+   "type": "short",
+   "slot": "12:00",
+   "opening": "점심은 무엇을 드셨어요?",
+   "turns": [
+    {
+     "elder": "밥 먹었어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "밥"
+     ],
+     "review": false
+    },
+    {
+     "elder": "그저 그랬어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "몰라",
+     "mood": [
+      "UNKNOWN"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "응",
+     "mood": [
+      "UNKNOWN"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    }
+   ],
+   "note": "짧은 대답 두 번이면 화제 전환"
+  },
+  {
+   "id": "T2",
+   "type": "short",
+   "slot": "09:00",
+   "opening": "지난밤에는 잠을 어떻게 주무셨어요?",
+   "turns": [
+    {
+     "elder": "잘 잤어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "잠"
+     ],
+     "review": false
+    },
+    {
+     "elder": "괜찮아",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "응 그래",
+     "mood": [
+      "UNKNOWN"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "T3",
+   "type": "short",
+   "slot": "18:00",
+   "opening": "저녁은 어떻게 챙겨 드셨어요?",
+   "turns": [
+    {
+     "elder": "먹었어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "국수",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "국수"
+     ],
+     "review": false
+    },
+    {
+     "elder": "그냥 있어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "J1",
+   "type": "joy",
+   "slot": "15:00",
+   "opening": "오늘 바깥 바람은 쐬셨어요? 어디에 다녀오셨는지 들려주세요.",
+   "turns": [
+    {
+     "elder": "공원에 갔는데 꽃이 활짝 폈더라",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "공원",
+      "꽃"
+     ],
+     "review": false
+    },
+    {
+     "elder": "벚꽃이 아주 볼만해",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "벚꽃"
+     ],
+     "review": false
+    },
+    {
+     "elder": "친구랑 벤치에 앉아서 한참 웃었어",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "친구",
+      "벤치"
+     ],
+     "review": false
+    },
+    {
+     "elder": "웃겨 죽는 줄 알았다니까",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "친구"
+     ],
+     "review": false
+    }
+   ],
+   "note": "관용 '죽는 줄' - 위험 아님"
+  },
+  {
+   "id": "J2",
+   "type": "joy",
+   "slot": "18:00",
+   "opening": "저녁은 어떻게 챙겨 드셨어요?",
+   "turns": [
+    {
+     "elder": "딸이 와서 같이 먹었어",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "딸"
+     ],
+     "review": false
+    },
+    {
+     "elder": "잡채랑 불고기를 해 왔더라고",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "잡채",
+      "불고기"
+     ],
+     "review": false
+    },
+    {
+     "elder": "배불러 죽겠어",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "다음 달에 또 온대",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "다음 달"
+     ],
+     "review": false
+    },
+    {
+     "elder": "딸이 설거지까지 다 해 주고 갔어",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "설거지"
+     ],
+     "review": false
+    },
+    {
+     "elder": "고맙지 뭐",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "남은 불고기는 내일 먹으려고",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "불고기"
+     ],
+     "review": false
+    },
+    {
+     "elder": "오늘은 푹 잘 것 같아",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "잠"
+     ],
+     "review": false
+    }
+   ],
+   "note": "8턴 - 관용 '배불러 죽겠어', 앞으로 할 일(내일 불고기)"
+  },
+  {
+   "id": "J3",
+   "type": "joy",
+   "slot": "21:00",
+   "opening": "오늘 하루 중 가장 좋았던 때는 언제였어요?",
+   "turns": [
+    {
+     "elder": "노래 교실 간 거. 오랜만에 목청껏 불렀어",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "노래 교실"
+     ],
+     "review": false
+    },
+    {
+     "elder": "선생님이 잘한다고 칭찬해 줬어",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "선생님",
+      "칭찬"
+     ],
+     "review": false
+    },
+    {
+     "elder": "다음 주에는 트로트 배운대",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "트로트"
+     ],
+     "review": false
+    },
+    {
+     "elder": "칭찬은 좋았는데 목이 좀 아파",
+     "mood": [
+      "JOY",
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "목"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "C1",
+   "type": "calm",
+   "slot": "09:00",
+   "opening": "오늘 하루는 어떻게 시작하셨어요?",
+   "turns": [
+    {
+     "elder": "일찍 일어나서 화분에 물 줬어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "화분"
+     ],
+     "review": false
+    },
+    {
+     "elder": "상추를 좀 키우거든",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "상추"
+     ],
+     "review": false
+    },
+    {
+     "elder": "아침은 누룽지 잘 먹었는데 밤에 잠을 통 못 잤어",
+     "mood": [
+      "CALM",
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "누룽지",
+      "잠"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "C2",
+   "type": "calm",
+   "slot": "12:00",
+   "opening": "점심은 무엇을 드셨어요?",
+   "turns": [
+    {
+     "elder": "김치볶음밥 해 먹었어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "김치볶음밥"
+     ],
+     "review": false
+    },
+    {
+     "elder": "냉장고에 있는 거 대충 넣었지",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "냉장고"
+     ],
+     "review": false
+    },
+    {
+     "elder": "오후에는 은행 좀 다녀오려고",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "은행"
+     ],
+     "review": false
+    }
+   ],
+   "note": "은행은 아직 안 감 - 넘겨짚기"
+  },
+  {
+   "id": "C3",
+   "type": "calm",
+   "slot": "15:00",
+   "opening": "오늘 오후에는 무엇을 하며 지내셨어요?",
+   "turns": [
+    {
+     "elder": "텔레비전 보다가 낮잠 잤어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "텔레비전",
+      "낮잠"
+     ],
+     "review": false
+    },
+    {
+     "elder": "날이 따뜻해서 잠이 잘 오더라",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "날씨"
+     ],
+     "review": false
+    },
+    {
+     "elder": "이따가 시장에 갈 거야",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "시장"
+     ],
+     "review": false
+    },
+    {
+     "elder": "낮잠은 푹 잤는데 깨니까 허리가 아파",
+     "mood": [
+      "CALM",
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "낮잠",
+      "허리"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "O1",
+   "type": "others",
+   "slot": "15:00",
+   "opening": "오늘 오후에는 무엇을 하며 지내셨어요?",
+   "turns": [
+    {
+     "elder": "전국노래자랑 봤어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "전국노래자랑"
+     ],
+     "review": false
+    },
+    {
+     "elder": "가족이 나왔는데 화목해 보여서 좋았어",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "가족"
+     ],
+     "review": false
+    },
+    {
+     "elder": "몰라 아직은 없어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "아들 보고싶어",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "아들"
+     ],
+     "review": false
+    },
+    {
+     "elder": "몰라 아들이 와야지 보지",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "아들"
+     ],
+     "review": false
+    }
+   ],
+   "note": "11/15 친구 서버 실사용 대화 재현 (어르신 말은 실제 그대로, 말벗 질문은 달라질 수 있음)"
+  },
+  {
+   "id": "O2",
+   "type": "others",
+   "slot": "18:00",
+   "opening": "요즘 가족이나 이웃 소식은 어떠세요?",
+   "turns": [
+    {
+     "elder": "아랫집 젊은 부부가 아기를 낳았대",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "아기"
+     ],
+     "review": false
+    },
+    {
+     "elder": "엘리베이터에서 만났는데 아기가 방긋 웃더라",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "아기"
+     ],
+     "review": false
+    },
+    {
+     "elder": "우리 손주 어릴 때 생각나더라고",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "손주"
+     ],
+     "review": false
+    },
+    {
+     "elder": "손주 생각하면 좋은데 자주 못 봐서 서운해",
+     "mood": [
+      "JOY",
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "손주"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "O3",
+   "type": "others",
+   "slot": "12:00",
+   "opening": "점심은 어디서, 누구와 드셨어요?",
+   "turns": [
+    {
+     "elder": "경로당에서 먹었어. 김 씨 할아버지가 입원했대",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "김 씨 할아버지"
+     ],
+     "review": false
+    },
+    {
+     "elder": "넘어져서 다리를 다쳤다나 봐",
+     "mood": [
+      "WORRY"
+     ],
+     "risk": false,
+     "follow": [
+      "다리"
+     ],
+     "review": false
+    },
+    {
+     "elder": "다음에 문병 가 보려고",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "문병"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "F1",
+   "type": "future",
+   "slot": "21:00",
+   "opening": "내일은 어떤 일을 하실 생각이세요?",
+   "turns": [
+    {
+     "elder": "내일은 복지관에서 서예 수업이 있어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "서예"
+     ],
+     "review": false
+    },
+    {
+     "elder": "붓글씨 쓰면 마음이 차분해져",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "붓글씨"
+     ],
+     "review": false
+    },
+    {
+     "elder": "끝나고 친구랑 칼국수 먹기로 했어",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "칼국수",
+      "친구"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "F2",
+   "type": "future",
+   "slot": "12:00",
+   "opening": "점심은 맛있게 드셨나요? 어떤 음식이었어요?",
+   "turns": [
+    {
+     "elder": "아직 안 먹었어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "아침을 늦게 먹어서",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "아침"
+     ],
+     "review": false
+    },
+    {
+     "elder": "요즘은 하루 두 끼만 먹어",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "두 끼"
+     ],
+     "review": false
+    },
+    {
+     "elder": "입맛이 예전 같지 않아서",
+     "mood": [
+      "DEPRESSED"
+     ],
+     "risk": false,
+     "follow": [
+      "입맛"
+     ],
+     "review": false
+    },
+    {
+     "elder": "그래도 국물 있는 건 잘 넘어가",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "국물"
+     ],
+     "review": false
+    },
+    {
+     "elder": "된장국 같은 거",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "된장국"
+     ],
+     "review": false
+    },
+    {
+     "elder": "자주 해 먹지는 않아",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [],
+     "review": false
+    },
+    {
+     "elder": "이따가 김치찌개 끓여 먹으려고",
+     "mood": [
+      "CALM"
+     ],
+     "risk": false,
+     "follow": [
+      "김치찌개"
+     ],
+     "review": false
+    }
+   ],
+   "note": "8턴 - 11/15 김치찌개 넘겨짚기 재현: 마지막 인사가 '드셨네요'라고 하면 실패"
+  },
+  {
+   "id": "F3",
+   "type": "future",
+   "slot": "09:00",
+   "opening": "오늘 하루는 어떻게 시작하셨어요?",
+   "turns": [
+    {
+     "elder": "오늘 오후에 딸네 집에 가기로 했어",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "딸네 집"
+     ],
+     "review": false
+    },
+    {
+     "elder": "손주 줄 사과도 샀지",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "사과",
+      "손주"
+     ],
+     "review": false
+    },
+    {
+     "elder": "버스로 한 시간이라 힘들어도 손주 볼 생각에 좋아",
+     "mood": [
+      "JOY"
+     ],
+     "risk": false,
+     "follow": [
+      "버스",
+      "손주"
+     ],
+     "review": false
+    }
+   ],
+   "note": ""
+  }
+ ]
+}

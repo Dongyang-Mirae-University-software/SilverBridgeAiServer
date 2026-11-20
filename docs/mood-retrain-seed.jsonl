@@ -1,0 +1,25 @@
+{"text": "이제 뭘 해도 의욕이 안 생겨", "label": "DEPRESSED", "pattern": "노년 무기력(평온 아님)", "note": "seed-변형, 평가셋과 겹치지 않게"}
+{"text": "영감 보내고 나니 집이 너무 적막해", "label": "DEPRESSED", "pattern": "상실·외로움"}
+{"text": "나이 먹으면 다 이렇지 뭐, 별수 있나", "label": "DEPRESSED", "pattern": "체념을 평온으로 오독"}
+{"text": "자식들이 바빠서 얼굴 본 지 오래야", "label": "DEPRESSED", "pattern": "소외"}
+{"text": "요새는 아침에 눈 안 떠졌으면 싶어", "label": "DEPRESSED", "pattern": "수동적 자기부정(관용 아님)"}
+{"text": "내가 괜히 짐이 되는 것 같아", "label": "DEPRESSED", "pattern": "자기비하"}
+{"text": "그냥저냥 지내, 뭐 좋을 게 있나", "label": "DEPRESSED", "pattern": "무기력한 '그냥'"}
+{"text": "다들 저희끼리만 얘기하고 나는 끼지도 못해", "label": "DEPRESSED", "pattern": "소외감"}
+{"text": "성가셔서 아무하고도 말 섞기 싫어", "label": "WORRY", "pattern": "회피·거부"}
+{"text": "그런 거 뭐하러 자꾸 물어", "label": "WORRY", "pattern": "회피(되받는 물음)"}
+{"text": "됐어, 그 얘기 그만하자", "label": "WORRY", "pattern": "대화 거부"}
+{"text": "밤에 안 깨고 쭉 잤으면 하는데 그게 안 돼", "label": "WORRY", "pattern": "수면 걱정"}
+{"text": "앞집 노인네가 쓰러져서 실려 갔다더라", "label": "WORRY", "pattern": "주변 사건발 불안"}
+{"text": "관리실에 한번 알아봐야 마음이 놓일 것 같아", "label": "WORRY", "pattern": "미해결 걱정"}
+{"text": "체조를 하니 몸은 개운한데 무릎이 자꾸 시큰거려", "label": "JOY|WORRY", "pattern": "섞인감정: 즐거움+신체걱정"}
+{"text": "밥은 맛있게 먹었는데 속이 영 더부룩하네", "label": "JOY|WORRY", "pattern": "섞인감정"}
+{"text": "딸이 같이 가 준다니 든든한데 그래도 긴장돼", "label": "CALM|WORRY", "pattern": "섞인감정: 안도(평온)+걱정"}
+{"text": "손주가 놀러 와서 하루 종일 웃었어", "label": "JOY", "pattern": "본인 즐거움=기쁨(CALM 아님)"}
+{"text": "오랜만에 친구랑 수다 떠니 신나더라", "label": "JOY", "pattern": "기쁨"}
+{"text": "텃밭에 상추가 잘 자라서 아주 뿌듯해", "label": "JOY", "pattern": "성취·기쁨"}
+{"text": "오늘은 날이 포근해서 산책 다녀왔어", "label": "CALM", "pattern": "대조쌍: 평범한 평온"}
+{"text": "별일 없이 그냥 집에서 쉬었어", "label": "CALM", "pattern": "대조쌍: 진짜 평온('그냥')"}
+{"text": "약 먹고 한숨 자고 나니 한결 나아졌어", "label": "CALM", "pattern": "대조쌍: 실제 회복=평온"}
+{"text": "손주가 와야 보지, 내가 갈 수가 있나", "label": "DEPRESSED", "pattern": "대조쌍: 겉은 사실진술, 속은 체념"}
+{"text": "손주가 자주 와서 얼마나 좋은지 몰라", "label": "JOY", "pattern": "대조쌍: 위와 표면 유사, 정답은 기쁨"}
