@@ -9,6 +9,7 @@ from typing import Callable, Literal
 from app.core.config import get_settings
 from app.services.companion.answer_summary import summarize_answer
 from app.services.companion.avoidance import is_avoidance
+from app.services.companion import mood_adjust
 from app.services.companion.fusion import (
     HSEMOTION_TO_TURN,
     MOOD_CODES,
@@ -104,6 +105,7 @@ def analyze_turn_result(
     text_probs = None
     text_reason = "SHORT"
     r = None
+    adjusted = None
     if text and len(text) >= min_text_chars():
         text_reason = "UNAVAILABLE"  # 최소 글자 수 미만은 어차피 쓰지 않으므로 모델을 부르지 않는다 (L-2)
         try:
@@ -117,9 +119,15 @@ def analyze_turn_result(
             text_usable = bool(r.usable and text_label and len(text) >= min_text_chars())
             if text_usable and all(c in r.scores for c in MOOD_CODES):
                 text_probs = {c: r.scores[c] for c in MOOD_CODES}
+            # 회피 → 기분 보정 (11/20 점검 L-4): 합치기 전에 글 기분을 WORRY 쪽으로 둔다 - 턴 판정(turnResult)까지 간다
+            if s.companion_avoid_mood and mood_adjust.applies(text, r.label, text_usable):
+                adjusted = mood_adjust.ADJUSTED_AVOID
+                text_label = TEXT_TO_TURN.get("WORRY")
+                if text_probs is not None:
+                    text_probs = mood_adjust.swap_calm_worry(text_probs)
     if text_out is not None:
         text_out.update({
-            "label": r.label if r is not None else None,
+            "label": ("WORRY" if adjusted else r.label) if r is not None else None,
             "turnLabel": text_label,
             "confidence": round(float(r.confidence), 4) if r is not None else None,
             "usable": text_usable,
@@ -129,6 +137,8 @@ def analyze_turn_result(
             "scores": ({c: round(float(r.scores[c]), 4) for c in MOOD_CODES}
                        if (r is not None and r.scores and all(c in r.scores for c in MOOD_CODES)) else None),
         })
+        if adjusted:
+            text_out["adjusted"] = adjusted  # 보정한 턴 표시 (scores 는 모델 원래 확률 그대로)
     face_label = HSEMOTION_TO_TURN.get(face["label"]) if face.get("label") else None
     face_usable = bool(face.get("usable") and face_label)
     if s.companion_fusion_rule == "prob_add" and (text_probs is not None or not text_usable):

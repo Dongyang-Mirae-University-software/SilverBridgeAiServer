@@ -21,6 +21,16 @@ ACCEPT_PATTERN = re.compile(
     r"119|구급차|전화\s?(할|해|했|하|드릴)|연락\s?(할|해|했|하|드릴)|병원\s?(에)?\s?(갈|가|갔|다녀)|부를|불렀|와\s?달라|오라고"
 )
 
+# 도움을 거부하는 말 (11/20 점검 H-1). "병원 가기 싫어"·"119 부르지 마"는 ACCEPT 낱말("병원 가"·"119"·"전화하")을 품고 있어
+#   도움을 받겠다는 말로 읽혀 이어짐이 풀렸다. 거부가 보이면 ACCEPT 보다 먼저 넘기는 말로 친다 (위험 직후 도움 거부는 더 위험한 신호)
+REFUSE_PATTERN = re.compile(
+    r"(가기|부르기|하기|연락하기|전화하기|받기|알리기)\s?싫"
+    r"|(부르|불러|전화하|전화|연락하|연락|가|알리|오)지\s?(마|말|않)"
+    r"|안\s?(갈|가|부를|불러|할|해|알릴)|소용\s?없|필요\s?없|하지\s?마"
+)
+# '괜찮'을 부정한 말 (11/20 점검 M-1). 이어 가되 "괜찮다고 하셔도"로 받지 않는다
+NEGATED_OK_PATTERN = re.compile(r"안\s?괜찮|괜찮지\s?(않|안)")
+
 # 이어 간 턴의 안내. 같은 안내를 되풀이하지 않고, 넘긴 말을 받아 준 뒤 다시 한 번 권한다.
 CARRY_REPLY = (
     "괜찮다고 하셔도 아까 하신 말씀이 마음에 걸려요. 혼자 견디지 마시고 가까운 가족이나 주변 분께 꼭 이야기해 주세요. "
@@ -30,12 +40,19 @@ CARRY_BODY_REPLY = (
     # '나아지셨다니'로 받지 않는다 - "괜찮겠지 뭐, 좀 누워 있을게"는 나아졌다는 말이 아니다 (품질 기준 R5 넘겨짚기)
     "괜찮다고 하셔도 아까 같은 증상은 다시 올 수 있어서 걱정돼요. 지금이라도 119나 가까운 가족에게 꼭 알려 주세요."
 )
+# 도움을 거부했거나 괜찮지 않다고 한 턴의 안내 (11/20 점검 H-1·M-1) - "괜찮다고 하셔도"로 받지 않는다
+CARRY_PLAIN_REPLY = (
+    "아까 하신 말씀이 마음에 걸려요. 혼자 견디지 마시고 가까운 가족이나 주변 분께 꼭 이야기해 주세요. "
+    "급하시면 119에 전화하실 수 있어요."
+)
+CARRY_BODY_PLAIN_REPLY = "아까 같은 증상은 다시 올 수 있어서 걱정돼요. 지금이라도 119나 가까운 가족에게 꼭 알려 주세요."
 
 
 # 이어 간 턴의 안내 문장을 고를 때만 쓰는 몸 증상 표시 (판정에는 쓰지 않는다).
 #   risk.body_emergency_only 는 kw4 몸 응급 낱말만 봐서 "가슴이 꽉 조이고 숨이 차"·"오른팔에 힘이 없어"를 몸 응급으로 보지 않는다 (I-21)
 BODY_HINT_PATTERN = re.compile(r"가슴|숨|팔에?\s?힘|다리에?\s?힘|말이\s?(잘\s?)?안\s?나|어지럽|쓰러|마비|저려|저리|토하|식은땀")
-MIND_HINT_PATTERN = re.compile(r"죽|없어지|없어져|안\s?깼|안\s?깨|살기\s?싫|자살|자해|끝내")
+# "숨이 막혀 죽겠어"의 '죽겠'은 감정 관용구라 마음 쪽 표시로 보지 않는다 (11/20 점검 L-2, kw4 관용구 예외와 같은 판단)
+MIND_HINT_PATTERN = re.compile(r"죽(?!겠)|없어지|없어져|안\s?깼|안\s?깨|살기\s?싫|자살|자해|끝내")
 
 
 def is_body_risk(transcript: str, body_keyword: bool = False) -> bool:
@@ -45,14 +62,32 @@ def is_body_risk(transcript: str, body_keyword: bool = False) -> bool:
     return bool(BODY_HINT_PATTERN.search(transcript)) and not MIND_HINT_PATTERN.search(transcript)
 
 
+def is_refusal(transcript: str) -> bool:
+    """도움을 거부하는 말인가 ("병원 가기 싫어", "119 부르지 마"). 위험 직후면 이어 간다 (11/20 점검 H-1)."""
+    return bool(REFUSE_PATTERN.search(transcript))
+
+
 def is_downplay(transcript: str) -> bool:
-    """위험 다음 턴의 말이 넘기거나 얼버무리는 말인가 (도움을 받겠다는 말은 아니다)."""
+    """위험 다음 턴의 말이 넘기거나 얼버무리는 말인가 (도움을 받겠다는 말은 아니다).
+
+    도움 거부는 ACCEPT 낱말을 품어도 넘기는 말이다 (11/20 점검 H-1) - 거부를 먼저 본다.
+    """
     text = transcript.strip()
-    if not text or ACCEPT_PATTERN.search(text):
+    if not text:
+        return False
+    if is_refusal(text):
+        return True
+    if ACCEPT_PATTERN.search(text):
         return False
     return bool(DOWNPLAY_PATTERN.search(text))
 
 
-def carry_reply(prev_body: bool) -> str:
-    """직전 위험 턴이 몸 응급이었으면 몸 응급용, 아니면 마음 쪽 안내."""
-    return CARRY_BODY_REPLY if prev_body else CARRY_REPLY
+def carry_reply(prev_body: bool, transcript: str = "") -> str:
+    """직전 위험 턴이 몸 응급이었으면 몸 응급용, 아니면 마음 쪽 안내.
+
+    도움을 거부했거나 '괜찮지 않다'고 한 말이면 "괜찮다고 하셔도"로 받지 않는 문장을 쓴다 (11/20 점검 H-1·M-1).
+    """
+    plain = bool(transcript) and (is_refusal(transcript) or bool(NEGATED_OK_PATTERN.search(transcript)))
+    if prev_body:
+        return CARRY_BODY_PLAIN_REPLY if plain else CARRY_BODY_REPLY
+    return CARRY_PLAIN_REPLY if plain else CARRY_REPLY

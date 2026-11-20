@@ -23,7 +23,6 @@ from app.services.companion.dialogue_store import Dialogue, store
 from app.services.companion.face_service import FaceResult, FaceUnavailable, face_label_ko, face_service
 from app.services.companion.llm_client import llm_client
 from app.services.companion.multipart_memory import read_file_part, read_file_parts
-from app.services.companion import mood_adjust
 from app.services.companion import reply_service
 from app.services.companion import risk_carry
 from app.services.companion.risk import body_emergency_only
@@ -153,8 +152,7 @@ def _run_turn(d: Dialogue, transcript: str, face: dict, classify_text, llm, stt_
         if result["signals"] is not None:  # 신호가 없는 턴(무응답·다시 확인)은 직전 신호를 그대로 둔다
             store.set_last_signals(d.dialogueId, result["signals"])
         _carry_risk(d, transcript, result)
-        if get_settings().companion_avoid_mood:  # 회피를 평온으로 읽던 것을 괴로움으로 보정 (11/19)
-            mood_adjust.adjust_avoid_mood(transcript, result.get("textMood"))
+        # 회피 → 기분 보정(COMPANION_AVOID_MOOD)은 표정과 합치기 전에 pipeline.analyze_turn_result 에서 한다 (11/20 점검 L-4)
         if result.get("riskFlag"):
             store.mark_risk(d.dialogueId)  # 대화 결과의 alertLevel(URGENT)에 쓴다
     limit = get_settings().companion_confirm_streak_limit
@@ -179,7 +177,8 @@ def _carry_risk(d: Dialogue, transcript: str, result: dict) -> None:
     """위험 이어짐 (11/15, risk_carry). 직전 턴이 위험이고 이번 말이 넘기는 말이면 이 턴도 위험·안전 안내로 둔다.
 
     판정은 그 턴의 말만 보므로 "괜찮겠지 뭐, 좀 누워 있을게"(뇌졸중 징후 뒤)가 평소 꼬리질문으로 돌아갔다.
-    도움을 받겠다는 말은 이어 가지 않는다. 대답이 있는 턴만 직전 위험 상태를 바꾼다 (무응답 턴은 그대로 둔다).
+    도움을 받겠다는 말은 이어 가지 않지만 도움을 거부하는 말("병원 가기 싫어")은 이어 간다 (11/20 점검 H-1).
+    대답이 있는 턴만 직전 위험 상태를 바꾼다 (무응답·되묻기 턴은 그대로 둔다 - 11/20 점검 L-1).
     """
     if result.get("riskFlag"):
         d.lastRisk, d.lastRiskBody = True, risk_carry.is_body_risk(transcript, body_emergency_only(transcript))
@@ -187,12 +186,16 @@ def _carry_risk(d: Dialogue, transcript: str, result: dict) -> None:
     if get_settings().companion_risk_carry and d.lastRisk and risk_carry.is_downplay(transcript):
         result["riskFlag"] = True
         result["riskCarry"] = True
-        result["reply"] = {"text": risk_carry.carry_reply(d.lastRiskBody), "isFollowUp": False}
+        result["reply"] = {"text": risk_carry.carry_reply(d.lastRiskBody, transcript), "isFollowUp": False}
         result["replySource"] = "SAFETY"
         if isinstance(result.get("signals"), dict):
             result["signals"] = {**result["signals"], "riskFlag": True}
         logger.info("[COMPANION-RISK-CARRY] carried=1 body=%d", int(d.lastRiskBody))  # 원문 없음
         return  # 이어 간 턴도 위험이므로 lastRisk 는 그대로 True
+    if result.get("replySource") == "CONFIRM":
+        # 되묻기 턴은 무응답 턴처럼 직전 위험 상태를 그대로 둔다 (11/20 점검 L-1): 알아듣지 못한 말이 위험을 풀면
+        #   다시 말해 주신 "괜찮아"가 이어지지 않는다
+        return
     d.lastRisk = False
 
 
