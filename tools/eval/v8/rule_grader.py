@@ -185,7 +185,9 @@ def grade(items: list[dict], summary: dict, layer: str = "full", run: int | None
     for it in items:
         for r in rows.get(it["id"]) or [None]:
             g = grade_item(it, r, layer)
-            g.update(area=it.get("area"), run=(r or {}).get("run"), speaker=it.get("speaker"), path=it.get("path"))
+            # seed_id: 같은 상황의 패러프레이즈 묶음 - report.py 가 상황 단위로 묶는다(없으면 문항 id 가 곧 상황).
+            g.update(area=it.get("area"), run=(r or {}).get("run"), speaker=it.get("speaker"), path=it.get("path"),
+                     seed_id=it.get("seed_id") or it["id"])
             out.append(g)
     return out
 

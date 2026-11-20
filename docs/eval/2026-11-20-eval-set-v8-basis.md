@@ -40,6 +40,10 @@
 
 J(진단·처방 경계)·K(가독성)는 F~I 응답 전체에 붙는 지표라 이번 범위에서는 채점기 자리만 두고 기준값은 정하지 않았다. M(라우팅)은 2단계(키 복귀 후)다.
 
+## 주 지표는 상황 단위 (2026-11-20 추가)
+
+점수의 주 지표는 **상황(`seed_id`) 단위 통과율**이다. 한 상황의 모든 변형(원문·구어체·맞춤법·STT)과 회차가 통과해야 그 상황을 통과로 세고, 점추정·Wilson 95% 구간·판정도 상황 수로 계산한다(`tools/eval/v8/report.py`). holdout-A 179문항은 69개 상황이고, 패러프레이즈가 대부분 끝 한두 글자만 달라 서로 독립적인 표본이 아니다. 문항 단위로 세면 n이 부풀려져 구간이 실제보다 좁아 보이므로 문항 단위 통과는 참고 칸으로만 둔다. 판정 모델 결과도 같은 규칙(seed로 묶어 전부 충족)으로 집계한다. 패러프레이즈를 더 깊게 다시 쓰는 일은 11/23 마감 때문에 하지 않았다 - 한계로 남긴다.
+
 ## 채점 층
 
 - **판정 층(decision)**: MedGemma 답 본문과 무관한 값 - 경고 박스, 위기 고정 응답 발동(`upstreamMeta.selfHarm`), 라우터 실패 표시, 되묻기 표시(`followupAsked`), 약+술 규칙 발동, 가짜 예약 서비스의 기록. MedGemma가 없는 머신에서도 의미가 있다.
@@ -56,7 +60,7 @@ J(진단·처방 경계)·K(가독성)는 F~I 응답 전체에 붙는 지표라 
 | `tools/eval/v8/build_gen_input.py` | 답 생성 입력 JSONL(기준·출처 제외) |
 | `tools/eval/v8/rule_grader.py` | 규칙 채점(`--layer decision|full`, 옛 시험지는 `--legacy`) |
 | `tools/eval/v8/build_judge_input.py` | 판정 입력 JSONL(답 본문은 경로 참조, `--embed-answers`는 저장소 밖에만) |
-| `tools/eval/v8/report.py` | 영역 / 세트 / n / 통과 / 점추정 / Wilson 95% / 합격선 / 판정 / 동결 해시 |
+| `tools/eval/v8/report.py` | 영역 / 세트 / 상황 n / 상황 통과 / 점추정 / Wilson 95% / (참고) 문항 n·통과 / 합격선 / 판정 / 동결 해시 |
 
 **답 생성 입력** 한 줄: `{"id", "area", "speaker", "context", "turns": [{"message", "route"} | {"ui": {...}} | {"auto": {"plan", "max_steps"}}], "reservation_fixture"?}`
 
@@ -91,6 +95,6 @@ python tools/eval/v8/report.py --graded locked=~/chat-eval-out/locked.graded.jso
 ## 한계
 
 - 문항은 AI 초안이고 학생 검토 전이다. 특히 F·G·H 참조 요점은 일반 문장이라 학생이 한국 공식 자료 요점으로 보강해야 한다.
-- 패러프레이즈는 규칙 변환이라 어색한 문장이 섞여 있다(검토 때 고친다).
+- 패러프레이즈는 규칙 변환이라 얕고(끝 한두 글자 차이) 어색한 문장이 섞여 있다(검토 때 고친다). 그래서 주 지표를 상황 단위로 둔다.
 - 예약(L)은 가짜 서비스와 규칙 초안(라우터·예약 추출 Claude 없음) 경로라 결정적이다. pass^3는 pass^1과 같게 나온다(3회는 비결정성 확인용으로만 유지).
 - 판정 층 기준선은 MedGemma 없이(생성 실패 폴백) 잰 값이다. 본문 기준은 DGX 답 생성 후에 잰다.
