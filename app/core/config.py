@@ -489,6 +489,12 @@ class Settings(BaseModel):
     companion_reply_similar_ratio: float = _as_float("COMPANION_REPLY_SIMILAR_RATIO", 0.65)
     # 비슷해서 다시 만들 때의 온도. 평소 온도(0.1)로는 같은 문장이 다시 나온다 (11/13)
     companion_reply_redo_temperature: float = _as_float("COMPANION_REPLY_REDO_TEMPERATURE", 0.7)
+    # 대답 프롬프트에 이 대화의 흐름을 넣는다 (11/15, A안). summary = 말벗 문장 + 어르신 말 한 줄 요약(원문 아님),
+    #   마지막 인사에도 직전 질문을 넣는다(reply-v3 · reply-v2-last). off = 직전 문장 하나 + 이번 대답만(reply-v2, 전과 같음)
+    #   기본 off (11/20 품질 세트 DGX 재생: summary 대답 실패 33.3%·치명 2 > off 28.4%·치명 1 - 나빠져서 설정으로만 켠다)
+    companion_reply_history: str = _as_choice("COMPANION_REPLY_HISTORY", "off", ("summary", "off"))
+    # 흐름에 넣을 최근 쌍 수 (말벗 문장 1 + 어르신 요약 1 = 1쌍). 0 이하면 전부 (한 대화는 최대 8턴)
+    companion_reply_history_turns: int = _as_int("COMPANION_REPLY_HISTORY_TURNS", 6)
     # 별 내용 없는 짧은 대답이 이 횟수만큼 이어지면 아직 묻지 않은 일상 화제 질문으로 넘어간다 (11/13). 0이면 끈다.
     # 위험·말 피함·되묻기 턴과 글 기분이 부정인 턴은 바꾸지 않는다 (11/11: 힘든 이야기에는 화제를 바꾸지 않는다)
     companion_flat_topic_switch: int = _as_int("COMPANION_FLAT_TOPIC_SWITCH", 2)
@@ -518,6 +524,10 @@ class Settings(BaseModel):
     companion_avoid_end_count: int = _as_int("COMPANION_AVOID_END_COUNT", 2)
     # 몸 응급 낱말(숨·가슴·쓰러짐·뇌졸중 징후)만 걸린 위험 턴은 몸 응급용 안내 문장으로 답한다 (11/12). 끄면 전과 같다
     companion_body_safety_reply: bool = _as_bool("COMPANION_BODY_SAFETY_REPLY", True)
+    # 위험 이어짐 (11/15): 직전 턴이 위험이고 이번 말이 넘기는 말("괜찮겠지", "해 본 소리야")이면 위험·안전 안내를 이어 간다
+    companion_risk_carry: bool = _as_bool("COMPANION_RISK_CARRY", True)
+    # 회피("그만해"·"말하기 싫어")를 평온으로 읽던 것을 괴로움(WORRY)으로 보정 (2026-11-19, 실측 정확도 0.652→0.667, 오탐 0 추가)
+    companion_avoid_mood: bool = _as_bool("COMPANION_AVOID_MOOD", True)
     # 단어 확인(되묻기) 턴에서도 위험 모델을 돌리고, 위험이면 안전 안내 문장으로 답한다 (H-3). 끄면 낱말 규칙만
     companion_confirm_risk_model: bool = _as_bool("COMPANION_CONFIRM_RISK_MODEL", True)
     # 말벗 생성(신호·요약·대답) 동시 실행 상한. 0이면 상한 없음. 위험·기분 확률 계산은 상한 밖 (H-5, GPU 자원)

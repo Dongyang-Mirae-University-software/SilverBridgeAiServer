@@ -124,6 +124,10 @@ def analyze_turn_result(
             "confidence": round(float(r.confidence), 4) if r is not None else None,
             "usable": text_usable,
             "reason": text_reason,
+            # 4클래스 확률 (2026-11-19, 품질 측정·부정 민감 보정·섞인 감정 판정용). 토큰 확률을 못 얻으면 null.
+            # 더한 필드라 백엔드는 몰라도 된다.
+            "scores": ({c: round(float(r.scores[c]), 4) for c in MOOD_CODES}
+                       if (r is not None and r.scores and all(c in r.scores for c in MOOD_CODES)) else None),
         })
     face_label = HSEMOTION_TO_TURN.get(face["label"]) if face.get("label") else None
     face_usable = bool(face.get("usable") and face_label)
@@ -157,6 +161,7 @@ def run_turn(
     stt_logprob: float | None = None,
     past_replies=(),
     input_kind: InputKind = "voice",
+    history=(),
 ) -> dict:
     """한 턴을 처리한다 (S6-4, S7-7). 신호 추출과 응답 생성은 같은 시점에 함께 돌린다.
 
@@ -166,13 +171,15 @@ def run_turn(
     past_replies: 이 대화에서 말벗이 이미 한 문장. 비슷한 대답을 다시 만들 때 쓴다 (11/13).
     input_kind: "text" 는 어르신이 직접 쓴 글 대답이다. 받아쓰기가 없으므로 되묻기(확신도·낱말 규칙)를 하지 않는다 (11/13).
         "voice" 는 음성 대답이다. logprob 를 내는 엔진(turbo)은 확신도로, 내지 않는 엔진(sensevoice·whisper)은 낱말 규칙으로 되묻는다.
+    history: 이번 턴 앞까지의 대화 흐름 ((말벗 문장, 어르신 말 한 줄 요약), ...) (11/15, COMPANION_REPLY_HISTORY).
+        대답 프롬프트에만 넣는다. 어르신 대답 원문은 담지 않는다 (요약만).
     """
     s = get_settings()
     if input_kind == "text":
         # 11/13: 글 대답이 낱말 규칙에 걸려 "잘 알아듣지 못했어요"·"혹시 편안 이야기이신가요?"로 되물었다.
         #   위험 판정·피하는 말·기분은 일반 턴에서 그대로 돈다
         return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
-                              past_replies)
+                              past_replies, history)
     if s.companion_confirm_mode == "logprob" and stt_logprob is not None:
         # 11/09: 받아쓰기 확신도가 낮으면 되묻는다. 후보 낱말은 내지 않는다 (틀린 후보를 말하면 더 헷갈린다)
         # 11/13: 짧은 부정 대답("아니 없어")은 확신도가 낮아도 되묻지 않는다 (위험 판정은 일반 턴에서 그대로 돈다)
@@ -181,9 +188,9 @@ def run_turn(
             return _low_confidence_turn(transcript, llm)
     else:
         return _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
-                                     past_replies)
+                                     past_replies, history)
     return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
-                          past_replies)
+                          past_replies, history)
 
 
 def _risk_prob_capped(llm: LlmClient, transcript: str) -> float | None:
@@ -219,7 +226,7 @@ def _low_confidence_turn(transcript: str, llm: LlmClient) -> dict:
 
 
 def _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
-                          past_replies=()) -> dict:
+                          past_replies=(), history=()) -> dict:
     """재희 버전 되묻기: 형태소·어휘 목록 규칙으로 실제 단어가 아닐 수 있는 말을 찾는다."""
     check = check_transcript(transcript)
     if check.suspicious:
@@ -244,11 +251,11 @@ def _lexicon_checked_turn(transcript, face, classify_text, llm, question, prev_s
             "riskModel": risk_model(llm) if risk_prob is not None else None,
         }
     return _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
-                          past_replies)
+                          past_replies, history)
 
 
 def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals, is_last_turn, turn_no,
-                   past_replies=()) -> dict:
+                   past_replies=(), history=()) -> dict:
     """감정·신호·대답·요약·위험을 함께 만드는 일반 턴."""
     # 한 턴 전체 상한 (백엔드 요청 60초). 넘게 걸리는 작업은 기다리지 않고, 그 결과는 쓰지 않는다
     cap = get_settings().companion_turn_cap_sec
@@ -275,7 +282,7 @@ def _analyzed_turn(transcript, face, classify_text, llm, question, prev_signals,
         # 글 기분은 risk_first 일 때만 생성 전에 있다. 꺼져 있으면 None 으로 넘겨 전 규칙으로 검사한다 (11/12)
         reply_future = None if avoided else pool.submit(
             generate_reply, llm, question, transcript, prev_signals, is_last_turn, turn_no,
-            text_mood if risk_first else None, tuple(past_replies))
+            text_mood if risk_first else None, tuple(past_replies), tuple(history))
         summary_future = pool.submit(summarize_answer, llm, transcript)
         risk_future = None if risk_first else pool.submit(risk_probability, llm, transcript)
         try:
