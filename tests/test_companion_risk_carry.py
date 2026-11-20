@@ -159,3 +159,58 @@ def test_setting_default_is_on(monkeypatch):
     assert config._as_bool("COMPANION_RISK_CARRY", True) is True
     monkeypatch.setenv("COMPANION_RISK_CARRY", "false")
     assert config._as_bool("COMPANION_RISK_CARRY", True) is False
+
+
+# --- 11/20 기능 점검 반영 (H-1 도움 거부 · M-1 부정된 괜찮 · L-1 되묻기 턴 · L-2 '죽겠' 관용구) ----------------
+
+REFUSALS = ["병원 가기 싫어", "119 부르지 마", "전화하지 마 아무한테도", "연락하지 마", "병원 가 봤자 소용없어",
+            "딸한테 알리지 마", "병원은 안 갈 거야", "119는 필요 없어"]
+
+
+@pytest.mark.parametrize("text", REFUSALS)
+def test_refusing_help_is_downplay_even_with_accept_words(text):
+    assert risk_carry.is_refusal(text) and risk_carry.is_downplay(text)
+
+
+@pytest.mark.parametrize("text", ["119 부를게", "알았어, 119 부를게", "딸한테 전화해 볼게", "아들한테 연락했어", "병원 다녀왔어",
+                                  "구급차 불렀어"])
+def test_accepting_help_still_not_carried(text):
+    assert not risk_carry.is_refusal(text) and not risk_carry.is_downplay(text)
+
+
+def test_plain_wording_for_refusal_and_negated_ok():
+    for text in ("병원 가기 싫어", "하나도 안 괜찮아", "괜찮지 않아"):
+        assert risk_carry.is_downplay(text)
+        assert risk_carry.carry_reply(False, text) == risk_carry.CARRY_PLAIN_REPLY
+        assert risk_carry.carry_reply(True, text) == risk_carry.CARRY_BODY_PLAIN_REPLY
+        assert "괜찮다고 하셔도" not in risk_carry.carry_reply(False, text)
+    # 검수한 넘기는 말은 전과 같은 문장 ("괜찮다고 하셔도" 로 받는다)
+    assert risk_carry.carry_reply(True, "조금 쉬니까 괜찮아진 것 같기도 하고") == risk_carry.CARRY_BODY_REPLY
+    assert risk_carry.carry_reply(False, "그냥 해 본 소리야") == risk_carry.CARRY_REPLY
+    for reply in (risk_carry.CARRY_PLAIN_REPLY, risk_carry.CARRY_BODY_PLAIN_REPLY):
+        assert "119" in reply  # 안전 안내 표시 (품질 기준 R10)
+
+
+def test_dying_idiom_with_breath_is_body_but_death_wish_is_mind():
+    assert risk_carry.is_body_risk("숨이 막혀 죽겠어")
+    assert risk_carry.is_body_risk("가슴이 답답해 죽겠어")
+    assert not risk_carry.is_body_risk("숨이 차서 그냥 죽고 싶어")
+
+
+def test_router_refusal_after_risk_keeps_risk_and_plain_wording(setup):
+    d = store.create("ward-carry6", "s-carry6", "09:00", OPENING, 8, None)
+    _say(d, BODY)
+    out = _say(d, "병원 가기 싫어")
+    assert out["riskFlag"] is True and out["riskCarry"] is True
+    assert out["reply"]["text"] == risk_carry.CARRY_BODY_PLAIN_REPLY
+    assert _say(d, "119 부르지 마")["riskCarry"] is True  # 거부가 이어져도 계속 이어 간다
+
+
+def test_router_confirm_turn_does_not_clear_previous_risk(setup):
+    d = store.create("ward-carry7", "s-carry7", "09:00", OPENING, 8, None)
+    _say(d, MIND)
+    r = companion_router._run_turn(d, "어 그게 저기 뭐더라", NO_FACE, _calm, SameLlm(), stt_logprob=-2.0)  # 확신도 낮음 → 되묻기
+    assert r["replySource"] == "CONFIRM" and not r.get("riskFlag")
+    companion_router._turn_response(store.get(d.dialogueId), r, face=NO_FACE)
+    assert store.get(d.dialogueId).lastRisk is True
+    assert _say(d, "괜찮아, 그냥 해 본 소리야")["riskCarry"] is True
