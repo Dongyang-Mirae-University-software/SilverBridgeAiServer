@@ -752,7 +752,15 @@ class ChatService:
             and result.get("riskLevel") != "high" and not result.get("emergencyWarning")
             and not meta_now.get("selfHarm") and not meta_now.get("followupAsked")
         ):
-            depression_line = MedicalLlmService.depression_109_line(message, result["reply"], self._is_proxy(payload, proxy_text))
+            depression_proxy = self._is_proxy(payload, proxy_text)
+            # 2026-11-21: 109 줄 앞에 검사·상담 받을 곳(본인) / 곁에서 할 일(가족) 한 줄 - 질문에 먼저 답한다(v8 D3b).
+            help_line = MedicalLlmService.depression_help_line(message, result["reply"], depression_proxy)
+            if help_line:
+                result["reply"] = f"{result['reply']}\n{help_line}"
+                result.setdefault("meta", {})
+                if isinstance(result["meta"], dict):
+                    result["meta"]["depressionHelp"] = True
+            depression_line = MedicalLlmService.depression_109_line(message, result["reply"], depression_proxy)
             if depression_line:
                 result["reply"] = f"{result['reply']}\n{depression_line}"
                 safety_lines.append(depression_line)

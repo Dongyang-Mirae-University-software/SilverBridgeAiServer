@@ -230,7 +230,7 @@ def test_quality_log_has_flags_only(caplog) -> None:
 
 def test_rule8_no_longer_requires_119_for_general_symptoms() -> None:
     rule8 = next(line for line in SYSTEM_PROMPT.splitlines() if line.startswith("8)"))
-    assert "계속되거나 심해지면" in rule8
+    assert "며칠이 지나도 나아지지 않으면" in rule8  # 2026-11-21 막연한 틀 대신 기간 기준(v8 F1)
     assert "위험 신호가 함께 있을 때만" in rule8
     example1 = next(line for line in SYSTEM_PROMPT.splitlines() if line.startswith('{"empathy": "허리가'))
     assert "119" not in example1

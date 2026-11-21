@@ -304,6 +304,15 @@ def test_resolve_ui_picks_from_previous_options() -> None:
         ro.resolve_ui({"field": "time", "pick": "first"}, {"ui": None})
 
 
+def test_auto_step_answers_followup_chips_safely() -> None:
+    route = {"route": "symptom"}
+    prev = {"suggestedKind": "answer", "suggestedQuestions": ["네", "아니요"]}
+    assert ro.auto_step({"plan": {"_chip": "safe"}, "route": route}, prev) == {"message": "아니요", "route": route}
+    prev2 = {"suggestedKind": "answer", "suggestedQuestions": ["오늘부터 그래요", "몇 달째 그래요"]}
+    assert ro.auto_step({"plan": {"_chip": "safe"}}, prev2) == {"message": "오늘부터 그래요"}
+    assert ro.auto_step({"plan": {"_chip": "safe"}}, {"suggestedQuestions": ["이어서 물어볼 질문"]}) is None  # 답 버튼이 아니면 끝
+
+
 def test_auto_step_follows_plan_and_hospital_cards() -> None:
     plan = {"time": "first", "hospital_confirm": "first"}
     assert ro.auto_step({"plan": plan}, {"ui": {"field": "time"}}) == {"ui": {"field": "time", "pick": "first"}}
