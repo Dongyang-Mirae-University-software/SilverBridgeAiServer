@@ -18,6 +18,12 @@ SCREEN_MOOD = {"기쁨": "기쁨", "평온": "평온", "우울": "우울", "슬�
 MOOD_CODE = {"기쁨": "JOY", "평온": "CALM", "걱정": "WORRY", "우울": "DEPRESSED"}
 
 
+def turn_mood_code(label: str | None) -> str:
+    """턴 라벨(기쁨·평온·슬픔·화남·우울·판단 보류·None) -> 기분 코드. 대화 단위와 같은 표(SCREEN_MOOD -> MOOD_CODE)를 쓴다.
+    슬픔·화남은 WORRY, 판단 보류·무응답(None)·모르는 값은 UNKNOWN."""
+    return MOOD_CODE.get(SCREEN_MOOD.get(label), "UNKNOWN")
+
+
 def build_dialogue_result(d: Dialogue) -> dict:
     """대화 1회 결과. 원문(대답 글)은 넣지 않는다 (10/26 합의: 원문은 AI 쪽에만 둔다).
 

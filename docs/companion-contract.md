@@ -26,6 +26,8 @@
 | POST | `/companion/dialogues` | 시각(09:00·12:00·15:00·18:00·21:00)의 질문으로 대화를 연다. 본문: `wardId`, `sessionId`, `slot`, `question`(질문 문장, 백엔드가 고름), `questionId`(질문 번호, 선택). AI는 백엔드를 호출하지 않는다 |
 | POST | `/companion/dialogues/{id}/reply` | 글로 된 대답을 보낸다. 본문: `text` |
 | POST | `/companion/dialogues/{id}/reply/audio` | 음성 대답을 보낸다. multipart: `audio` 1개, `frame` 최대 5개 |
+| GET | `/companion/dialogues/{id}` | 대화 상태(이어 가기용). `dialogueId`·`question`·`lastQuestion`(말벗이 마지막으로 한 말, 아직 턴이 없으면 여는 질문)·`turnNo`·`ended`. 대답 원문 없음. 끝난 대화도 읽는다 |
+| GET | `/companion/sessions/{sessionId}/utterances/{index}/audio?wait=` | 말벗 문장의 소리(`audio/mpeg`, 24kHz mono, 1MB 이하). index 0 = 여는 질문, n = n번째 턴 뒤 말벗이 한 말. `wait` 0~8초(기본 5). 헤더 `X-Companion-Ward-Id`(선택): 있으면 소리를 만든 대화의 `wardId`와 대조하고 다르면 404 |
 | POST | `/companion/dialogues/{id}/finish` | 대화를 끝내고 최빈 결과를 받는다 |
 | GET | `/companion/review/replies?status=` | 검수 목록 (AI가 만든 문장만, 대답 원문 없음). status: pending·approved·rejected |
 | POST | `/companion/review/replies/{itemId}` | 검수 결정. 본문: `decision` = approved·rejected |
@@ -36,7 +38,7 @@
 ```json
 {
   "dialogueId": "…", "turnNo": 2,
-  "turnResult": { "label": "기쁨", "source": "TEXT" },
+  "turnResult": { "label": "기쁨", "source": "TEXT", "moodCode": "JOY" },
   "reply": { "text": "…", "isFollowUp": true },
   "face": { "label": "Happiness", "confidence": 0.8, "frameCount": 3, "usable": true },
   "signals": { "emotion": "positive", "activityMotivation": "mid", "socialContact": "unknown", "physicalCondition": "unknown", "futureOrientation": "unknown", "responseEvasion": false, "riskFlag": false },
@@ -58,6 +60,7 @@
 - `signals`는 추출에 실패하면 `null`이다. 대화 응답은 그대로 나간다.
 - `turnResult.label`: 기쁨·평온·슬픔·화남·우울·판단 보류 중 하나. 무응답이면 `null`.
 - 음성에 글자가 없으면 422가 아니라 무응답 턴이다: 200, `turnResult` = `{label: null, source: NO_RESPONSE}`, `transcript` = `""`, `signals` = `null`. 답변은 미리 정한 문장을 쓴다 (아키텍처 3·4절).
+- `turnResult.moodCode` (2026-11-21, 더한 필드, 11/21 최종 점검 H-1): 턴 기분 코드 `JOY`·`CALM`·`WORRY`·`DEPRESSED`·`UNKNOWN`. 대화 결과의 `mood`와 같은 표(슬픔·화남 → `WORRY`, `turn_record.turn_mood_code`)이고, 판단 보류·무응답(`label` null)은 `UNKNOWN`. `label`의 '슬픔'·'화남'은 백엔드 한글 표(기쁨·평온·걱정·우울)에 없어 `label`만 읽으면 null로 저장되므로 백엔드는 `moodCode`를 먼저 읽는다 (`UNKNOWN`이면 백엔드는 null로 저장).
 - `turnResult.source`: `TEXT` · `FACE` · `CONFLICT` · `NO_RESPONSE`.
 - `reply.isFollowUp`: 마지막 턴(8번째)이면 `false`이고 마무리 인사다.
 
@@ -89,10 +92,14 @@
 | 409 | DIALOGUE_ENDED | 이미 끝난 대화 (9번째 답 포함, 명세 코드와 이름이 다름, 정리 필요) |
 | 413 | AUDIO_TOO_LARGE | 음성이 너무 큼 |
 | 413 | FRAMES_TOO_MANY | 프레임이 5장을 넘음 |
-| 413 | FRAME_TOO_LARGE | 프레임 한 장이 2MB를 넘음 |
+| 413 | FRAME_TOO_LARGE | 프레임 한 장이 1MB를 넘음 |
 | 422 | FRAME_FORMAT_UNSUPPORTED | 얼굴 사진이 JPEG·PNG가 아님 (파일 머리로 판별, 확장자는 보지 않음) |
 | 422 | SLOT_INVALID | 시각 값이 5개 중 하나가 아님 |
 | 422 | ANSWER_EMPTY | 글 대답이 비어 있음 |
+| 422 | ANSWER_TOO_LONG | 글 대답이 500자를 넘음 |
+| 422 | WAIT_INVALID | 소리 받기 `wait`가 0~8초 밖 |
+| 503 | TTS_NOT_READY | 소리를 아직 만드는 중 (`wait` 안에 못 끝남, 다시 시도) |
+| 404 | TTS_NOT_FOUND | 소리가 없음 (없음·만료 15분·꺼짐·합성 실패·`wardId` 불일치·범위 밖 index) |
 | 422 | AUDIO_MISSING | 음성 파일이 없음 |
 | 422 | AUDIO_FORMAT_UNSUPPORTED | WAV·webm·mp3가 아님 |
 | 422 | STATUS_INVALID | 검수 status 값이 잘못됨 |
@@ -107,7 +114,7 @@ LLM 실패는 오류로 나가지 않는다. 재시도는 하지 않고(`COMPANI
 - AI 서버에는 검수 목록(AI가 만든 문장과 상태)만 SQLite로 둔다. 30일 지나면 지운다 (D18).
 - 대화 상태는 메모리에만 있다. 서버를 재시작하면 진행 중인 대화는 사라진다.
 - 마지막 활동 뒤 10분이 지난 대화는 메모리에서 지운다 (`IDLE_LIMIT_SEC`, BE의 10분 자동 종료 기준과 맞춤). 이때 결과는 보내지 않는다. 결과는 `finish`를 부른 경우에만 나간다.
-- 대화 결과 1건은 백엔드가 `POST /companion/dialogues/{id}/finish`를 부를 때 응답 `data`로 받는다. AI는 백엔드로 따로 보내지 않는다 (2026-11-03 변경). 턴마다 결과를 주지 않는다 (10/26 합의). 원문은 보내지 않는다. 기분(`mood`)은 판단할 수 없으면 `null`. 주소가 비어 있으면 보내지 않는다. 보내지 못해도 대화 응답은 그대로 나간다.
+- 대화 결과 1건은 백엔드가 `POST /companion/dialogues/{id}/finish`를 부를 때 응답 `data`로 받는다. AI는 백엔드로 따로 보내지 않는다 (2026-11-03 변경). 턴마다 결과를 주지 않는다 (10/26 합의). 원문은 보내지 않는다. 기분(`mood`)은 판단할 수 없으면 `UNKNOWN`(`null` 아님, 한글 `moodKo`만 `null`). 주소가 비어 있으면 보내지 않는다. 보내지 못해도 대화 응답은 그대로 나간다.
 - 비식별 ID는 HMAC-SHA256으로 만든다 (`COMPANION_PSEUDONYM_SALT`가 비면 만들지 않는다).
 
 ## 대화 결과 1건 (AI → 백엔드)
@@ -129,8 +136,7 @@ LLM 실패는 오류로 나가지 않는다. 재시도는 하지 않고(`COMPANI
 | `answeredCount` | 답한 턴 수 (무응답 제외, 판단 보류는 포함). 응답률 = answeredCount ÷ 질문 수 |
 | `mood` | 기분 코드 `JOY`·`CALM`·`WORRY`·`DEPRESSED`·`UNKNOWN` (판단 불가는 `UNKNOWN`, `null` 아님). 화면용 한글은 `moodKo` (판단 불가면 `null`) |
 | `riskFlag` | 위험 여부. 응급·자해 낱말 규칙 또는 모델 판정 중 하나라도 해당하면 `true` (모델이 꺼져도 규칙은 동작) |
-| `summary` | 한 줄 요약. 지금은 항상 `null` (LLM 필요) |
-| `riskFlag` | 위험 신호 여부 |
+| `summary` | 대화 전체 요약. 턴마다 한 줄 요약(`turnSummaries`)을 ` · `로 이어 붙여 최대 300자로 자른다. 요약된 턴이 없으면 `null` |
 | `alertLevel` | `URGENT` (위험 신호) 또는 `INFO`. 주의(NOTICE)는 백엔드가 계산 |
 | `promptVersion` | 응답·신호 프롬프트 버전. 응답은 `COMPANION_REPLY_HISTORY=summary`(대화 흐름 포함, 2026-11-21부터 기본 - 대답 어댑터 cc8b)면 `reply-v4`(그 전 `reply-v3`), `off`면 `reply-v2` (2026-11-15) |
 
