@@ -65,6 +65,12 @@ NOT_ADVICE = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _strict_off(monkeypatch):
+    """이 파일의 예시 문장("가장 즐거웠던 순간은…")은 11/21 검사 보강(막연한 질문)에 걸린다 - 평온 턴 완화만 보려고 끈다."""
+    monkeypatch.setattr(get_settings(), "companion_reply_strict", False)
+
+
 @pytest.fixture
 def settings(monkeypatch):
     s = get_settings()

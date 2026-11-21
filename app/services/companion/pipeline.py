@@ -49,6 +49,9 @@ REASON_CODES = {
     "대답과 무관": "RULE_UNRELATED",
     "권유": "RULE_ADVICE",
     "반복": "RULE_REPEAT",
+    "앞일을 한 일로": "RULE_FUTURE_DONE",  # 11/21 검사 보강 (COMPANION_REPLY_STRICT)
+    "막연한 질문": "RULE_VAGUE",
+    "계획 질문": "RULE_PLAN",
     "LLM 실패": "LLM_FAIL",
     "말 피함": "AVOID",
 }

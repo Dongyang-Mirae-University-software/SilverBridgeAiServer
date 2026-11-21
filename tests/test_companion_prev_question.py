@@ -38,7 +38,8 @@ def settings(monkeypatch):
     def set_(**kw):
         for k, v in kw.items():
             monkeypatch.setattr(s, k, v)
-    set_(companion_confirm_mode="logprob", companion_confirm_logprob=-0.3, companion_short_answer_pass=True,
+    # 세션 203 재생 문장은 11/21 검사 보강(막연한 질문·계획 질문) 전 기록이라 끈다
+    set_(companion_reply_strict=False, companion_confirm_mode="logprob", companion_confirm_logprob=-0.3, companion_short_answer_pass=True,
          companion_reply_similar_ratio=0.65, companion_reply_redo_temperature=0.7, companion_llm_retry=0,
          companion_risk_first=True, companion_reply_relax_calm=True, companion_avoid_reply=True,
          companion_keep_fixed_replies=True, companion_llm_temperature=0.1,

@@ -485,6 +485,9 @@ class Settings(BaseModel):
     # 글 기분이 평온·기쁨인 턴은 '대답과 무관' 검사를 빼고, 권유 문장 검사(모든 꼬리질문 턴)를 더한다 (11/12).
     # 끄면 전과 같다. 기분은 risk_first 가 켜져 있을 때만 생성 전에 있다 (꺼져 있으면 전 규칙)
     companion_reply_relax_calm: bool = _as_bool("COMPANION_REPLY_RELAX_CALM", True)
+    # 11/21 대답 검사 보강: 마지막 인사의 앞일→한 일·막연한 질문·계획 캐묻기는 대체 문장, 세 문장 이상 꼬리질문은 첫 문장+질문으로 줄임.
+    #   false 면 전과 같다 (재시도 0회 결정 D20 은 그대로)
+    companion_reply_strict: bool = _as_bool("COMPANION_REPLY_STRICT", True)
     # 말을 피하는 대답("말하기 싫어", "묻지 마")에는 모델 대답 대신 물러나는 문장으로 답한다 (11/12). 끄면 전과 같다
     companion_avoid_reply: bool = _as_bool("COMPANION_AVOID_REPLY", True)
     # 새 대답이 이 대화의 지난 말벗 문장과 이 비율 이상 비슷하면 한 번 다시 만든다 (11/13, 세션 203 2번↔5번 0.76). 0이면 끈다
