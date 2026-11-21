@@ -92,7 +92,7 @@
 | 409 | DIALOGUE_ENDED | 이미 끝난 대화 (9번째 답 포함, 명세 코드와 이름이 다름, 정리 필요) |
 | 413 | AUDIO_TOO_LARGE | 음성이 너무 큼 |
 | 413 | FRAMES_TOO_MANY | 프레임이 5장을 넘음 |
-| 413 | FRAME_TOO_LARGE | 프레임 한 장이 2MB를 넘음 |
+| 413 | FRAME_TOO_LARGE | 프레임 한 장이 1MB를 넘음 |
 | 422 | FRAME_FORMAT_UNSUPPORTED | 얼굴 사진이 JPEG·PNG가 아님 (파일 머리로 판별, 확장자는 보지 않음) |
 | 422 | SLOT_INVALID | 시각 값이 5개 중 하나가 아님 |
 | 422 | ANSWER_EMPTY | 글 대답이 비어 있음 |
@@ -137,7 +137,6 @@ LLM 실패는 오류로 나가지 않는다. 재시도는 하지 않고(`COMPANI
 | `mood` | 기분 코드 `JOY`·`CALM`·`WORRY`·`DEPRESSED`·`UNKNOWN` (판단 불가는 `UNKNOWN`, `null` 아님). 화면용 한글은 `moodKo` (판단 불가면 `null`) |
 | `riskFlag` | 위험 여부. 응급·자해 낱말 규칙 또는 모델 판정 중 하나라도 해당하면 `true` (모델이 꺼져도 규칙은 동작) |
 | `summary` | 대화 전체 요약. 턴마다 한 줄 요약(`turnSummaries`)을 ` · `로 이어 붙여 최대 300자로 자른다. 요약된 턴이 없으면 `null` |
-| `riskFlag` | 위험 신호 여부 |
 | `alertLevel` | `URGENT` (위험 신호) 또는 `INFO`. 주의(NOTICE)는 백엔드가 계산 |
 | `promptVersion` | 응답·신호 프롬프트 버전. 응답은 `COMPANION_REPLY_HISTORY=summary`(대화 흐름 포함, 2026-11-21부터 기본 - 대답 어댑터 cc8b)면 `reply-v4`(그 전 `reply-v3`), `off`면 `reply-v2` (2026-11-15) |
 
