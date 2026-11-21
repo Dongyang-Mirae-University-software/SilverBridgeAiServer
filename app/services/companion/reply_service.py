@@ -207,7 +207,7 @@ def trim_reply(text: str, is_last_turn: bool) -> str:
 
 
 def strict_failures(body: str, is_last_turn: bool, transcript: str) -> list[str]:
-    """11/21 검사 보강 ①~③. 걸린 항목 이름 목록."""
+    """11/21 검사 보강 ①~③. 걸린 항목 이름 목록. ③ 계획 질문은 COMPANION_REPLY_STRICT_PLAN(기본 끔)일 때만 (11/22)."""
     out = []
     if is_last_turn:
         if STRICT_FUTURE_MARK.search(transcript) and STRICT_DONE_FORM.search(body):
@@ -216,7 +216,7 @@ def strict_failures(body: str, is_last_turn: bool, transcript: str) -> list[str]
     q = _question_part(body)
     if q and STRICT_VAGUE_Q.search(q) and not STRICT_VAGUE_Q.search(transcript):
         out.append("막연한 질문")
-    if q and STRICT_PLAN_Q.search(q) and not STRICT_PLAN_Q.search(transcript):
+    if get_settings().companion_reply_strict_plan and q and STRICT_PLAN_Q.search(q) and not STRICT_PLAN_Q.search(transcript):
         out.append("계획 질문")
     return out
 

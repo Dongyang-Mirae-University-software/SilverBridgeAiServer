@@ -24,7 +24,8 @@ def settings(monkeypatch):
     def set_(**kw):
         for k, v in kw.items():
             monkeypatch.setattr(s, k, v)
-    set_(companion_reply_strict=True, companion_reply_lora=False, companion_llm_retry=0, companion_reply_relax_calm=True)
+    set_(companion_reply_strict=True, companion_reply_strict_plan=True, companion_reply_lora=False, companion_llm_retry=0,
+         companion_reply_relax_calm=True)
     return set_
 
 
@@ -135,3 +136,13 @@ def test_switch_off_is_the_old_behavior(settings):
 def test_switch_default_on():
     from app.core import config
     assert '_as_bool("COMPANION_REPLY_STRICT", True)' in Path(config.__file__).read_text(encoding="utf-8")
+
+
+def test_plan_check_is_off_by_default_and_separate(settings):
+    """11/22: ③ 계획 질문만 따로 끈다 (대체 문장이 회차마다 9~12턴 늘어 한도 초과). ②는 그대로 본다."""
+    from app.core import config
+    assert '_as_bool("COMPANION_REPLY_STRICT_PLAN", False)' in Path(config.__file__).read_text(encoding="utf-8")
+    settings(companion_reply_strict_plan=False)
+    assert strict_failures("시장 가시는군요. 새로운 것을 사 오실 계획이신가요?", False, "내일은 시장에 가 보려고") == []
+    assert strict_failures("그냥 보내셨군요. 특별히 하고 싶은 활동은 없으셨나요?", False, "그냥 그래") == ["막연한 질문"]
+

@@ -488,6 +488,8 @@ class Settings(BaseModel):
     # 11/21 대답 검사 보강: 마지막 인사의 앞일→한 일·막연한 질문·계획 캐묻기는 대체 문장, 세 문장 이상 꼬리질문은 첫 문장+질문으로 줄임.
     #   false 면 전과 같다 (재시도 0회 결정 D20 은 그대로)
     companion_reply_strict: bool = _as_bool("COMPANION_REPLY_STRICT", True)
+    # ③ 계획 캐묻기 검사만 따로 (기본 끔): 품질 세트 3회에서 회차마다 9~12턴이 대체 문장으로 바뀌어 한도(+6턴)를 넘었다 (11/22)
+    companion_reply_strict_plan: bool = _as_bool("COMPANION_REPLY_STRICT_PLAN", False)
     # 말을 피하는 대답("말하기 싫어", "묻지 마")에는 모델 대답 대신 물러나는 문장으로 답한다 (11/12). 끄면 전과 같다
     companion_avoid_reply: bool = _as_bool("COMPANION_AVOID_REPLY", True)
     # 새 대답이 이 대화의 지난 말벗 문장과 이 비율 이상 비슷하면 한 번 다시 만든다 (11/13, 세션 203 2번↔5번 0.76). 0이면 끈다
