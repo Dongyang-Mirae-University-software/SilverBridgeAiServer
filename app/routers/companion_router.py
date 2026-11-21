@@ -34,7 +34,7 @@ from app.services.companion.stt_service import SttUnavailable
 from app.services.companion.mood_service import mood_service
 from app.services.companion.text_emotion_service import text_emotion_service
 from app.services.companion.timeouts import call_with_timeout
-from app.services.companion.turn_record import build_dialogue_result
+from app.services.companion.turn_record import build_dialogue_result, turn_mood_code
 from app.services.companion.tts_service import TtsNotFound, TtsNotReady, tts_service
 
 logger = logging.getLogger(__name__)
@@ -414,7 +414,9 @@ def _turn_response(d: Dialogue, result: dict, transcript: str | None = None, fac
     body = {
         "dialogueId": d.dialogueId,
         "turnNo": updated.turnNo,
-        "turnResult": result["turnResult"],
+        # 턴 기분 코드 (11/21 최종 점검 H-1): 라벨 '슬픔'·'화남'은 백엔드 표에 없어 null 로 저장되던 것을 코드로 함께 보낸다.
+        # 새 dict 로 만든다 (원래 dict 는 store·다른 곳에서 그대로 쓴다)
+        "turnResult": {**result["turnResult"], "moodCode": turn_mood_code(result["turnResult"].get("label"))},
         "reply": result["reply"],
         "face": face if face is not None else _no_face(),
         "signals": result.get("signals"),  # 추출 실패면 null (명세: 대화 응답은 정상으로 보낸다)
