@@ -165,7 +165,7 @@ def test_adapter_dirs_include_risk_by_default(settings, tmp_path):
 @pytest.mark.parametrize("field, env, expected", [
     ("companion_risk_lora_subdir", "COMPANION_RISK_LORA_SUBDIR", "companion/llm/lora-risk-r2"),
     ("companion_mood_lora_subdir", "COMPANION_MOOD_LORA_SUBDIR", "companion/llm/lora-mood-e1600soup"),
-    ("companion_reply_lora_subdir", "COMPANION_REPLY_LORA_SUBDIR", "companion/llm/lora-reply-cc7"),
+    ("companion_reply_lora_subdir", "COMPANION_REPLY_LORA_SUBDIR", "companion/llm/lora-reply-cc8b"),
 ])
 def test_code_default_adapter_dirs(field, env, expected):
     """11/15: 위험 r2 · 대답 cc7 / 11/18: 기분 e1600soup (기본값은 불러올 때 정해져, 환경변수가 있으면 건너뛴다)."""

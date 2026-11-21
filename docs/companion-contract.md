@@ -132,7 +132,7 @@ LLM 실패는 오류로 나가지 않는다. 재시도는 하지 않고(`COMPANI
 | `summary` | 한 줄 요약. 지금은 항상 `null` (LLM 필요) |
 | `riskFlag` | 위험 신호 여부 |
 | `alertLevel` | `URGENT` (위험 신호) 또는 `INFO`. 주의(NOTICE)는 백엔드가 계산 |
-| `promptVersion` | 응답·신호 프롬프트 버전. 응답은 `COMPANION_REPLY_HISTORY=summary`(대화 흐름 포함)면 `reply-v4`(2026-11-21, 그 전 `reply-v3`), `off`(기본, 2026-11-20)면 `reply-v2` (2026-11-15) |
+| `promptVersion` | 응답·신호 프롬프트 버전. 응답은 `COMPANION_REPLY_HISTORY=summary`(대화 흐름 포함, 2026-11-21부터 기본 - 대답 어댑터 cc8b)면 `reply-v4`(그 전 `reply-v3`), `off`면 `reply-v2` (2026-11-15) |
 
 ## 대화 종료 이유 (endReason)
 
