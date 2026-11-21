@@ -163,7 +163,9 @@ def test_medication_question_left_to_existing_rule() -> None:
     # 2026-10-30 K-4: 감기약을 같이 먹는 질문은 성분 확인 고정 문장 한 줄만 더 붙는다(test_chat_remaining_risks_3).
     out = _gen("감기약이랑 혈압약을 같이 먹어도 되나요", symptoms="약 복용 문의", advice="의사나 약사에게 물어봐 주세요.")
     lines = out["reply"].split("\n")
-    assert lines[-2].endswith("의사나 약사에게 물어봐 주세요.") and lines[-1].startswith("어르신은 감기약에도")
+    # 2026-11-22 v8 G1: 성분이 겹치는 이유 줄 + 혈압약이면 코막힘 성분이 혈압을 올린다는 이유 줄
+    assert lines[-3].endswith("의사나 약사에게 물어봐 주세요.") and lines[-2].startswith("감기약에는 해열진통제처럼")
+    assert lines[-1].startswith("감기약에 든 코막힘 성분은 혈압을")
 
 
 def test_general_chat_untouched() -> None:
