@@ -24,7 +24,7 @@ def test_turn_mood_code(label, code):
 def test_turn_response_carries_mood_code(label, code):
     d = store.create("ward-mood", "s-mood", "09:00", "좋은 아침이에요.", 8, "q-mood")
     original = {"label": label, "source": "TEXT"}
-    result = {"turnResult": original, "reply": "네."}
+    result = {"turnResult": original, "reply": {"text": "네.", "isFollowUp": True}}
     out = companion_router._turn_response(store.get(d.dialogueId), result, face={"label": None, "usable": False})
     assert out["turnResult"] == {"label": label, "source": "TEXT", "moodCode": code}
     assert "moodCode" not in original  # 원래 dict 는 그대로
@@ -32,6 +32,6 @@ def test_turn_response_carries_mood_code(label, code):
 
 def test_turn_response_no_response_is_unknown():
     d = store.create("ward-mood2", "s-mood2", "09:00", "좋은 아침이에요.", 8, "q-mood2")
-    result = {"turnResult": {"label": None, "source": "NO_RESPONSE"}, "reply": "네."}
+    result = {"turnResult": {"label": None, "source": "NO_RESPONSE"}, "reply": {"text": "네.", "isFollowUp": True}}
     out = companion_router._turn_response(store.get(d.dialogueId), result)
     assert out["turnResult"]["moodCode"] == "UNKNOWN"
