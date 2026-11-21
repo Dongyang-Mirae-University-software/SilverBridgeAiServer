@@ -67,7 +67,8 @@ def test_new_switch_defaults():
 
 
 @pytest.mark.parametrize("env_value, expected", [
-    (None, "companion/llm/lora-reply-cc7"),  # 11/13 기본값 cc7 (환경 변수 없이 띄우면 cc7)
+    (None, "companion/llm/lora-reply-cc8b"),  # 11/21 기본값 cc8b (환경 변수 없이 띄우면 cc8b)
+    ("companion/llm/lora-reply-cc7", "companion/llm/lora-reply-cc7"),  # 되돌림: cc7
     ("companion/llm/lora-reply-cc5", "companion/llm/lora-reply-cc5"),  # 되돌림: 환경 변수가 이긴다
 ])
 def test_reply_lora_subdir_default_is_cc7(env_value, expected):

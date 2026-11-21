@@ -467,8 +467,10 @@ class Settings(BaseModel):
     # (평온을 부정으로 52 → 48 · 평온을 기쁨으로 19 → 9). 시드 3개 평균은 e1500 83.6 vs e1600 83.7로 같다(e1500 CareCall 86.3은 한 판의 운에 가깝다).
     # e1500 으로 되돌리려면 COMPANION_MOOD_LORA_SUBDIR=companion/llm/lora-mood-e1500 (e1500·e1300·e900 폴더는 남겨 둠)
     companion_mood_lora_subdir: str = os.getenv("COMPANION_MOOD_LORA_SUBDIR", "companion/llm/lora-mood-e1600soup")
-    # 대답 어댑터 기본값 cc7 (11/13, 11/12 DGX 비교에서 cc5 대신 채택). cc5로 되돌리려면 COMPANION_REPLY_LORA_SUBDIR=companion/llm/lora-reply-cc5
-    companion_reply_lora_subdir: str = os.getenv("COMPANION_REPLY_LORA_SUBDIR", "companion/llm/lora-reply-cc7")
+    # 대답 어댑터 기본값 cc8b (11/21, 대화 흐름 형식으로 학습 - 품질 세트 3회 나란히 cc7+off 대비 실패 36.0→23.7·치명 4→0·겹침 18→10%).
+    #   cc8b 는 흐름 입력(COMPANION_REPLY_HISTORY=summary)과 짝이다. cc7 로 되돌리려면 COMPANION_REPLY_LORA_SUBDIR=companion/llm/lora-reply-cc7
+    #   과 COMPANION_REPLY_HISTORY=off 를 함께 넣는다 (cc7 폴더는 남겨 둠)
+    companion_reply_lora_subdir: str = os.getenv("COMPANION_REPLY_LORA_SUBDIR", "companion/llm/lora-reply-cc8b")
     # 위험 판단 어댑터 (11/15, DGX r2: risk-v9 프롬프트로 학습, r1 대신 - 7일 흉내 안전 주 헛알림 30%·19% → 4%).
     # 얹히면 v9 위험 확률을 이 어댑터로 계산하고 기준은 0.5. 폴더가 없거나 못 올리면 전처럼 기본 모델 + 0.99.
     # r1 로 되돌리려면 COMPANION_RISK_LORA_SUBDIR=companion/llm/lora-risk-r1, 빈 값이면 끈다 (COMPANION_RISK_LORA_SUBDIR=)
@@ -491,11 +493,15 @@ class Settings(BaseModel):
     companion_reply_redo_temperature: float = _as_float("COMPANION_REPLY_REDO_TEMPERATURE", 0.7)
     # 대답 프롬프트에 이 대화의 흐름을 넣는다 (11/15, A안). summary = 말벗 문장 + 어르신 말 한 줄 요약(원문 아님),
     #   마지막 인사에도 직전 질문을 넣는다(reply-v4 · reply-v2-last, 11/21 전 reply-v3). off = 직전 문장 하나 + 이번 대답만(reply-v2, 전과 같음)
-    #   기본 off (11/20 품질 세트 DGX 재생: summary 대답 실패 33.3%·치명 2 > off 28.4%·치명 1 - 나빠져서 설정으로만 켠다)
-    companion_reply_history: str = _as_choice("COMPANION_REPLY_HISTORY", "off", ("summary", "off"))
+    #   11/20~21 cc7 에서는 summary 가 off 보다 나빠 기본 off 였다. 11/21 흐름 형식으로 학습한 cc8b 와 짝지어 기본 summary
+    #   (docs/eval-results/2026-11-20-companion-quality-merge.md cc8b 절)
+    companion_reply_history: str = _as_choice("COMPANION_REPLY_HISTORY", "summary", ("summary", "off"))
     # 흐름에 넣을 최근 쌍 수 (말벗 문장 1 + 어르신 요약 1 = 1쌍). 0 이하면 전부 (한 대화는 최대 8턴)
     #   11/21: 6 → 3 (reply-v4 - 흐름이 길수록 앞 대화를 이어 붙였다)
     companion_reply_history_turns: int = _as_int("COMPANION_REPLY_HISTORY_TURNS", 3)
+    # summary 에서 마지막 인사에도 흐름을 넣는가 (true = reply-v2-last, false = 흐름 없는 reply-v1-last). off 면 쓰지 않는다 (11/21)
+    #   기본 false: 흐름을 넣은 마지막 인사가 앞 대화를 끌어와 하지 않은 일을 한 것처럼 말하는 치명이 반복됐다 (cc8b 3회 치명 0)
+    companion_reply_history_last: bool = _as_bool("COMPANION_REPLY_HISTORY_LAST", False)
     # 별 내용 없는 짧은 대답이 이 횟수만큼 이어지면 아직 묻지 않은 일상 화제 질문으로 넘어간다 (11/13). 0이면 끈다.
     # 위험·말 피함·되묻기 턴과 글 기분이 부정인 턴은 바꾸지 않는다 (11/11: 힘든 이야기에는 화제를 바꾸지 않는다)
     companion_flat_topic_switch: int = _as_int("COMPANION_FLAT_TOPIC_SWITCH", 2)

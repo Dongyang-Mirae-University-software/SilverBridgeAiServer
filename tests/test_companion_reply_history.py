@@ -46,7 +46,8 @@ def settings(monkeypatch):
     def set_(**kw):
         for k, v in kw.items():
             monkeypatch.setattr(s, k, v)
-    set_(companion_reply_history="summary", companion_reply_history_turns=6,
+    # 이 파일은 흐름이 들어간 마지막 인사(reply-v2-last)까지 시험한다 - 11/21 기본값은 false 라 명시해 켠다
+    set_(companion_reply_history="summary", companion_reply_history_turns=6, companion_reply_history_last=True,
          companion_confirm_mode="logprob", companion_confirm_logprob=-0.3, companion_short_answer_pass=True,
          companion_reply_similar_ratio=0.65, companion_reply_redo_temperature=0.7, companion_llm_retry=0,
          companion_risk_first=True, companion_reply_relax_calm=True, companion_avoid_reply=True,
@@ -204,10 +205,13 @@ def test_reply_that_only_follows_history_is_still_unrelated(settings):
     assert r.source == "FALLBACK" and "대답과 무관" in r.failures
 
 
-def test_default_is_off():
-    """11/20: 품질 세트 재생에서 summary 가 off 보다 대답 실패가 많아(33.3% vs 28.4%) 기본은 off. 설정으로만 켠다."""
+def test_default_is_summary_with_cc8b_and_plain_last():
+    """11/21: 흐름 형식으로 학습한 cc8b 와 짝지어 기본 summary, 마지막 인사는 흐름 없음 (11/20 은 cc7 이라 off 였다)."""
     from app.core.config import Settings
-    assert Settings.model_fields["companion_reply_history"].default == "off"
+    f = Settings.model_fields
+    assert f["companion_reply_history"].default == "summary"
+    assert f["companion_reply_history_last"].default is False
+    assert f["companion_reply_lora_subdir"].default == "companion/llm/lora-reply-cc8b"
 
 
 def test_v4_puts_history_first_and_keeps_v2_body(settings):
@@ -223,4 +227,15 @@ def test_v4_puts_history_first_and_keeps_v2_body(settings):
 def test_history_turns_default_is_three():
     from app.core.config import Settings
     assert Settings.model_fields["companion_reply_history_turns"].default == 3
+
+
+def test_summary_last_turn_can_drop_history(settings):
+    """11/21: COMPANION_REPLY_HISTORY_LAST=false 면 summary 에서도 마지막 인사는 흐름 없는 v1-last (꼬리질문은 v4 그대로)."""
+    settings(companion_reply_history_last=False)
+    last = build_reply_prompt(R2, A3, None, True, ((OPENING, SUMMARY[A1]),))
+    assert "지금까지의 대화" not in last and SUMMARY[A1] not in last
+    follow = build_reply_prompt(R1, A2, None, False, ((OPENING, SUMMARY[A1]),))
+    assert "지금까지의 대화" in follow
+    settings(companion_reply_history_last=True)
+    assert "지금까지의 대화" in build_reply_prompt(R2, A3, None, True, ((OPENING, SUMMARY[A1]),))
 
