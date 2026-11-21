@@ -25,9 +25,17 @@ HISTORY_NO_SUMMARY = "(요약 없음)"
 HISTORY_UNCLEAR = "(잘 알아듣지 못한 말)"
 
 
-def reply_prompt_version() -> str:
-    """지금 설정에서 쓰는 대답 프롬프트 버전 (검수 목록·대화 결과의 promptVersion)."""
-    return REPLY_HISTORY_PROMPT_VERSION if get_settings().companion_reply_history == "summary" else REPLY_PROMPT_VERSION
+def reply_prompt_version(is_last_turn: bool = False) -> str:
+    """지금 설정에서 쓰는 대답 프롬프트 버전 (검수 목록·대화 결과의 promptVersion).
+
+    is_last_turn=True 인 마지막 인사가 summary 에서 COMPANION_REPLY_HISTORY_LAST=false 면 실제로는 흐름 없는 v1-last 를 쓴다
+    (build_reply_prompt) - off 와 같은 파일이라 reply-v2 로 적는다 (2026-11-21 L-8)."""
+    s = get_settings()
+    if s.companion_reply_history != "summary":
+        return REPLY_PROMPT_VERSION
+    if is_last_turn and not s.companion_reply_history_last:
+        return REPLY_PROMPT_VERSION
+    return REPLY_HISTORY_PROMPT_VERSION
 # 대답과 관계없는 문장을 거를 때 기준으로 삼지 않는 흔한 낱말의 앞 두 글자 (조사가 붙은 말도 걸리도록 앞 글자로 본다)
 COMMON_STEMS = {"그냥", "오늘", "어제", "요즘", "정말", "너무", "조금", "많이", "그래", "있어", "없어",
                 "했어", "같아", "좋아", "괜찮", "아니", "그럼", "이제", "다시"}
