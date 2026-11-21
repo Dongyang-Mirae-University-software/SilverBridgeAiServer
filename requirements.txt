@@ -15,7 +15,7 @@ bitsandbytes==0.50.2  # MEDGEMMA_QUANT=nf4 일 때만 import 한다(torch 2.6.0+
 python-multipart==0.0.32
 pillow==13.0.0  # 약 봉투 OCR 이미지 정규화(직접 사용). 12.3.0 의 알려진 디코더 취약점(CRITICAL 5·HIGH 22) 때문에 13.0.0 으로 올림(2026-11-10 점검 H-1)
 imageio-ffmpeg==0.6.0  # 클립 인코딩용 정적 ffmpeg 7.0.2(libvpx 포함). 시스템 ffmpeg 불필요
-anthropic>=1.0
+anthropic==2.8.0  # gosky 운영 이미지 설치 버전(2026-11-21 M-6)
 
 # 말벗 음성 인식 (S3, D23): faster-whisper large-v3, CTranslate2 기반. 라이선스 MIT (SYSTRAN 저장소)
 faster-whisper==1.2.1
