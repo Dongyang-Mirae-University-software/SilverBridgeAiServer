@@ -182,6 +182,53 @@ def is_relaxed_mood(text_mood: dict | None) -> bool:
     return bool(text_mood and text_mood.get("usable") and text_mood.get("turnLabel") in RELAX_TURN_LABELS)
 
 
+# 11/21 대답 검사 보강 (COMPANION_REPLY_STRICT, 기본 켬) - gosky 실측·품질 세트에서 남은 문제
+# ① 마지막 인사가 어르신이 앞으로 하겠다는 일을 이미 한 일처럼 받음 ("이따가 김치찌개 데워 먹으려고" → "마무리하시는 모습이 보기 좋네요")
+STRICT_FUTURE_MARK = re.compile(r"려고|[을를할갈볼올먹]\s?거(야|예요|에요|라)|기로\s?했|이따|내일|다음\s?주|다음\s?달|주말에|나중에")
+STRICT_DONE_FORM = re.compile(r"(드|하|다녀오|가|만드|끓이|보내|사|데우|데워|먹으)셨(네요|군요|어요|다니|구나|다는|겠어요)|잘\s?드셨"
+                              r"|모습이\s?보기\s?좋|마무리하시는|마무리하셨")
+# ② 막연한 질문 (어르신이 먼저 꺼낸 말이면 보지 않는다)
+STRICT_VAGUE_Q = re.compile(r"가장\s?(좋아하|즐거|기억에\s?남|행복하|좋았)[^.?!]{0,8}(시간|순간)|하고\s?싶은\s?활동|어떤\s?활동|다른\s?활동|취미")
+# ③ 계획 캐묻기 - 사용자 결정(11/21): 계획·예정·언제쯤·하실 생각만 본다 ('왜·무슨 이유'는 보지 않는다)
+STRICT_PLAN_Q = re.compile(r"계획|예정이|언제쯤|하실\s?생각")
+_SENT_SPLIT = re.compile(r"(?<=[.?!])\s+")
+
+
+def _question_part(body: str) -> str:
+    """마지막 문장(꼬리질문). 물음이 없으면 빈 문자열."""
+    sents = [x for x in _SENT_SPLIT.split(body.strip()) if x]
+    return sents[-1] if sents and sents[-1].endswith("?") else ""
+
+
+def trim_reply(text: str, is_last_turn: bool) -> str:
+    """④ 꼬리질문이 세 문장 이상이면 첫 문장(공감)과 마지막 질문만 남긴다 (11/21, 대체하지 않고 모델 문장을 살린다).
+
+    마지막 질문이 물음으로 끝나지 않으면 그대로 둔다 (규칙 검사가 따로 본다). 마지막 인사는 줄이지 않는다.
+    """
+    if is_last_turn or not get_settings().companion_reply_strict:
+        return text
+    sents = [x for x in _SENT_SPLIT.split(text.strip()) if x]
+    if len(sents) <= 2 or not sents[-1].endswith("?"):
+        return text
+    logger.info("[COMPANION-REPLY-TRIM] sentences=%d", len(sents))  # 원문은 남기지 않는다
+    return f"{sents[0]} {sents[-1]}"
+
+
+def strict_failures(body: str, is_last_turn: bool, transcript: str) -> list[str]:
+    """11/21 검사 보강 ①~③. 걸린 항목 이름 목록. ③ 계획 질문은 COMPANION_REPLY_STRICT_PLAN(기본 끔)일 때만 (11/22)."""
+    out = []
+    if is_last_turn:
+        if STRICT_FUTURE_MARK.search(transcript) and STRICT_DONE_FORM.search(body):
+            out.append("앞일을 한 일로")
+        return out
+    q = _question_part(body)
+    if q and STRICT_VAGUE_Q.search(q) and not STRICT_VAGUE_Q.search(transcript):
+        out.append("막연한 질문")
+    if get_settings().companion_reply_strict_plan and q and STRICT_PLAN_Q.search(q) and not STRICT_PLAN_Q.search(transcript):
+        out.append("계획 질문")
+    return out
+
+
 def check_reply(text: str, is_last_turn: bool, transcript: str = "", text_mood: dict | None = None) -> list[str]:
     """규칙을 하나씩 본다. 걸린 항목 이름 목록을 돌려준다. 빈 목록이면 통과.
 
@@ -210,6 +257,8 @@ def check_reply(text: str, is_last_turn: bool, transcript: str = "", text_mood: 
             failures.append("대답과 무관")
     if relax and not is_last_turn and ADVICE_PATTERN.search(body):
         failures.append("권유")
+    if get_settings().companion_reply_strict:
+        failures += strict_failures(body, is_last_turn, transcript)
     return failures
 
 
@@ -402,7 +451,7 @@ def generate_reply(
             failures = ["LLM 실패"]
             llm_code = getattr(exc, "code", "UNAVAILABLE")
             continue
-        text = re.sub(r"\s+", " ", raw).strip()
+        text = trim_reply(re.sub(r"\s+", " ", raw).strip(), is_last_turn)
         failures = check_reply(text, is_last_turn, transcript, text_mood)
         if not failures and is_similar_to_past(text, past_replies):
             if redone:  # 11/14 점검 L-4: 다시 생성은 한 대답에 한 번만 (재시도 설정과 곱해지지 않게)
@@ -426,7 +475,7 @@ def _redo_once(llm: LlmClient, prompt: str, is_last_turn: bool, transcript: str,
         raw = _generate(llm, prompt, is_last_turn, temperature=get_settings().companion_reply_redo_temperature)
     except LlmUnavailable:
         return "", ["반복"]
-    text = re.sub(r"\s+", " ", raw).strip()
+    text = trim_reply(re.sub(r"\s+", " ", raw).strip(), is_last_turn)
     failures = check_reply(text, is_last_turn, transcript, text_mood)
     if not failures and is_similar_to_past(text, past_replies):
         failures = ["반복"]
