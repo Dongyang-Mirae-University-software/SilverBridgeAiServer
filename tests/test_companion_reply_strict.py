@@ -133,9 +133,10 @@ def test_switch_off_is_the_old_behavior(settings):
     assert "앞일을 한 일로" not in check_reply("시장 잘 다녀오셨군요. 편히 쉬세요.", True, "내일 시장에 가 보려고")
 
 
-def test_switch_default_on():
+def test_switch_default_off():
+    """11/22: 품질 세트 3회 중 2회에서 중요 실패가 늘어 기본 끔 (설정으로만 켠다)."""
     from app.core import config
-    assert '_as_bool("COMPANION_REPLY_STRICT", True)' in Path(config.__file__).read_text(encoding="utf-8")
+    assert '_as_bool("COMPANION_REPLY_STRICT", False)' in Path(config.__file__).read_text(encoding="utf-8")
 
 
 def test_plan_check_is_off_by_default_and_separate(settings):
