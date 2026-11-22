@@ -157,6 +157,16 @@ def auto_step(auto: dict, prev: dict | None) -> dict | None:
         return {"ui": {"field": "hospital_confirm", "pick": pick}}
     if field and field in plan:
         return {"ui": {"field": field, "pick": plan[field]}}
+    # 되묻기 답 버튼(suggestedKind="answer", 2026-11-21): 버튼 문장을 그대로 보낸다. safe = "아니요"류가 있으면 그것(위험 신호 질문에
+    # "네"를 눌러 응급 답으로 가지 않게), 없으면 첫 버튼. first = 첫 버튼.
+    chips = prev.get("suggestedQuestions") or []
+    if "_chip" in plan and prev.get("suggestedKind") == "answer" and chips:
+        pick = plan["_chip"]
+        chosen = next((c for c in chips if str(c).startswith("아니")), chips[0]) if pick == "safe" else chips[0]
+        turn = {"message": str(chosen)}
+        if auto.get("route") is not None:
+            turn["route"] = auto["route"]
+        return turn
     return None
 
 

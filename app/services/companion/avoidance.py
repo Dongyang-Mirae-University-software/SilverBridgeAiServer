@@ -67,10 +67,16 @@ BODY_DISTRESS = re.compile(
     r"|혀|입이|발음|마비|저려|저린|저리고|저리다|쓰러|기운|힘이\s?없|몸이|정신이"  # H-1: 뇌졸중 말하기 장애·쓰러짐·기력 저하
 )
 # 남 이야기: 가족·지인이 주어이거나 전해 들은 말투면 어르신 본인이 말을 피하는 것이 아니다 (M-1)
-OTHER_PERSON = re.compile(
+_OTHER_SUBJECT = (
     r"(아들|딸|손주|손자|손녀|영감|할아버지|할머니|남편|아내|마누라|며느리|사위|자식|애들|친구|이웃|동생|언니|누나|오빠|형)"
     r"(이|가|는|은|도|들이|들은)\s?"
-    r"|싫(대|다고|다며|다네|댔|어해|어하)|않(는대|대|다고|다며)"
+)
+# 2026-11-21 M-5: 말벗에게 "자꾸 묻지 말라고 했잖아" - 남 이야기가 아니라 회피다("하라고 했"의 남 이야기 예외보다 먼저 본다).
+#   가족·지인이 주어이면("아들이 묻지 말라고 했어") 남 이야기로 둔다. "그 얘기 하지 말라고 했지"는 이 꼴이 아니다(11/17 H-1 그대로).
+ASK_STOP = re.compile(r"(묻지|물어보지|캐묻지)\s?말라고\s?(했|하)")
+OTHER_PERSON = re.compile(
+    _OTHER_SUBJECT
+    + r"|싫(대|다고|다며|다네|댔|어해|어하)|않(는대|대|다고|다며)"
     # 11/17 점검 H-1: 남에게 들은·남에게 한 말 ("그런 얘기 그만 좀 하라고 했지", "누구한테 묻지 말고 병원 가래")
     r"|(하|가|말)라고\s?(했|하더|그러|하데|하대)|(가|하|오|먹|보)래(요)?$"
 )
@@ -80,6 +86,10 @@ _TRAILING = re.compile(r"[\s.…~!?]+$")
 def is_avoidance(transcript: str) -> bool:
     """어르신이 말을 피하는 대답인가. 몸이 불편하다는 말이나 남 이야기면 아니다."""
     text = _TRAILING.sub("", transcript)  # 끝의 문장부호를 떼고 본다 ("할 말 없어…"의 $ 비교)
-    if not text or BODY_DISTRESS.search(text) or OTHER_PERSON.search(text):
+    if not text or BODY_DISTRESS.search(text):
+        return False
+    if ASK_STOP.search(text) and not re.search(_OTHER_SUBJECT, text):
+        return True
+    if OTHER_PERSON.search(text):
         return False
     return bool(AVOID_PATTERN.search(text))

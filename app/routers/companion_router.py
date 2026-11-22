@@ -34,7 +34,7 @@ from app.services.companion.stt_service import SttUnavailable
 from app.services.companion.mood_service import mood_service
 from app.services.companion.text_emotion_service import text_emotion_service
 from app.services.companion.timeouts import call_with_timeout
-from app.services.companion.turn_record import build_dialogue_result
+from app.services.companion.turn_record import build_dialogue_result, turn_mood_code
 from app.services.companion.tts_service import TtsNotFound, TtsNotReady, tts_service
 
 logger = logging.getLogger(__name__)
@@ -282,7 +282,8 @@ def _queue_for_review(d: Dialogue, result: dict) -> None:
     위험 = 최상위 riskFlag 또는 signals.riskFlag. 다시 확인 턴과 신호 추출이 시간을 넘긴 턴은 signals 가 null 이고
     위험을 최상위에만 싣는다 - signals 만 보면 그 턴의 위험 표시가 빠진다 (백엔드 턴 처리와 같은 규칙).
     """
-    version = reply_prompt_version() if result["replySource"] == "LLM" else reply_service.FALLBACK_VERSION
+    is_last = result["reply"].get("isFollowUp") is False  # 마지막 인사 턴 (L-8: 쓴 프롬프트가 다르다)
+    version = reply_prompt_version(is_last) if result["replySource"] == "LLM" else reply_service.FALLBACK_VERSION
     signals = result.get("signals") or {}
     risk = bool(result.get("riskFlag")) or bool(signals.get("riskFlag"))
     review_store.add(d.dialogueId, d.turnNo + 1, result["reply"]["text"], version, risk=risk, ward_id=d.wardId)
@@ -414,7 +415,9 @@ def _turn_response(d: Dialogue, result: dict, transcript: str | None = None, fac
     body = {
         "dialogueId": d.dialogueId,
         "turnNo": updated.turnNo,
-        "turnResult": result["turnResult"],
+        # 턴 기분 코드 (11/21 최종 점검 H-1): 라벨 '슬픔'·'화남'은 백엔드 표에 없어 null 로 저장되던 것을 코드로 함께 보낸다.
+        # 새 dict 로 만든다 (원래 dict 는 store·다른 곳에서 그대로 쓴다)
+        "turnResult": {**result["turnResult"], "moodCode": turn_mood_code(result["turnResult"].get("label"))},
         "reply": result["reply"],
         "face": face if face is not None else _no_face(),
         "signals": result.get("signals"),  # 추출 실패면 null (명세: 대화 응답은 정상으로 보낸다)

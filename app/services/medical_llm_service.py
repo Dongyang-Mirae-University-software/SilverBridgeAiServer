@@ -222,7 +222,8 @@ _CARE_QUESTION = re.compile(
     # 화상·데인 데 찜질은 관리 질문으로 보지 않는다(2026-11-12 점검 S-1 - 화상은 온찜질 금지가 기준).
     r"|^(?!.*(화상|데었|데인|데여)).*찜질(?!방)"
     r"|(어떻게|어찌)\s*(하면|해야|할까|하나요|해요)"
-    r"|(집에서|혼자|스스로).{0,10}(할\s*수\s*있|하면\s*좋|방법|관리)"
+    # 맞춤법 변형 "할 수 잇는"(2026-11-22 v8 - 구어·오타 꼴에서 관리 질문 지시가 빠졌다)
+    r"|(집에서|혼자|스스로).{0,10}(할\s*수\s*(있|잇)|하면\s*좋|방법|관리)"
 )
 _CARE_EXCLUDE = re.compile(
     r"약(?!간|속|하)|영양제|술|소주|맥주|막걸리|와인|해야\s*할지\s*모르|어쩔\s*줄"
@@ -273,6 +274,20 @@ _DRUG_DIRECT_RULES = (
         "진통제는 정해진 양과 간격을 넘겨 드시지 마세요.",
         re.compile(r"정해진 (양|용량)|권장 (용량|양)|넘겨 드시지|과다 ?복용"),
     ),
+    # 2026-11-21 v8 holdout-A 판정(G4 하루 최대 횟수·간격을 직접 알려 주지 않음, 위험 이유 없음): "하루에 몇 번까지"·"몇 시간마다"처럼
+    # 최대 횟수·간격을 묻는 꼴. 수치(mg·시간)는 약마다 달라 넣지 않고 설명서·약 봉투를 보게 한다. 진통·해열제는 넘겼을 때의 이유를 함께.
+    _DrugDirectRule(
+        "painkiller_daily_limit",
+        re.compile(r"(진통제|해열제|두통약|타이레놀|소염제|진통소염제)[^.!?。]{0,15}(하루에?몇|몇번까지|몇알까지|몇회|최대|몇시간마다|간격|얼마나자주)"),
+        "약 봉투나 설명서에 적힌 하루 최대 횟수와 복용 간격을 넘기지 마세요. 넘겨 드시면 약에 따라 간이나 위, 콩팥에 무리가 갈 수 있어요.",
+        re.compile(r"(하루 ?최대|복용 간격|설명서|약 ?봉투)[^.!?。]{0,25}(넘기지|지키|따르)"),
+    ),
+    _DrugDirectRule(
+        "daily_limit",
+        re.compile(r"^(?!.*(진통제|해열제|두통약|타이레놀|소염제)).*(약|파스|연고)[^.!?。]{0,15}(하루에?몇|몇번까지|몇알까지|몇회|하루최대|몇시간마다|얼마나자주)"),
+        "약 봉투나 설명서에 적힌 하루 최대 횟수와 복용 간격을 넘기지 마세요. 늘려 쓰면 부작용이 커질 수 있어요.",
+        re.compile(r"(하루 ?최대|복용 간격|설명서|약 ?봉투)[^.!?。]{0,25}(넘기지|지키|따르)"),
+    ),
     _DrugDirectRule(
         "leftover_antibiotic",
         re.compile(r"(남은|예전|전에받은|먹다남은|남아있는)[^.!?。]{0,6}항생제"),
@@ -290,8 +305,17 @@ _DRUG_DIRECT_RULES = (
         # 2026-10-30 K-4 qa.D2: 기준 R2(어르신은 감기약에도 부작용)·R3(같은 성분이 겹치는지 라벨 확인)가 답에 없었다.
         "cold_medicine_combo",
         re.compile(r"감기약[^.!?。]{0,20}(같이|함께|먹어도|드셔도|복용해도)|(같이|함께)[^.!?。]{0,15}감기약"),
-        "어르신은 감기약에도 부작용이 생길 수 있어요. 드시는 약과 같은 성분이 겹치지 않는지 약 상자의 성분표를 약사와 함께 확인하세요.",
-        re.compile(r"성분"),
+        # 2026-11-22 v8 holdout-A 3차 판정(G1 위험 이유 3:0 불합격): "부작용이 생길 수 있어요"는 이유가 아니다 - 왜 위험한지(같은 성분이 겹쳐
+        # 한꺼번에 많이 먹게 됨)를 쓴다. 답에 "성분"만 있고 이유가 없으면 생략하지 않게 covered 를 "겹치는 이유"로 좁혔다.
+        "감기약에는 해열진통제처럼 다른 약에도 든 성분이 섞여 있어, 같은 성분이 겹치면 모르는 사이에 한꺼번에 많이 드시게 될 수 있어요. 드시는 약과 겹치지 않는지 약 상자의 성분표를 약사와 함께 확인하세요.",
+        re.compile(r"(?s)(?=.*성분)(?=.*겹)(?=.*(많이|과다|두 ?배|넘))"),
+    ),
+    # 감기약 + 혈압약: 감기약의 코막힘 성분(슈도에페드린·페닐에프린 등 혈관 수축제)이 혈압을 올릴 수 있다는 이유를 함께(2026-11-22).
+    _DrugDirectRule(
+        "cold_medicine_bp",
+        re.compile(r"(감기약|코감기약|종합감기약)[^.!?。]{0,20}(혈압약|고혈압약)|(혈압약|고혈압약)[^.!?。]{0,20}(감기약|코감기약|종합감기약)"),
+        "감기약에 든 코막힘 성분은 혈압을 올릴 수 있어 혈압약을 드시는 분은 조심해야 해요. 약사에게 혈압약을 드신다고 말하고 그 성분이 없는 감기약인지 확인하세요.",
+        re.compile(r"(코막힘|비충혈|충혈 ?제거|슈도에페드린|페닐에프린)[^.!?。]{0,25}혈압"),
     ),
     _DrugDirectRule(
         "bp_med_stop",
@@ -345,6 +369,33 @@ _LIFESTYLE_RULES = (
         re.compile(r"관절[^.!?。]{0,15}운동|운동[^.!?。]{0,15}관절"),
         "걷기·수영·실내 자전거처럼 관절에 무리가 덜 가는 운동을, 통증이 생기지 않는 범위에서 해 보세요.",
         re.compile(r"(?s)(?=.*수영)(?=.*통증)"),
+    ),
+    # 2026-11-22 v8 holdout-A 3차 판정(H1 "행동 + 횟수·시점" 3:0 불합격): 집 관리 질문 유형별 고정 문장 - 무엇을, 언제·얼마나.
+    # 수치는 공인 권고에 있는 것만 쓴다(근력 운동 주 2일 이상 - WHO 2020 신체활동 지침 노인 권고, 낙상 - 질병관리청 낙상 예방
+    # "근력·균형 운동과 실내 환경 점검", 냉찜질 한 번 20분 안쪽 - 위 hot_cold_pack 과 같은 기준).
+    _DrugDirectRule(
+        "leg_strength_exercise",
+        re.compile(r"(다리|하체|허벅지|종아리)[^.!?。]{0,6}(힘|근력|근육)[^.!?。]{0,12}(기르|키우|늘리|강화|좋아지|생기|운동)|근력[^.!?。]{0,6}(기르|키우|늘리|운동)"),
+        "의자 등받이를 잡고 발뒤꿈치 들기나 의자에서 천천히 앉았다 일어서기 같은 근력 운동을 일주일에 2번 이상 해 보세요. 하다가 가슴이 아프거나 어지러우면 바로 멈추세요.",
+        re.compile(r"(?s)(?=.*(발뒤꿈치|앉았다 ?일어|스쿼트))(?=.*(일주일|주 ?\d|하루))"),
+    ),
+    _DrugDirectRule(
+        "fall_home_safety",
+        re.compile(
+            r"(넘어지|넘어질|낙상|미끄러)[^.!?。]{0,20}(방|집|정리|화장실|욕실|계단|바닥|조명|매트|문턱)"
+            r"|(방|집|화장실|욕실|계단|바닥)[^.!?。]{0,20}(정리|치우|바꾸|어떻게)[^.!?。]{0,15}(넘어지|넘어질|낙상|미끄러)"
+        ),
+        "바닥의 전선·작은 매트·물건처럼 발에 걸릴 것은 치우시고, 밤에 화장실 가는 길에는 작은 등을 켜 두세요. 욕실 바닥에는 미끄럼 방지 매트를 깔아 두세요.",
+        re.compile(r"(?s)(?=.*(치우|치워|정리))(?=.*(등을|조명|불을|불빛))(?=.*미끄럼)"),
+    ),
+    _DrugDirectRule(
+        "joint_home_care",
+        re.compile(
+            r"^(?!.*(화상|가슴|머리|배가|배를))"
+            r".*(무릎|허리|어깨|발목|손목|관절)[^.!?。]{0,15}(시큰|쑤시|쑤셔|아프|아파|아퍼|뻐근|결리|결려)[^.!?。]{0,20}(집에서|혼자|스스로|어떻게|뭘|무엇을)"
+        ),
+        "아픈 관절은 오래 서 있거나 쪼그려 앉는 자세를 피해 쉬게 하시고, 붓거나 열감이 있으면 수건에 싼 냉찜질을 한 번에 20분 안쪽으로 해 보세요.",
+        re.compile(r"(?s)(?=.*(냉찜질|차갑게|얼음))(?=.*\d+ ?분)"),
     ),
     _DrugDirectRule(
         # 2026-10-30 I-4 qa.E3: 기준 R1(포화·트랜스지방 줄이기)·R2(식이섬유 늘리기)가 생성마다 빠졌다.
@@ -494,6 +545,11 @@ _GLUCOSE_VALUE = re.compile(r"혈당(?:이|은|가|수치가?)?(\d{2,3})")
 _HYPOGLYCEMIA_SENTENCE = "의식이 있으면 사탕이나 단 음료를 드시고, 어지럽고 정신이 흐려지면 혼자 해결하려 하지 말고 바로 119에 연락하세요."
 # 2026-11-20 팀원 검수: 위기가 아닌 우울 질문(chat_keywords.depression_help_question)의 상담 답 끝 한 줄. 위기 고정 답이 아니다.
 _DEPRESSION_109 = "마음이 많이 힘드실 때는 자살예방 상담전화 109(24시간)에서도 이야기를 들어 줘요."
+# 2026-11-21 v8 holdout-A 판정(D3b 7/7 불합격): 조언 칸이 비면 일반 진료 틀이 채워 돕는 방법·검사 받을 곳이 사라졌다.
+# 같은 경로에 검사·상담 받을 곳 한 줄(본인) / 곁에서 할 일 한 줄(가족)을 둔다. 109 줄 앞에 붙는다.
+# 근거: 국립정신건강센터(국가정신건강정보포털)·보건복지부 정신건강복지센터 안내 - 우울 선별·상담은 정신건강의학과와 지역 정신건강복지센터
+# (보건소 등)에서 받을 수 있다. 진단·약 이름은 넣지 않는다.
+_DEPRESSION_HELP = "우울증 검사는 정신건강의학과나 가까운 보건소의 정신건강복지센터에서 받을 수 있어요."
 # 2026-10-30 K-4 qa.C6: 기준 R2(다시 재고, 계속 낮으면 의사에게 연락)
 _HYPOGLYCEMIA_RECHECK = "15분쯤 뒤 혈당을 다시 재 보고, 계속 낮거나 증상이 이어지면 의사에게 알리세요."
 
@@ -603,6 +659,7 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_CHEST_INDIGESTION_INFO": ("neutral", None),
     "_HYPOGLYCEMIA_SENTENCE": ("self", "의식이 있으시면 사탕이나 단 음료를 드시게 하고, 의식이 흐리시면 억지로 먹이지 마시고 바로 119에 연락하세요."),
     "_DEPRESSION_109": ("self", "가족분이 힘들어 보이시면 자살예방 상담전화 109(24시간)에서 가족도 상담받을 수 있어요."),
+    "_DEPRESSION_HELP": ("self", "가족분 이야기를 판단하지 말고 들어 주시고, 정신건강의학과나 정신건강복지센터 상담을 함께 받아 보시도록 도와 주세요."),
     "_HYPOGLYCEMIA_RECHECK": ("self", "15분쯤 뒤 혈당을 다시 재 드리고, 계속 낮거나 증상이 이어지면 의사에게 알려 주세요."),
     "_FOLLOWUP_INTRO": ("own_variant", None),
     "_DEPT_INFO_EXAM_OPEN": ("self", "{department}에서는 먼저 어르신께 언제부터, 어떻게 불편하신지 자세히 여쭤보고 진찰해요."),
@@ -629,15 +686,21 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_DRUG_DIRECT_RULES.missed_dose_timing": ("self", "놓친 약은 생각났을 때 바로 드시게 하되, 다음 드실 시간이 가까우면 놓친 것은 건너뛰고 원래 시간에 한 번만 드시게 해 주세요. 약마다 다를 수 있으니 약사에게 확인해 보세요."),
     "_DRUG_DIRECT_RULES.double_dose": ("self", "놓친 약을 다음에 두 번 몫으로 한꺼번에 드시게 하지는 마세요."),
     "_DRUG_DIRECT_RULES.painkiller_limit": ("self", "진통제는 정해진 양과 간격을 넘겨 드시지 않게 해 주세요."),
+    "_DRUG_DIRECT_RULES.painkiller_daily_limit": ("self", "약 봉투나 설명서에 적힌 하루 최대 횟수와 복용 간격을 넘겨 드시지 않게 해 주세요. 넘겨 드시면 약에 따라 간이나 위, 콩팥에 무리가 갈 수 있어요."),
+    "_DRUG_DIRECT_RULES.daily_limit": ("self", "약 봉투나 설명서에 적힌 하루 최대 횟수와 복용 간격을 넘겨 쓰시지 않게 해 주세요. 늘려 쓰면 부작용이 커질 수 있어요."),
     "_DRUG_DIRECT_RULES.leftover_antibiotic": ("self", "남은 항생제를 임의로 드시지 않게 해 주세요. 열이 나시면 진료를 받아 보시게 해 주세요."),
     "_DRUG_DIRECT_RULES.antibiotic_virus": ("neutral", None),
     "_DRUG_DIRECT_RULES.cold_medicine_combo": ("neutral", None),
+    "_DRUG_DIRECT_RULES.cold_medicine_bp": ("neutral", None),
     "_DRUG_DIRECT_RULES.bp_med_stop": ("neutral", None),
     "_DRUG_DIRECT_RULES.sleeping_pill_purchase": ("self", "약국에서 살 수 있는 수면유도제(일반의약품)도 있지만, 수면제는 처방이 필요해요. 드시게 하기 전에 약사와 상의해 주세요."),
     "_DRUG_DIRECT_RULES.med_timing": ("self", "약은 처방받은 시간대로 매일 같은 시간에 드시게 해 주시고, 시간을 바꾸시려면 의사·약사와 먼저 상의해 주세요."),
     "_LIFESTYLE_RULES.diabetes_fruit": ("self", "과일은 당도가 낮은 것을 조금씩, 식후에 드시게 하는 것이 좋아요."),
     "_LIFESTYLE_RULES.high_bp_exercise": ("self", "혈압이 평소보다 높게 나온 날은 운동을 쉬시거나 가볍게 하시게 하고, 가슴 통증·어지럼이 있으시면 바로 멈추시게 해 주세요."),
     "_LIFESTYLE_RULES.arthritis_exercise": ("self", "걷기·수영·실내 자전거처럼 관절에 무리가 덜 가는 운동을, 통증이 생기지 않는 범위에서 하시게 해 주세요."),
+    "_LIFESTYLE_RULES.leg_strength_exercise": ("self", "의자 등받이를 잡고 발뒤꿈치 들기나 의자에서 천천히 앉았다 일어서기 같은 근력 운동을 일주일에 2번 이상 하시게 도와 주세요. 하시다가 가슴이 아프거나 어지러우시면 바로 멈추시게 해 주세요."),
+    "_LIFESTYLE_RULES.fall_home_safety": ("self", "어르신 방바닥의 전선·작은 매트·물건처럼 발에 걸릴 것은 치워 드리고, 밤에 화장실 가는 길에는 작은 등을 켜 두세요. 욕실 바닥에는 미끄럼 방지 매트를 깔아 드리세요."),
+    "_LIFESTYLE_RULES.joint_home_care": ("self", "아프신 관절은 오래 서 계시거나 쪼그려 앉는 자세를 피해 쉬시게 하고, 붓거나 열감이 있으면 수건에 싼 냉찜질을 한 번에 20분 안쪽으로 해 드리세요."),
     "_LIFESTYLE_RULES.cholesterol_diet": ("neutral", None),
     "_LIFESTYLE_RULES.hot_cold_pack": ("self", "다치신 지 2~3일 안이거나 붓고 열감이 있으면 차갑게, 붓기 없이 뻐근하고 오래된 통증이면 따뜻하게 찜질해 드리세요. 한 번에 20분 안쪽으로, 피부에 바로 대지 말고 수건에 싸서 해 주세요."),
     "_SYMPTOM_RULES.cough_red_flag": ("neutral", None),
@@ -750,6 +813,27 @@ class MedicalLlmService:
         if "109" in (reply or ""):
             return None
         return _DEPRESSION_109.pick(proxy or cls.about_family(message) or cls.proxy_subject(message))
+
+    @classmethod
+    def answer_department(cls, message: str) -> str | None:
+        """상담 답의 권장 진료과(생성 힌트·빈 조언 칸 틀). 위기가 아닌 우울 질문이면 정신건강의학과 - 문장의 다른 낱말("머리"·"잠")로
+        우울과 무관한 과를 권하지 않게(2026-11-21). 그 밖에는 증상 낱말 진료과 그대로."""
+        if cls.is_depression_question(message):
+            return "정신건강의학과"
+        return _symptom_department(message or "")
+
+    @classmethod
+    def is_depression_question(cls, message: str) -> bool:
+        """위기가 아닌 우울 질문(자해 신호 없음)인가 - 109 줄·돕는 방법 줄·정신건강의학과 진료과를 함께 고르는 기준."""
+        return bool(message) and not cls.self_harm_signals(message) and chat_keywords.depression_help_question(message)
+
+    @classmethod
+    def depression_help_line(cls, message: str, reply: str, proxy: bool = False) -> str | None:
+        """위기가 아닌 우울 질문에 붙이는 검사·상담 받을 곳(본인) / 곁에서 할 일(가족) 한 줄(2026-11-21). 답에 이미
+        정신건강복지센터 안내가 있으면 None(같은 말을 두 번 하지 않는다)."""
+        if not cls.is_depression_question(message) or re.search(r"정신건강\s*복지센터", reply or ""):
+            return None
+        return _DEPRESSION_HELP.pick(proxy or cls.about_family(message) or cls.proxy_subject(message))
 
     @classmethod
     def self_harm_in_history(cls, history: list[dict[str, str]]) -> bool:
@@ -1434,7 +1518,7 @@ class MedicalLlmService:
             if not out["symptoms"]:
                 # 모델이 증상을 비우면 사용자 문장으로 메운다 - 상담인데 일반 답변 틀로 빠지지 않게.
                 out["symptoms"] = (message or "").strip()[:60]
-            department = _symptom_department(message or "")
+            department = cls.answer_department(message or "")
             if not out["advice"] and department:
                 out["advice"] = f"{department} 진료를 권해드려요. 계속되거나 심해지면 꼭 진료를 받아 보세요."
         else:
@@ -1471,7 +1555,7 @@ class MedicalLlmService:
             history_lines = f"(이전 요약) {summary}\n{history_lines}".strip()
 
         # 예약 흐름과 같은 증상→진료과 규칙을 힌트로 준다. 상담에서 권한 과와 예약에서 찾는 과가 어긋나지 않게.
-        department_hint = _symptom_department(message or "")
+        department_hint = self.answer_department(message or "")
         # 증상 상담에서 먹을 것·할 일을 물으면 advice 에 그 답을 먼저 쓰게 한 줄 더한다(응급·약·술 질문은 제외, 2026-11-11 ②).
         # 위기 대화(이력의 자해 신호) 중이면 붙이지 않는다 - 위기 뒤 "어떻게 해야…"가 상담 틀로 바뀌어 119 줄이 빠졌다(DGX 재생 cf.08).
         care_question = self.is_care_question(message, intent, emergency_hint) and not self.self_harm_in_history(history)
