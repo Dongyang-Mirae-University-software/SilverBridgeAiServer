@@ -26,9 +26,10 @@ def settings(monkeypatch):
     return set_
 
 
-def test_defaults_all_off():
+def test_defaults_trim_on_others_off():
+    """11/23: ④ 세 문장 줄이기만 기본 켬 (품질 세트 3회 측정 후 사용자 결정). ① 검사·v1b 프롬프트는 끔."""
     src = Path(__file__).resolve().parents[1].joinpath("app/core/config.py").read_text(encoding="utf-8")
-    assert '_as_bool("COMPANION_REPLY_TRIM", False)' in src
+    assert '_as_bool("COMPANION_REPLY_TRIM", True)' in src
     assert '_as_choice("COMPANION_REPLY_LAST_PROMPT", "v1", ("v1", "v1b"))' in src
     assert '_as_bool("COMPANION_REPLY_LAST_CHECK", False)' in src
 
