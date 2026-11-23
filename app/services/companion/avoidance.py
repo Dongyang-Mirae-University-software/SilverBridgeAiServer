@@ -111,7 +111,9 @@ _ASK_STOP_SELF = r"(나|내|저|제|날|절|저희|우리|늙은이|노인|노�
 _ASK_STOP_VERB = r"(묻지|물어보지|캐묻지)"
 #   "묻지" 바로 앞에 낄 수 있는 말(기관 꼴, F-4): "병원에서 그런 거 묻지 말래"는 남에게 들은 말이고
 #   "병원에서 있었던 일은 묻지 말라고 했잖아"(병원 = 이야깃거리)는 회피다.
-_ASK_STOP_FILLER = r"(그런|이런|저런|그거|그건|이건|그런거|그런건|거|건|것|얘기|얘긴|말|자꾸|함부로|막|더|좀|너무|아무것도)"
+#   #343 점검 G-4: "병원에서 다시는·절대·앞으로 묻지 말라고 했어"·"병원에서 저한테 묻지 말라고 했어"(병원이 나에게 한 말)도 남 이야기.
+_ASK_STOP_FILLER = (r"(그런|이런|저런|그거|그건|이건|그런거|그런건|거|건|것|얘기|얘긴|말|자꾸|함부로|막|더|좀|너무|아무것도"
+                    r"|다시는|다신|절대|절대로|앞으로|이제|더는|또|저한테|나한테|제게|저에게)")
 _ASK_STOP_OTHER = re.compile(
     # 사람 + 이·가·께서(요) - "우리 딸이요, 그런 건 묻지 말라고 했어요"(F-3)
     _ASK_STOP_PERSON + _ASK_STOP_SUFFIX + r"(이|가|께서)(요)?(?![가-힣])"
@@ -121,6 +123,9 @@ _ASK_STOP_OTHER = re.compile(
     r"\s?([가-힣]{1,3}\s){0,2}" + _ASK_STOP_VERB
     # "께·보고"는 사람 목록 뒤에만(F-2): "어저께·그저께·함께·뉴스보고"는 사람이 아니다.
     + r"|" + _ASK_STOP_PERSON + _ASK_STOP_SUFFIX + r"(께|보고)(는|도|만)?\s?([가-힣]{1,3}\s){0,2}" + _ASK_STOP_VERB
+    #   #343 점검 G-3: 목록 밖 사람도 "님·사람 + 께·보고"면 남 이야기("교수님께·과장님보고·그 사람보고 묻지 말라고 했어").
+    #   "어저께·그저께·아침께·함께"는 "님·사람"이 없어 걸리지 않는다.
+    + r"|(?<![가-힣])[가-힣]{0,4}(님|사람)(께|보고)(는|도|만)?\s?([가-힣]{1,3}\s){0,2}" + _ASK_STOP_VERB
     + r"|누가\s?(자꾸\s?)?" + _ASK_STOP_VERB + r"|누군가"
     # 기관 + 에서는 "묻지" 바로 앞일 때만(F-4)
     r"|(병원|보건소|복지관|센터|경로당|주민센터|동사무소|구청|경찰서|요양원)에서(는|도)?(\s?" + _ASK_STOP_FILLER + r"){0,3}\s?"
@@ -134,29 +139,50 @@ _CLAUSE_BREAK = re.compile(
 )
 #   #341 점검 F-3: 경계가 말한 사람을 잘라내면 안 된다. 아래 두 경우는 경계를 건너 앞 절까지 붙여 본다.
 #     - 쉼표 바로 앞이 "사람 + 이·가·께서(요)" ("아들이, 묻지 말라고 했어"·"우리 딸이요, 그런 건 묻지 말라고 했어요")
-#     - "그러·그랬 + 는데·더라·더라고·던데·길래·니까" ("엄마가 그러는데 묻지 말라고 했어"·"아들이 그러더라 묻지 말라고")
+#     - "그러·그랬 + 는데·더라·더라고·던데" ("엄마가 그러는데 묻지 말라고 했어"·"아들이 그러더라 묻지 말라고")
 #   "엄마가 그러더라고. 근데 나도 …"(마침표·"근데")·"딸이 왔는데 …"·"의사가 뭐라 했는지 …"는 그대로 끊는다(#341 P-2).
-#   앞 20자만 보므로 판정 시간은 입력 길이에 비례한다.
-_COMMA_SUBJECT = re.compile(_ASK_STOP_PERSON + _ASK_STOP_SUFFIX + r"(이|가|께서)(요)?\s*$")
+#   #343 점검 조정(2026-11-23):
+#     - G-5: 쉼표 앞이 "그러·그랬 + 는데·더라·더라고·던데"("아들이 그러는데, 묻지 말라고 했어")이거나
+#       "사람 + 이·가 + 말이야·말이에요·말이지"("아들이 말이야, 묻지 말라고 했어", 사용자 결정)여도 쉼표를 건넌다.
+#     - G-8: "니까"는 닿지 않아(띄어 쓴 "그러니까"는 이음말 경계가 먼저 먹는다) 뺐고, "길래"(이유일 수 있음)는
+#       건너지 않는다(사용자 결정 - "아들이 그러길래 묻지 말라고 했잖아"는 회피).
+#     - G-2: 경계 뒤 절이 본인 주어(나도·나는·내가·저는·제가·우리는 …)로 시작하면 건너지 않는다
+#       ("아들이 그러는데 나도 묻지 말라고 했잖아"는 회피).
+#   앞 20자·뒤 몇 자만 보므로 판정 시간은 입력 길이에 비례한다.
+_COMMA_SUBJECT = re.compile(
+    "(" + _ASK_STOP_PERSON + _ASK_STOP_SUFFIX + r"(이|가|께서)(요)?(\s?말(이야|이에요|이지|요))?"
+    r"|(그러|그랬)(는데|더라고|더라|던데))\s*$"
+)
 _REPORT_STEM = re.compile(r"(그러|그랬)$")
-_REPORT_ENDINGS = ("는데", "더라", "더라고", "던데", "길래", "니까")
+_REPORT_ENDINGS = ("는데", "더라", "더라고", "던데")
+_OWN_SUBJECT = re.compile(r"\s*(나|내|저|제|저희|우리)(은|는|도|가|이|만)(?![가-힣])")
+
+
+_COMMA_SUBJECT_LAST = frozenset("이가서요야지데고라")  # _COMMA_SUBJECT가 끝날 수 있는 글자 - 정규식 전에 거른다
 
 
 def _transparent_break(text: str, m: re.Match) -> bool:
-    """이 경계를 건너 앞 절까지 붙여 볼 것인가(F-3)."""
-    before = text[max(0, m.start() - 20):m.start()]
-    if m.group() == ",":
-        return bool(_COMMA_SUBJECT.search(before))
-    return m.group() in _REPORT_ENDINGS and bool(_REPORT_STEM.search(before))
+    """이 경계를 건너 앞 절까지 붙여 볼 것인가(F-3·G-2·G-5). 경계마다 불리므로 값싼 검사부터 한다."""
+    g = m.group()
+    if g == ",":
+        before = text[max(0, m.start() - 20):m.start()].rstrip()
+        if not before or before[-1] not in _COMMA_SUBJECT_LAST or not _COMMA_SUBJECT.search(before):
+            return False
+    elif g in _REPORT_ENDINGS:
+        if not _REPORT_STEM.search(text, max(0, m.start() - 2), m.start()):
+            return False
+    else:
+        return False
+    return not _OWN_SUBJECT.match(text, m.end())
 
 
 def _ask_stop_clause(text: str, start: int) -> str:
-    """start(“묻지”의 위치)가 든 절. 앞뒤 _CLAUSE_BREAK 사이(말한 사람을 잘라내는 경계는 건넌다)."""
-    breaks = list(_CLAUSE_BREAK.finditer(text, 0, start))
-    i = len(breaks) - 1
-    while i >= 0 and _transparent_break(text, breaks[i]):
-        i -= 1
-    begin = breaks[i].end() if i >= 0 else 0
+    """start(“묻지”의 위치)가 든 절. 앞뒤 _CLAUSE_BREAK 사이(말한 사람을 잘라내는 경계는 건넌다).
+    건너지 않는 마지막 경계 뒤부터 본다 - 앞에서부터 한 번 훑으며 그 위치만 남긴다(G-10, 경계를 모두 쥐지 않는다)."""
+    begin = 0
+    for m in _CLAUSE_BREAK.finditer(text, 0, start):
+        if not _transparent_break(text, m):
+            begin = m.end()
     nxt = _CLAUSE_BREAK.search(text, start)
     return text[begin:nxt.start() if nxt else len(text)]
 OTHER_PERSON = re.compile(
