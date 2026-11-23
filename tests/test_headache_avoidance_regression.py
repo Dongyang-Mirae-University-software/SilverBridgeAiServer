@@ -458,3 +458,104 @@ def test_thunderclap_forms_from_341_audit_are_caught(text) -> None:
 ])
 def test_ordinary_talk_after_341_audit_is_not_caught(text) -> None:
     assert not _headache(text), text
+
+# ---- 2026-11-23 #343 기능 점검(BE docs/(2026-11-23) audit-ai-avoidance-clause-343.md) 조치 ----------------------------
+
+@pytest.mark.parametrize("text", [
+    # G-1 속도·나쁜 소식은 벼락두통 양상 - 좋은 소식 제외에 걸리지 않는다
+    "두통이 이렇게 빨리 심해진 건 처음이에요",
+    "두통이 이렇게 금방 심해진 적이 없어요",
+    "두통이 이렇게 낫질 않는 건 처음이에요",
+    "두통이 이렇게 덜컥 오는 건 처음이에요",
+    "두통이 이렇게 빨리 오는 건 처음이에요",
+])
+def test_bad_news_headache_after_343_audit_is_caught(text) -> None:
+    assert _headache(text), text
+    assert cs.ChatService._keyword_route(text)["emergency"] is True, text
+
+
+@pytest.mark.parametrize("text", [
+    # G-1 나아졌다는 꼴만 좋은 소식 (낱말마다 하나씩 - T-1)
+    "두통이 이렇게 빨리 낫는 건 처음이에요",
+    "두통이 이렇게 금방 나은 건 처음이에요",
+    "두통이 이렇게 나았던 건 처음이에요",
+    "두통이 이렇게 나아진 건 처음이에요",
+    "두통이 이렇게 금방 나아졌던 적이 없어요",
+    "두통이 이렇게 가벼운 건 처음이에요",
+    "두통이 이렇게 덜한 건 처음이에요",
+    # G-6 두통 → 평생 낱말 사이에 "없"
+    "두통이 없어졌어요 평생 처음으로 운동했어요",
+    "두통이 없어요 평생 처음으로 운동했어요",
+])
+def test_good_news_after_343_audit_is_not_caught(text) -> None:
+    assert not _headache(text), text
+
+
+@pytest.mark.parametrize("text", [
+    # G-2 경계 뒤 절이 본인 주어로 시작하면 건너지 않는다
+    "아들이 그러는데 나도 묻지 말라고 했잖아",
+    "엄마가 그러더라 나도 묻지 말라고 했잖아",
+    "딸이 그랬는데 나는 묻지 말라고 했잖아",
+    "엄마가 그러는데 내가 묻지 말라고 했잖아",
+    "딸이 그러더라 저는 묻지 말라고 했잖아요",
+    "아들이, 나는 묻지 말라고 했잖아",
+    "아들이 그러는데, 나도 묻지 말라고 했잖아",
+    # G-8 "길래"는 건너지 않는다(사용자 결정)
+    "아들이 그러길래 묻지 말라고 했잖아",
+    # G-3 "님·사람"이 없는 "께"
+    "엊그저께 묻지 말라고 했잖아",
+    "아침께 묻지 말라고 했잖아",
+    "함께 묻지 말라고 했잖아",
+    # G-4 기관이 이야깃거리(부사를 더한 뒤에도)
+    "병원에서 받은 약은 묻지 말라고 했잖아",
+    "복지관에서 만난 사람은 묻지 말라고 했잖아",
+])
+def test_stop_asking_after_343_audit_is_avoidance(text) -> None:
+    assert is_avoidance(text), text
+
+
+@pytest.mark.parametrize("text", [
+    # G-5 쉼표 앞 "그러는데·그러더라고", "사람 + 말이야"(사용자 결정)
+    "아들이 그러는데, 묻지 말라고 했어",
+    "엄마가 그러더라고, 묻지 말라고",
+    "아들이 말이야, 묻지 말라고 했어",
+    "우리 딸이 말이에요, 그런 건 묻지 말라고 했어요",
+    "할아버지께서요, 묻지 말라고 하셨어",
+    # G-3 목록 밖 사람 + 님·사람 + 께·보고
+    "교수님께 묻지 말라고 했어",
+    "목사님께 그런 거 묻지 말라고 했어",
+    "과장님보고 묻지 말라고 했어",
+    "그 사람보고 묻지 말라고 했어",
+    # G-4 기관 + 부사·저한테
+    "병원에서 다시는 묻지 말라고 했어",
+    "병원에서 절대 묻지 말라고 했어",
+    "병원에서 앞으로 묻지 말라고 했어",
+    "병원에서 또 묻지 말라고 했어",
+    "병원에서 저한테 묻지 말라고 했어",
+    # T-1 기관 사이 말
+    "병원에서 자꾸 묻지 말라고 했어",
+    "병원에서 그런 얘기 묻지 말라고 했어",
+    "병원에서 함부로 묻지 말라고 했어",
+])
+def test_other_peoples_words_after_343_audit_are_not_avoidance(text) -> None:
+    assert not is_avoidance(text), text
+
+
+@pytest.mark.parametrize("text,expected", [
+    # 알고 남긴 한계(#343 점검 G-9·G-11) - 지금 동작을 고정한다
+    ("나한테까지도 묻지 말라고 했잖아", False),     # 조사 두 개("까지도")는 본인 예외 밖
+    ("아들한텐 그런 거 묻지 말라고 했어", True),     # 준말 "한텐"은 여격으로 보지 않는다
+    ("엄마가그러는데 묻지 말라고 했어", True),       # 붙여 쓴 주어
+])
+def test_known_limits_after_343_audit(text, expected) -> None:
+    assert is_avoidance(text) is expected, text
+
+
+def test_clause_scan_is_linear_with_many_breaks() -> None:
+    # G-10: 경계 10만 개 뒤 "묻지"도 경계를 모두 쥐지 않고 한 번에 훑는다
+    import time
+    for unit in (",", "…", "아들이, ", "그러는데 "):
+        text = unit * (100_000 // len(unit)) + " 묻지 말라고 했잖아"
+        started = time.perf_counter()
+        is_avoidance(text)
+        assert time.perf_counter() - started < 1.0
