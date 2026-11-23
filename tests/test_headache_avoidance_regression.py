@@ -355,10 +355,106 @@ def test_strip_trailing_matches_old_regex(text) -> None:
 def test_long_input_is_linear() -> None:
     # Q-1: 공백 10만 자 뒤에 글자가 오는 입력이 전에는 36.8초 걸렸다
     import time
-    for text in (" " * 100_000 + "가", "묻지 " * 20_000 + "가", ". " * 50_000 + "가"):
+    # 둘째 입력은 옛 정규식으로도 선형이다(#341 점검 T-7) - "묻지"가 많은 입력의 기준선으로 둔다.
+    # 넷째·다섯째는 #341 점검 F-3의 경계 건너기(쉼표 앞 주어·"그러는데")가 많이 이어지는 입력이다.
+    for text in (" " * 100_000 + "가", "묻지 " * 20_000 + "가", ". " * 50_000 + "가",
+                 "아들이, " * 20_000 + "묻지 말라고 했어", "그러는데 " * 20_000 + "묻지 말라고 했어"):
         started = time.perf_counter()
         is_avoidance(text)
         assert time.perf_counter() - started < 1.0
     started = time.perf_counter()
     ck.fallback_emergency_signals("머리가 이렇게 " * 700)  # 약 5,000자
     assert time.perf_counter() - started < 0.2
+
+
+# ---- 2026-11-23 #341 기능 점검(BE docs/(2026-11-23) audit-ai-headache-avoidance-341.md) 조치 ----------------------------
+
+@pytest.mark.parametrize("text", [
+    # F-1 본인 + 한테 + 조사, "저희"
+    "나한테도 묻지 말라고 했잖아",
+    "저한테는 묻지 말라고 했잖아요",
+    "나한테만 묻지 말라고 했잖아",
+    "나보고는 묻지 말라고 했잖아",
+    "저희한테 묻지 말라고 했잖아",
+    # T-3 "우리"
+    "우리한테 자꾸 묻지 말라고 했잖아",
+    # F-2 "께·보고"가 붙은 보통 낱말
+    "어저께도 묻지 말라고 했잖아",
+    "그저께 묻지 말라고 했잖아",
+    "우리 함께 있을 때는 묻지 말라고 했잖아",
+    "뉴스보고 그런 거 묻지 말라고 했잖아",
+    # F-4 기관이 이야깃거리
+    "병원에서 있었던 일은 묻지 말라고 했잖아",
+    "요양원에서 지낸 얘기는 묻지 말라고 했잖아",
+    # F-6 전언이 아닌 "기에도·그래도"
+    "묻지 말라고 하기에도 지쳤어",
+    "묻지 말라고 했다고 그래도 또 묻네",
+    # T-1 이음말만·문장부호만으로 끊기는 앞 절
+    "엄마가 그랬어 근데 나도 묻지 말라고 했잖아",
+    "엄마가 그랬어, 나도 묻지 말라고 했잖아",
+    "아들이 뭐라든, 나는 묻지 말라고 했잖아",
+    "아들이 어디 사는지 묻지 말라고 했잖아",
+    # T-2 사람 낱말 뒤가 "이·가"로 끝나지 않음
+    "자식이라고 묻지 말라고 했잖아",
+    "딸이랑 묻지 말라고 했잖아",
+])
+def test_stop_asking_after_341_audit_is_avoidance(text) -> None:
+    assert is_avoidance(text), text
+
+
+@pytest.mark.parametrize("text", [
+    # F-3 경계가 말한 사람을 잘라내지 않는다
+    "아들이, 묻지 말라고 했어",
+    "우리 딸이요, 그런 건 묻지 말라고 했어요",
+    "엄마가 그러는데 묻지 말라고 했어",
+    "아들이 그러더라 묻지 말라고",
+    "딸이 그랬는데 묻지 말라고 했어",
+    # F-5 한테 + 조사
+    "아들한테는 그런 거 묻지 말라고 했어",
+    "딸한테도 묻지 말라고 했어",
+    # F-2 사람 목록 뒤 "께·보고", 목록 밖 "께서"
+    "딸보고 묻지 말라고 했어",
+    "교수님께서 묻지 말라고 했어",
+    # T-5 전언 "기에"
+    "묻지 말라고 하기에 안 물었어",
+])
+def test_other_peoples_words_after_341_audit_are_not_avoidance(text) -> None:
+    assert not is_avoidance(text), text
+
+
+@pytest.mark.parametrize("place", [
+    "병원", "보건소", "복지관", "센터", "경로당", "주민센터", "동사무소", "구청", "경찰서", "요양원",
+])
+def test_every_institution_right_before_stop_asking_is_other_peoples_words(place) -> None:
+    # T-4: 기관 목록 전부. F-4: "묻지" 바로 앞일 때만
+    assert not is_avoidance(f"{place}에서 묻지 말라고 했어")
+    assert not is_avoidance(f"{place}에서 그런 거 묻지 말라고 했어")
+    assert is_avoidance(f"{place}에서 있었던 일은 묻지 말라고 했잖아")
+
+
+@pytest.mark.parametrize("text", [
+    "살면서 두통이 처음은 아닙니다만 이번엔 최악이에요",   # F-7
+    "살면서 처음 이렇게 머리가 아파 트림까지 나와요",     # F-8
+    "두통이 너무 심해요 평생 처음이에요",               # T-6 사이 6자 (사용자 결정)
+    "두통이 심해요 평생 처음이에요",                    # 사이 4자
+])
+def test_thunderclap_forms_from_341_audit_are_caught(text) -> None:
+    assert _headache(text), text
+    assert cs.ChatService._keyword_route(text)["emergency"] is True, text
+
+
+@pytest.mark.parametrize("text", [
+    # F-9 좋은 소식, "첨에는·첨벙"
+    "두통이 이렇게 빨리 낫는 건 처음이에요",
+    "두통이 이렇게 가벼운 건 처음이에요",
+    "두통이 이렇게 금방 나은 건 처음이에요",
+    "두통이 이렇게 덜한 건 처음이에요",
+    "평생 첨에는 머리가 아파도 참았어요",
+    "살면서 첨벙 물에 빠져 머리가 아팠어요",
+    # T-6 사이 7자는 끊는다
+    "두통이 너무너무 심해 평생 처음이에요",
+    # 아파트는 그대로 뺀다
+    "난생 처음 머리 자르고 아파트 앞에 갔어요",
+])
+def test_ordinary_talk_after_341_audit_is_not_caught(text) -> None:
+    assert not _headache(text), text
