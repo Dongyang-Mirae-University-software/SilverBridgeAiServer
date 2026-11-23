@@ -237,6 +237,128 @@ def test_wider_person_list_is_used_only_for_stop_asking() -> None:
     ("옆집 김씨가 묻지 말라고 했어", True),     # 목록에 없는 사람 + "가": 남 이야기인데 회피로 본다("이·가" 일반화는 진짜 회피를 놓친다)
     ("네가 묻지 말라고 했잖아", True),
     ("묻지 말라니까 자꾸 묻네", False),         # 말끝이 아닌 "말라니까"는 보지 않는다(남 이야기와 구별할 수 없다)
+    ("우리 할머니한테 묻지 말라고 했어", True),  # 본인을 "할머니"라 부르는 말과 구별할 수 없어 회피로 본다(2026-11-23 P-2)
+    ("엄마한테 자꾸 묻지 말라고 했잖아", False),  # "묻지" 바로 앞의 "한테"는 남 이야기로 둔다(엄마에게 묻지 말라는 말일 수 있다)
 ])
 def test_known_limits_of_stop_asking(text, expected) -> None:
     assert is_avoidance(text) is expected, text
+
+
+# ---- 2026-11-23 #340 기능 점검(BE docs/(2026-11-22) audit-ai-headache-avoidance-340.md) 조치 ----------------------------
+
+@pytest.mark.parametrize("text", [
+    # P-1 ① 두통 낱말이 평생·처음보다 앞
+    "두통이 평생 처음입니다",
+    "머리 아픈 건 난생 처음이에요",
+    "머리가아파 죽겠어 살면서처음",
+    "두통이 생전 처음이라 무서워요",
+    # P-1 ② 두통 주어 + 지시어
+    "두통이 이렇게 심한 건 처음이에요",
+    "두통이 이렇게 심한 적이 없었어요",
+    # P-1 ③ "이런 두통이·도"
+    "이런 두통이 처음이에요",
+    "이런 두통도 처음이에요",
+    # P-1 ④ 강조어 4자까지, 머리 비유
+    "머리가 이렇게 심하게 아픈 건 처음이에요",
+    "난생 처음 머리가 터질 것 같이 아파요",
+    "평생 처음 머리가 깨질 것 같아요",
+    # P-1 ⑤ 과거형 최상급, "최고로"
+    "살면서 가장 심했던 두통이에요",
+    "평생 최고로 아픈 두통이에요",
+    # P-1·P-8 "첨"
+    "이런 두통은 첨이야",
+    "머리가 이렇게 아픈 건 첨이에요",
+])
+def test_thunderclap_forms_from_340_audit_are_caught(text) -> None:
+    assert _headache(text), text
+    assert cs.ChatService._keyword_route(text)["emergency"] is True, text
+
+
+@pytest.mark.parametrize("text", [
+    # P-3 격식체·떨어진 부정
+    "살면서 두통이 처음은 아닙니다",
+    "살면서 두통이 처음은 절대 아니에요",
+    "이런 두통은 처음이 결코 아닙니다",
+    # P-4 "머리가 아니라·아주·아래", 아파트
+    "살면서 처음으로 머리가 아니라 허리가 아파요",
+    "난생 처음 머리를 아주 짧게 잘랐어요",
+    "평생 처음 머리 아래쪽에 점이 생겼어요",
+    "난생 처음 머리 자르고 아파트 앞에 갔어요",
+    # 새 어순 대안의 경계: 이유 절이 끼거나 4자를 넘으면 끊는다
+    "머리가 아파서 병원 갔는데 살면서 처음 MRI를 찍었어요",
+    "두통이 있었는데 살면서 처음 침을 맞아 봤어요",
+    # 새 지시어 대안의 경계
+    "두통이 이렇게 안 심한 건 처음이에요",
+    "두통약이 이렇게 잘 듣는 건 처음이에요",
+    # "첨"이 아닌 낱말
+    "평생 두통 이야기를 첨부해서 보냈어요",
+])
+def test_ordinary_talk_near_new_headache_forms_is_not_caught(text) -> None:
+    assert not _headache(text), text
+
+
+def test_known_over_trigger_dementia_hospital_visit_is_kept() -> None:
+    # 알고 남긴 과잉 안내(안전한 방향): "이런 두통으로 고생한 적이 없어요"와 구별할 수 없다
+    assert _headache("이런 두통으로 병원 간 적은 없어요")
+
+
+@pytest.mark.parametrize("text", [
+    # P-2 주제 조사 "은·는·도" = 묻지 말라는 이야깃거리
+    "아버지는 묻지 말라고 했잖아",
+    "선생님은 왜 자꾸 그래요 묻지 말라고 했잖아요",
+    "아들 일도 묻지 말라고 했지",
+    # P-2 앞 절·다른 문장의 사람 낱말
+    "의사가 뭐라 했는지 묻지 말라고 했잖아",
+    "엄마가 그러더라고. 근데 나도 묻지 말라고 했잖아",
+    "딸이 왔는데 자꾸 묻지 말라고 했잖아",
+    # P-2 "한테"가 "묻지"에서 멀거나 본인을 가리킴 (P-7 한계 문장 포함)
+    "남편한테 맞고 산 얘기는 묻지 말라고 했잖아",
+    "엄마한테 전화했는데 자꾸 묻지 말라고 했잖아",
+    "내한테 자꾸 묻지 말라고 했잖아",
+    "할머니한테 자꾸 묻지 말라고 했잖아",
+    "노인한테 그런 거 묻지 말라고 했잖아",
+    # 전언 예외 밖의 꼴은 그대로 회피
+    "묻지 말라고 했다고 몇 번을 말해",
+])
+def test_stop_asking_after_340_audit_is_avoidance(text) -> None:
+    assert is_avoidance(text), text
+
+
+@pytest.mark.parametrize("text", [
+    # 주어·바로 앞 "한테"는 그대로 남 이야기 (#340이 고친 문장의 다른 꼴)
+    "아버지가 묻지 말라고 했어",
+    "선생님께서 묻지 말라고 하셨어",
+    "아들한테 그런 거 묻지 말라고 했어",
+    "선생님께 묻지 말라고 했어",
+    "묻지 말라고 아들이 그랬어",
+    # P-6 전해 들은 말투
+    "묻지 말라고 했다고 하더라",
+    "묻지 말라고 했다고 그러던데",
+    "묻지 말라고 하길래 안 물어봤어",
+    "묻지 말라고 했나 봐",
+    "병원에서 그런 건 묻지 말라고 했어",
+    "복지관에서 묻지 말라고 했어",
+])
+def test_other_peoples_words_after_340_audit_are_not_avoidance(text) -> None:
+    assert not is_avoidance(text), text
+
+
+@pytest.mark.parametrize("text", [
+    "할 말 없어…", "할 말 없어 ~ !? ", "묻지 말라고요?", "  \t\n", "", "가 ", "말하기 싫어.　", "a.b.",
+])
+def test_strip_trailing_matches_old_regex(text) -> None:
+    import re
+    from app.services.companion.avoidance import _strip_trailing
+    assert _strip_trailing(text) == re.sub(r"[\s.…~!?]+$", "", text)
+
+
+def test_long_input_is_linear() -> None:
+    # Q-1: 공백 10만 자 뒤에 글자가 오는 입력이 전에는 36.8초 걸렸다
+    import time
+    for text in (" " * 100_000 + "가", "묻지 " * 20_000 + "가", ". " * 50_000 + "가"):
+        started = time.perf_counter()
+        is_avoidance(text)
+        assert time.perf_counter() - started < 1.0
+    started = time.perf_counter()
+    ck.fallback_emergency_signals("머리가 이렇게 " * 700)  # 약 5,000자
+    assert time.perf_counter() - started < 0.2
