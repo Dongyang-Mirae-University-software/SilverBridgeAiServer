@@ -415,12 +415,13 @@ def _generate(llm: LlmClient, prompt: str, is_last_turn: bool, temperature: floa
     """꼬리질문 턴은 대답 어댑터(11/13부터 cc7, 이전 cc5)로 만든다 (11/10, COMPANION_REPLY_LORA). 프롬프트는 reply-v2 그대로다.
 
     어댑터는 꼬리질문 프롬프트로만 학습돼서 마지막 인사 턴은 기본 모델로 만든다.
+    11/23: cc8b 는 마지막 인사도 배웠다 - COMPANION_REPLY_LAST_LORA 를 켜면 마지막 인사도 어댑터로 만든다 (기본 끔).
     어댑터가 없으면(파일 없음, 어댑터 기능이 없는 LLM) 기본 모델로 만든다 (재희 동작).
     """
     s = get_settings()
     kwargs = {"temperature": s.companion_llm_temperature if temperature is None else temperature, "num_predict": s.companion_llm_num_predict,
               "timeout": s.companion_llm_timeout_sec}
-    if s.companion_reply_lora and not is_last_turn:
+    if s.companion_reply_lora and (not is_last_turn or s.companion_reply_last_lora):
         gen = getattr(llm, "generate_adapter", None)
         has = getattr(llm, "has_adapter", None)
         if gen is not None and (has is None or has(REPLY_ADAPTER)):
