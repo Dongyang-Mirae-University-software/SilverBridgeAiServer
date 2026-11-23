@@ -200,6 +200,24 @@ def _question_part(body: str) -> str:
     return sents[-1] if sents and sents[-1].endswith("?") else ""
 
 
+# 11/23 대답 첫머리 낱말 깨짐 고치기: 문장 맨 앞의 "경로당"은 토큰 3개(경·로·당)로 쪼개져, 대답 LoRA 가 '경' 다음에 흔한 '량'을
+#   고른다("경량에서…"·"경량당에서…"·"경 경로당에서…"). 문장 중간(" 경로당" 1토큰)에서는 깨지지 않는다.
+#   어르신 말에 그 낱말이 있을 때만, 깨진 표기를 바로잡는다 (DGX 재현: 기본 모델 0/30 · cc7 3/30 · cc8b 7/30).
+#   다른 낱말도 같은 현상이 확인되면 이 표에 더한다.
+SPLIT_WORD_FIXES = {
+    "경로당": re.compile(r"경\s?량\s?당|경\s+경로당|경로딩|경노당|경량(?=[에은는이가을를과와도의서로]|\s|$)"),
+}
+
+
+def fix_split_words(text: str, transcript: str) -> str:
+    """어르신 말에 있는 낱말이 대답에서 깨진 표기로 나오면 바로잡는다. 원문은 로그에 남기지 않는다."""
+    for word, broken in SPLIT_WORD_FIXES.items():
+        if word in (transcript or "") and broken.search(text):
+            text = broken.sub(word, text)
+            logger.info("[COMPANION-REPLY-SPLITFIX] word=%s", word)
+    return text
+
+
 def trim_reply(text: str, is_last_turn: bool) -> str:
     """④ 꼬리질문이 세 문장 이상이면 첫 문장(공감)과 마지막 질문만 남긴다 (11/21, 대체하지 않고 모델 문장을 살린다).
 
@@ -461,7 +479,7 @@ def generate_reply(
             failures = ["LLM 실패"]
             llm_code = getattr(exc, "code", "UNAVAILABLE")
             continue
-        text = trim_reply(re.sub(r"\s+", " ", raw).strip(), is_last_turn)
+        text = trim_reply(fix_split_words(re.sub(r"\s+", " ", raw).strip(), transcript), is_last_turn)
         failures = check_reply(text, is_last_turn, transcript, text_mood)
         if not failures and is_similar_to_past(text, past_replies):
             if redone:  # 11/14 점검 L-4: 다시 생성은 한 대답에 한 번만 (재시도 설정과 곱해지지 않게)
@@ -485,7 +503,7 @@ def _redo_once(llm: LlmClient, prompt: str, is_last_turn: bool, transcript: str,
         raw = _generate(llm, prompt, is_last_turn, temperature=get_settings().companion_reply_redo_temperature)
     except LlmUnavailable:
         return "", ["반복"]
-    text = trim_reply(re.sub(r"\s+", " ", raw).strip(), is_last_turn)
+    text = trim_reply(fix_split_words(re.sub(r"\s+", " ", raw).strip(), transcript), is_last_turn)
     failures = check_reply(text, is_last_turn, transcript, text_mood)
     if not failures and is_similar_to_past(text, past_replies):
         failures = ["반복"]
