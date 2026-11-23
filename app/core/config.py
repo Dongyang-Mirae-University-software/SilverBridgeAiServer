@@ -500,6 +500,9 @@ class Settings(BaseModel):
     companion_reply_last_prompt: str = _as_choice("COMPANION_REPLY_LAST_PROMPT", "v1", ("v1", "v1b"))
     #   ① 마지막 인사가 앞일을 한 일로 받으면 정해 둔 마무리 문장 (STRICT 를 켜도 함께 켜진다)
     companion_reply_last_check: bool = _as_bool("COMPANION_REPLY_LAST_CHECK", False)
+    #   마지막 인사도 대답 LoRA 로 만든다 (11/23, 기본 끔). cc8b 는 마지막 인사 459개(흐름 있는 v2-last 형식)를 배웠지만
+    #   지금까지 마지막 인사는 기본 모델로만 만들어 쓰이지 않았다
+    companion_reply_last_lora: bool = _as_bool("COMPANION_REPLY_LAST_LORA", False)
     # 말을 피하는 대답("말하기 싫어", "묻지 마")에는 모델 대답 대신 물러나는 문장으로 답한다 (11/12). 끄면 전과 같다
     companion_avoid_reply: bool = _as_bool("COMPANION_AVOID_REPLY", True)
     # 새 대답이 이 대화의 지난 말벗 문장과 이 비율 이상 비슷하면 한 번 다시 만든다 (11/13, 세션 203 2번↔5번 0.76). 0이면 끈다
