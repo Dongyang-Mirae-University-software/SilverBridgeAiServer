@@ -205,7 +205,8 @@ def trim_reply(text: str, is_last_turn: bool) -> str:
 
     마지막 질문이 물음으로 끝나지 않으면 그대로 둔다 (규칙 검사가 따로 본다). 마지막 인사는 줄이지 않는다.
     """
-    if is_last_turn or not get_settings().companion_reply_strict:
+    s = get_settings()
+    if is_last_turn or not (s.companion_reply_trim or s.companion_reply_strict):
         return text
     sents = [x for x in _SENT_SPLIT.split(text.strip()) if x]
     if len(sents) <= 2 or not sents[-1].endswith("?"):
@@ -257,8 +258,11 @@ def check_reply(text: str, is_last_turn: bool, transcript: str = "", text_mood: 
             failures.append("대답과 무관")
     if relax and not is_last_turn and ADVICE_PATTERN.search(body):
         failures.append("권유")
-    if get_settings().companion_reply_strict:
+    s = get_settings()
+    if s.companion_reply_strict:
         failures += strict_failures(body, is_last_turn, transcript)
+    elif s.companion_reply_last_check and is_last_turn:  # 11/23 ① 만 따로
+        failures += strict_failures(body, True, transcript)
     return failures
 
 
@@ -285,6 +289,11 @@ def history_lines(history, max_pairs: int) -> str:
     return "\n".join(out)
 
 
+def _plain_last_prompt(s) -> str:
+    """흐름 없는 마지막 인사 프롬프트 파일. v1b(11/23)는 앞으로 하실 일을 앞일로 받으라는 규칙·예시를 더했다."""
+    return "reply-v1b-last.txt" if s.companion_reply_last_prompt == "v1b" else "reply-v1-last.txt"
+
+
 def build_reply_prompt(question: str, transcript: str, prev_signals: dict | None, is_last_turn: bool,
                        history=()) -> str:
     """대답 프롬프트. COMPANION_REPLY_HISTORY=summary 면 대화 흐름을 넣은 v4(꼬리질문)·v2-last(마지막 인사)를 쓴다.
@@ -295,11 +304,11 @@ def build_reply_prompt(question: str, transcript: str, prev_signals: dict | None
     s = get_settings()
     if s.companion_reply_history == "summary":
         if is_last_turn:
-            name = "reply-v2-last.txt" if s.companion_reply_history_last else "reply-v1-last.txt"
+            name = "reply-v2-last.txt" if s.companion_reply_history_last else _plain_last_prompt(s)
         else:
             name = "reply-v4-followup.txt"
     else:
-        name = "reply-v1-last.txt" if is_last_turn else "reply-v2-followup.txt"
+        name = _plain_last_prompt(s) if is_last_turn else "reply-v2-followup.txt"
     template = (_PROMPT_DIR / name).read_text(encoding="utf-8")
     return (template
             .replace("{{PREV_SIGNALS}}", _signal_line(prev_signals))

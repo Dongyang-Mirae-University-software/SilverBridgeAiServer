@@ -491,6 +491,15 @@ class Settings(BaseModel):
     companion_reply_strict: bool = _as_bool("COMPANION_REPLY_STRICT", False)
     # ③ 계획 캐묻기 검사만 따로 (기본 끔): 품질 세트 3회에서 회차마다 9~12턴이 대체 문장으로 바뀌어 한도(+6턴)를 넘었다 (11/22)
     companion_reply_strict_plan: bool = _as_bool("COMPANION_REPLY_STRICT_PLAN", False)
+    # 11/23 따로 켜는 스위치 (기본 끔, 시험 후 채택 항목만 켬)
+    #   ④ 세 문장 이상 꼬리질문 → 첫 문장 + 마지막 질문 (STRICT 를 켜도 함께 켜진다)
+    #   11/23 기본 켬 (사용자 결정): 품질 세트 3회 실패 25·21·27 → 22·17·23, 미리 정한 문장 5·4·8 → 2·4·5, 위험·기분 같음.
+    #   1회차 중요 실패가 14 → 15(R3 계획 질문 +1)였으나 줄이기는 마지막 질문을 그대로 남겨 R3 를 늘릴 수 없어 예외로 채택
+    companion_reply_trim: bool = _as_bool("COMPANION_REPLY_TRIM", True)
+    #   마지막 인사 프롬프트: v1 (지금) | v1b (앞으로 하실 일은 앞일로 받으라는 규칙·예시 추가). 흐름 넣은 v2-last 에는 쓰지 않는다
+    companion_reply_last_prompt: str = _as_choice("COMPANION_REPLY_LAST_PROMPT", "v1", ("v1", "v1b"))
+    #   ① 마지막 인사가 앞일을 한 일로 받으면 정해 둔 마무리 문장 (STRICT 를 켜도 함께 켜진다)
+    companion_reply_last_check: bool = _as_bool("COMPANION_REPLY_LAST_CHECK", False)
     # 말을 피하는 대답("말하기 싫어", "묻지 마")에는 모델 대답 대신 물러나는 문장으로 답한다 (11/12). 끄면 전과 같다
     companion_avoid_reply: bool = _as_bool("COMPANION_AVOID_REPLY", True)
     # 새 대답이 이 대화의 지난 말벗 문장과 이 비율 이상 비슷하면 한 번 다시 만든다 (11/13, 세션 203 2번↔5번 0.76). 0이면 끈다

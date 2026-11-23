@@ -126,7 +126,8 @@ def test_generate_reply_returns_trimmed_llm_sentence(settings):
 # --- 스위치 -----------------------------------------------------------------------------------------------
 
 def test_switch_off_is_the_old_behavior(settings):
-    settings(companion_reply_strict=False)
+    # 11/23 부터 ④ 줄이기는 COMPANION_REPLY_TRIM(기본 켬)으로도 켜진다 - STRICT 묶음만 보려고 함께 끈다
+    settings(companion_reply_strict=False, companion_reply_trim=False)
     three = "그냥 보내셨군요. 오늘은 조용했네요. 특별히 하고 싶은 활동은 없으셨나요?"
     assert trim_reply(three, False) == three
     assert "막연한 질문" not in check_reply(three, False, "그냥 그래 오늘 보내셨")
