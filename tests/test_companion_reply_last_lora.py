@@ -17,7 +17,7 @@ class _Llm:
         self.calls = []
 
     def has_adapter(self, name):
-        return True
+        return name == rs.REPLY_ADAPTER  # 꼬리질문 어댑터만 올라 있는 서버 (전용 마지막 인사 어댑터 없음)
 
     def generate_adapter(self, prompt, adapter, **kw):
         self.calls.append(("adapter", adapter))
@@ -68,3 +68,39 @@ def test_closing_set_shape():
     assert kinds == {"future": 15, "done": 10, "mix": 10, "feeling": 5}
     assert set(d["labels"]) == {"ok", "future_as_done", "done_as_future", "off"}
     assert all(len(x["history"]) == 2 and x["elder"] for x in items)
+
+
+class _Llm2(_Llm):
+    def __init__(self, have):
+        super().__init__(); self.have = have
+
+    def has_adapter(self, name):
+        return name in self.have
+
+
+def test_last_turn_prefers_dedicated_adapter(settings):
+    settings(companion_reply_last_lora=True)
+    llm = _Llm2({rs.REPLY_ADAPTER, rs.REPLY_LAST_ADAPTER})
+    rs._generate(llm, "p", True)
+    assert llm.calls[-1] == ("adapter", rs.REPLY_LAST_ADAPTER)
+    rs._generate(llm, "p", False)
+    assert llm.calls[-1] == ("adapter", rs.REPLY_ADAPTER)  # 꼬리질문은 그대로
+    llm2 = _Llm2({rs.REPLY_ADAPTER})  # 전용 어댑터가 없으면 꼬리질문 어댑터
+    rs._generate(llm2, "p", True)
+    assert llm2.calls[-1] == ("adapter", rs.REPLY_ADAPTER)
+
+
+def test_dedicated_adapter_ignored_when_last_lora_off(settings):
+    llm = _Llm2({rs.REPLY_ADAPTER, rs.REPLY_LAST_ADAPTER})
+    rs._generate(llm, "p", True)
+    assert llm.calls[-1] == ("base", None)
+
+
+def test_adapter_dirs_include_last_only_when_set(monkeypatch):
+    from app.services.companion.llm_client import ExaoneLlm, REPLY_LAST_ADAPTER
+    s = get_settings()
+    monkeypatch.setattr(s, "companion_reply_last_lora_subdir", "")
+    assert REPLY_LAST_ADAPTER not in ExaoneLlm().adapter_dirs()
+    monkeypatch.setattr(s, "companion_reply_last_lora_subdir", "companion/llm/lora-reply-cc8c")
+    assert str(ExaoneLlm().adapter_dirs()[REPLY_LAST_ADAPTER]).endswith("companion/llm/lora-reply-cc8c")
+

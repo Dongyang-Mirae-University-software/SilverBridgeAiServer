@@ -7,7 +7,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 from app.core.config import get_settings
-from app.services.companion.llm_client import REPLY_ADAPTER, LlmClient, LlmUnavailable
+from app.services.companion.llm_client import REPLY_ADAPTER, REPLY_LAST_ADAPTER, LlmClient, LlmUnavailable
 from app.services.companion import risk_carry
 from app.services.companion.risk import body_emergency_only, keyword_risk
 
@@ -444,6 +444,9 @@ def _generate(llm: LlmClient, prompt: str, is_last_turn: bool, temperature: floa
     if s.companion_reply_lora and (not is_last_turn or s.companion_reply_last_lora):
         gen = getattr(llm, "generate_adapter", None)
         has = getattr(llm, "has_adapter", None)
+        # 11/24 마지막 인사는 전용 어댑터(reply_last, cc8c)가 올라 있으면 그것을 쓴다
+        if is_last_turn and gen is not None and has is not None and has(REPLY_LAST_ADAPTER):
+            return gen(prompt, adapter=REPLY_LAST_ADAPTER, **kwargs)
         if gen is not None and (has is None or has(REPLY_ADAPTER)):
             return gen(prompt, adapter=REPLY_ADAPTER, **kwargs)
     return llm.generate(prompt, **kwargs)
