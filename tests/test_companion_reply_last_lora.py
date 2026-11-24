@@ -34,12 +34,15 @@ def settings(monkeypatch):
     def set_(**kw):
         for k, v in kw.items():
             monkeypatch.setattr(s, k, v)
-    set_(companion_reply_lora=True, companion_reply_last_lora=False)
+    set_(companion_reply_lora=True, companion_reply_last_lora=False, companion_reply_last_lora_subdir="")
     return set_
 
 
-def test_default_off():
-    assert '_as_bool("COMPANION_REPLY_LAST_LORA", False)' in (ROOT / "app/core/config.py").read_text(encoding="utf-8")
+def test_default_on_with_cc8c():
+    """11/24: 마지막 인사는 전용 어댑터 cc8c 로 (사용자 결정)."""
+    src = (ROOT / "app/core/config.py").read_text(encoding="utf-8")
+    assert '_as_bool("COMPANION_REPLY_LAST_LORA", True)' in src
+    assert 'os.getenv("COMPANION_REPLY_LAST_LORA_SUBDIR", "companion/llm/lora-reply-cc8c")' in src
 
 
 def test_last_turn_uses_base_model_unless_switched_on(settings):

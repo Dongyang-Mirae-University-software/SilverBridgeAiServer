@@ -502,10 +502,13 @@ class Settings(BaseModel):
     companion_reply_last_check: bool = _as_bool("COMPANION_REPLY_LAST_CHECK", False)
     #   마지막 인사도 대답 LoRA 로 만든다 (11/23, 기본 끔). cc8b 는 마지막 인사 459개(흐름 있는 v2-last 형식)를 배웠지만
     #   지금까지 마지막 인사는 기본 모델로만 만들어 쓰이지 않았다
-    companion_reply_last_lora: bool = _as_bool("COMPANION_REPLY_LAST_LORA", False)
+    #   11/24 기본 켬 (사용자 결정, 아래 전용 어댑터 cc8c 와 함께)
+    companion_reply_last_lora: bool = _as_bool("COMPANION_REPLY_LAST_LORA", True)
     #   마지막 인사 전용 어댑터 폴더 (11/24). 비면 마지막 인사도 꼬리질문 어댑터(COMPANION_REPLY_LORA_SUBDIR)를 쓴다.
     #   cc8c 는 마지막 인사가 좋아졌지만(판정 세트 오류 4 → 0) 꼬리질문이 다시 학습되며 흔들려, 꼬리질문은 cc8b 그대로 두고 마지막 인사에만 쓴다
-    companion_reply_last_lora_subdir: str = os.getenv("COMPANION_REPLY_LAST_LORA_SUBDIR", "").strip()
+    #   11/24 기본 cc8c (사용자 결정): 판정 세트 마지막 인사 오류 4 → 0·엉뚱함 7 → 4, 품질 세트 3회 마지막 턴 실패 8·10·8 → 6·7·7·치명 0.
+    #   전체 실패·중요는 1회차에 늘었으나 꼬리질문(같은 cc8b) 쪽 흔들림이라 예외로 채택. 끄려면 빈 값 또는 COMPANION_REPLY_LAST_LORA=false
+    companion_reply_last_lora_subdir: str = os.getenv("COMPANION_REPLY_LAST_LORA_SUBDIR", "companion/llm/lora-reply-cc8c").strip()
     # 말을 피하는 대답("말하기 싫어", "묻지 마")에는 모델 대답 대신 물러나는 문장으로 답한다 (11/12). 끄면 전과 같다
     companion_avoid_reply: bool = _as_bool("COMPANION_AVOID_REPLY", True)
     # 새 대답이 이 대화의 지난 말벗 문장과 이 비율 이상 비슷하면 한 번 다시 만든다 (11/13, 세션 203 2번↔5번 0.76). 0이면 끈다

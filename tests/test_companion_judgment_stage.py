@@ -422,6 +422,7 @@ def test_reply_adapter_output_still_goes_through_rules():
 
 
 def test_last_turn_switch_off_and_missing_adapter_use_base_model(settings):
+    settings(companion_reply_last_lora=False)  # 11/24 부터 기본 켬(마지막 인사 cc8c) - 끈 경우를 본다
     llm = ReplyLlm("오늘도 이야기 나눠 주셔서 고맙습니다.")
     generate_reply(llm, Q, A, None, True, 8)
     assert llm.calls[0][0] == "base"
