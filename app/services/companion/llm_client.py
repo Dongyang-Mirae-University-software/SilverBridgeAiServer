@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 # LoRA 어댑터 이름 (11/10). None = 어댑터를 끈 기본 모델 (위험·신호·요약·마지막 인사)
 MOOD_ADAPTER = "mood"
 REPLY_ADAPTER = "reply"
+REPLY_LAST_ADAPTER = "reply_last"  # 11/24 마지막 인사 전용 (cc8c) - 꼬리질문 어댑터와 따로 둔다
 RISK_ADAPTER = "risk"  # 11/15 위험 판단 r1 (v9 프롬프트 전용)
 
 
@@ -211,6 +212,8 @@ class ExaoneLlm:
         dirs = {MOOD_ADAPTER: base / s.companion_mood_lora_subdir, REPLY_ADAPTER: base / s.companion_reply_lora_subdir}
         if s.companion_risk_lora_subdir:  # 빈 값이면 위험 어댑터를 올리지 않는다 (v9 기본 모델 + 0.99)
             dirs[RISK_ADAPTER] = base / s.companion_risk_lora_subdir
+        if s.companion_reply_last_lora_subdir:  # 빈 값이면 마지막 인사 전용 어댑터를 올리지 않는다 (11/24)
+            dirs[REPLY_LAST_ADAPTER] = base / s.companion_reply_last_lora_subdir
         return dirs
 
     def _attach_adapters(self, model):
