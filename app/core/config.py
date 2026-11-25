@@ -531,7 +531,9 @@ class Settings(BaseModel):
     companion_reply_history_last: bool = _as_bool("COMPANION_REPLY_HISTORY_LAST", False)
     # 별 내용 없는 짧은 대답이 이 횟수만큼 이어지면 아직 묻지 않은 일상 화제 질문으로 넘어간다 (11/13). 0이면 끈다.
     # 위험·말 피함·되묻기 턴과 글 기분이 부정인 턴은 바꾸지 않는다 (11/11: 힘든 이야기에는 화제를 바꾸지 않는다)
-    companion_flat_topic_switch: int = _as_int("COMPANION_FLAT_TOPIC_SWITCH", 2)
+    # 11/25 2 → 1: 첫 번째 내용 없는 대답에도 꼬리질문 모델이 "특별히 좋아하시는 활동"류를 물어 바로 넘어간다.
+    #   품질 세트 3회 나란히(마지막 인사 cc8c 고정): 실패 19·18·23 → 15·13·14, 치명 0·0·1 → 0·0·0, 위험·기분 같음
+    companion_flat_topic_switch: int = _as_int("COMPANION_FLAT_TOPIC_SWITCH", 1)
     # 짧은 부정 대답("아니 없어"·"없어")은 받아쓰기 확신도가 낮아도 되묻지 않는다 (11/13). 끄면 전과 같다
     companion_short_answer_pass: bool = _as_bool("COMPANION_SHORT_ANSWER_PASS", True)
     # 말벗 목소리 (11/13): Supertonic 3 F1 목소리로 말벗 문장을 mp3 로 만든다. CPU 전용(onnxruntime), GPU 를 쓰지 않는다.
