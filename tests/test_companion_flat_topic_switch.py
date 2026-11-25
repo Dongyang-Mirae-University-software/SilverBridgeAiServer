@@ -193,7 +193,7 @@ def test_review_item_uses_fallback_version(settings, stubs):
     d = _dialogue("ver")
     _say(d, "몰라")
     _say(d, "그냥 그래")
-    assert FALLBACK_VERSION == "fallback-v4"
+    assert FALLBACK_VERSION == "fallback-v5"
 
 
 def test_default_switches_on_first_flat_answer(settings, stubs):
