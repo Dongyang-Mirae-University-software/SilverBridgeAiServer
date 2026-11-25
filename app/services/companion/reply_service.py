@@ -191,6 +191,14 @@ STRICT_DONE_FORM = re.compile(r"(드|하|다녀오|가|만드|끓이|보내|사|
 STRICT_VAGUE_Q = re.compile(r"가장\s?(좋아하|즐거|기억에\s?남|행복하|좋았)[^.?!]{0,8}(시간|순간)|하고\s?싶은\s?활동|어떤\s?활동|다른\s?활동|취미")
 # ③ 계획 캐묻기 - 사용자 결정(11/21): 계획·예정·언제쯤·하실 생각만 본다 ('왜·무슨 이유'는 보지 않는다)
 STRICT_PLAN_Q = re.compile(r"계획|예정이|언제쯤|하실\s?생각")
+# 11/25 막연한 질문 다시 만들기(COMPANION_REPLY_VAGUE_REDO): ②보다 넓다 - 판정 세트(followup_v1)·cc8d 출력에서 본 형태를 일반화했다.
+#   "특별히 ~ 있으신가요"는 어르신 대답에 내용이 있을 때만 막연한 질문으로 본다(내용 없는 대답에는 달리 물을 거리가 없다).
+VAGUE_REDO_Q = re.compile(STRICT_VAGUE_Q.pattern + r"|활동(은|이|을)?\s?(있|하시|어떠|어떻)|(어떻게|뭐\s?하며)\s?(지내|보내)실\s?(계획|예정)"
+                          r"|그때까지|생각하시는\s?(것|게|일)|(어떤|무슨)\s?계획이\s?있으")
+VAGUE_SPECIAL_Q = re.compile(r"특별히[^.?!]{0,14}(있으|있나|있었|없으)")
+VAGUE_ECHO_WORDS = ("활동", "계획", "특별히", "취미", "그때")  # 어르신이 먼저 쓴 낱말을 받아 묻는 것은 막연한 질문으로 보지 않는다
+VAGUE_REDO_HINT = ("\n(다시 쓰기) 질문에는 어르신 대답에 나온 낱말을 넣어 구체적으로 한 가지만 묻습니다. "
+                   "'특별히'·'활동'·'계획'이라는 말은 쓰지 않습니다.")
 _SENT_SPLIT = re.compile(r"(?<=[.?!])\s+")
 
 
@@ -233,6 +241,16 @@ def trim_reply(text: str, is_last_turn: bool) -> str:
         return text
     logger.info("[COMPANION-REPLY-TRIM] sentences=%d", len(sents))  # 원문은 남기지 않는다
     return f"{sents[0]} {sents[-1]}"
+
+
+def is_vague_question(body: str, transcript: str) -> bool:
+    """꼬리질문(마지막 문장)이 막연한가 (11/25). 어르신이 먼저 꺼낸 말(같은 표현)이면 보지 않는다."""
+    q = _question_part(body)
+    if not q or any(w in q and w in transcript for w in VAGUE_ECHO_WORDS):
+        return False
+    if VAGUE_REDO_Q.search(q) and not VAGUE_REDO_Q.search(transcript):
+        return True
+    return bool(VAGUE_SPECIAL_Q.search(q)) and not is_flat_answer(transcript)
 
 
 def strict_failures(body: str, is_last_turn: bool, transcript: str) -> list[str]:
@@ -344,6 +362,7 @@ FLAT_ANSWER_WORDS = frozenset({
     "그냥", "그래", "그래요", "그렇지", "그렇죠", "그저", "몰라", "몰라요", "모르겠어", "모르겠어요", "없어", "없어요", "없다",
     "없다니까", "없다고", "없는데", "없지", "없잖아", "별로", "별일", "별거", "글쎄", "글쎄요", "뭐", "됐어", "됐다", "괜찮아",
     "괜찮아요", "아니", "아니요", "아뇨", "할", "거", "알", "계획", "있지", "있어", "지내", "쉬어", "그런", "말", "딱히",
+    "그랬어", "그랬어요", "그랬지",  # 11/25 "그냥 그랬어"도 별 내용 없는 대답 (판정 세트 S01)
 })
 FLAT_ANSWER_MAX_CHARS = 14
 # (이미 물었는지 볼 정규식, 화제 전환 질문). 앞에서부터 아직 묻지 않은 것을 쓴다. 모든 문장이 규칙(물음·질병명·과거 가정·권유)을 통과해야 한다.
@@ -486,12 +505,14 @@ def generate_reply(
             continue
         text = trim_reply(fix_split_words(re.sub(r"\s+", " ", raw).strip(), transcript), is_last_turn)
         failures = check_reply(text, is_last_turn, transcript, text_mood)
-        if not failures and is_similar_to_past(text, past_replies):
+        vague = not failures and _vague_redo_on(is_last_turn) and is_vague_question(text, transcript)
+        if not failures and (vague or is_similar_to_past(text, past_replies)):
             if redone:  # 11/14 점검 L-4: 다시 생성은 한 대답에 한 번만 (재시도 설정과 곱해지지 않게)
-                failures = ["반복"]
+                failures = ["막연한 질문" if vague else "반복"]
                 continue
             redone = True
-            text, failures = _redo_once(llm, prompt, is_last_turn, transcript, text_mood, past_replies)
+            text, failures = _redo_once(llm, prompt + (VAGUE_REDO_HINT if vague else ""), is_last_turn, transcript,
+                                        text_mood, past_replies)
         if not failures:
             return ReplyResult(text=text, isFollowUp=not is_last_turn, source="LLM", failures=[])
     # 11/12 점검 L-2: 대체된 이유(규칙 이름)만 남긴다 - 대답·어르신 말 본문은 남기지 않는다
@@ -501,15 +522,21 @@ def generate_reply(
                        source="FALLBACK", failures=failures)
 
 
+def _vague_redo_on(is_last_turn: bool) -> bool:
+    return not is_last_turn and get_settings().companion_reply_vague_redo
+
+
 def _redo_once(llm: LlmClient, prompt: str, is_last_turn: bool, transcript: str, text_mood: dict | None,
                past_replies) -> tuple[str, list[str]]:
-    """지난 문장과 비슷한 대답을 한 번 다시 만든다 (같은 프롬프트, 온도만 올림). 반환: (문장, 실패 이름 목록)."""
+    """지난 문장과 비슷하거나 막연한 질문인 대답을 한 번 다시 만든다 (온도만 올림, 막연하면 호출하는 쪽이 힌트 한 줄을 붙인다). 반환: (문장, 실패 이름 목록)."""
     try:
         raw = _generate(llm, prompt, is_last_turn, temperature=get_settings().companion_reply_redo_temperature)
     except LlmUnavailable:
         return "", ["반복"]
     text = trim_reply(fix_split_words(re.sub(r"\s+", " ", raw).strip(), transcript), is_last_turn)
     failures = check_reply(text, is_last_turn, transcript, text_mood)
+    if not failures and _vague_redo_on(is_last_turn) and is_vague_question(text, transcript):
+        failures = ["막연한 질문"]
     if not failures and is_similar_to_past(text, past_replies):
         failures = ["반복"]
     logger.info("[COMPANION-REPLY-REDO] ok=%s", not failures)  # 대답 본문은 남기지 않는다

@@ -515,6 +515,9 @@ class Settings(BaseModel):
     companion_reply_similar_ratio: float = _as_float("COMPANION_REPLY_SIMILAR_RATIO", 0.65)
     # 비슷해서 다시 만들 때의 온도. 평소 온도(0.1)로는 같은 문장이 다시 나온다 (11/13)
     companion_reply_redo_temperature: float = _as_float("COMPANION_REPLY_REDO_TEMPERATURE", 0.7)
+    # 꼬리질문이 막연하면("특별히 ~ 있으신가요", "함께 하시는 활동은", "그때까지 어떻게 지내실 계획") 한 번 다시 만든다 (11/25).
+    #   다시 만들 때만 "대답 속 낱말로 구체적으로" 한 줄을 프롬프트 끝에 붙이고, 그래도 막연하면 대체 문장. 기본 끔 - 채택 측정 전
+    companion_reply_vague_redo: bool = _as_bool("COMPANION_REPLY_VAGUE_REDO", False)
     # 대답 프롬프트에 이 대화의 흐름을 넣는다 (11/15, A안). summary = 말벗 문장 + 어르신 말 한 줄 요약(원문 아님),
     #   마지막 인사에도 직전 질문을 넣는다(reply-v4 · reply-v2-last, 11/21 전 reply-v3). off = 직전 문장 하나 + 이번 대답만(reply-v2, 전과 같음)
     #   11/20~21 cc7 에서는 summary 가 off 보다 나빠 기본 off 였다. 11/21 흐름 형식으로 학습한 cc8b 와 짝지어 기본 summary
@@ -528,7 +531,9 @@ class Settings(BaseModel):
     companion_reply_history_last: bool = _as_bool("COMPANION_REPLY_HISTORY_LAST", False)
     # 별 내용 없는 짧은 대답이 이 횟수만큼 이어지면 아직 묻지 않은 일상 화제 질문으로 넘어간다 (11/13). 0이면 끈다.
     # 위험·말 피함·되묻기 턴과 글 기분이 부정인 턴은 바꾸지 않는다 (11/11: 힘든 이야기에는 화제를 바꾸지 않는다)
-    companion_flat_topic_switch: int = _as_int("COMPANION_FLAT_TOPIC_SWITCH", 2)
+    # 11/25 2 → 1: 첫 번째 내용 없는 대답에도 꼬리질문 모델이 "특별히 좋아하시는 활동"류를 물어 바로 넘어간다.
+    #   품질 세트 3회 나란히(마지막 인사 cc8c 고정): 실패 19·18·23 → 15·13·14, 치명 0·0·1 → 0·0·0, 위험·기분 같음
+    companion_flat_topic_switch: int = _as_int("COMPANION_FLAT_TOPIC_SWITCH", 1)
     # 짧은 부정 대답("아니 없어"·"없어")은 받아쓰기 확신도가 낮아도 되묻지 않는다 (11/13). 끄면 전과 같다
     companion_short_answer_pass: bool = _as_bool("COMPANION_SHORT_ANSWER_PASS", True)
     # 말벗 목소리 (11/13): Supertonic 3 F1 목소리로 말벗 문장을 mp3 로 만든다. CPU 전용(onnxruntime), GPU 를 쓰지 않는다.

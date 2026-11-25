@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.routers import companion_router
 from app.services.companion import pipeline
 from app.services.companion.dialogue_store import store
@@ -194,3 +194,14 @@ def test_review_item_uses_fallback_version(settings, stubs):
     _say(d, "몰라")
     _say(d, "그냥 그래")
     assert FALLBACK_VERSION == "fallback-v4"
+
+
+def test_default_switches_on_first_flat_answer(settings, stubs):
+    """11/25 기본값 1: 첫 번째 내용 없는 대답부터 화제를 바꾼다 (판정·품질 세트 측정 후 2 → 1)."""
+    assert Settings.model_fields["companion_flat_topic_switch"].default == 1
+    settings(companion_flat_topic_switch=1)
+    d = _dialogue("first")
+    r1 = _say(d, "그냥 그랬어")
+    assert r1["replySource"] == "TOPIC" and r1["reply"]["text"] == TOPIC_SWITCH[0][1]
+    r2 = _say(d, "김치찌개 먹었지")
+    assert r2["replySource"] == "LLM"
