@@ -4,7 +4,8 @@
 wardId 없이 예약 흐름이 시작되면 예약을 진행하지 않고 먼저 "누구의 병원 예약인가요?"를 묻는다.
 
 계약(BE·AI·FE 공통):
-- BE 는 보호자 경로 context 에 guardianWards = [{wardId, name, relation}](ACTIVE 연결만)를 넣는다. 칸이 없으면(옛 BE) 묻지 않는다.
+- BE 는 보호자 경로 context 에 guardianWards = [{wardId, name, relation, wardRelation}](ACTIVE 연결만)를 넣는다. 칸이 없으면(옛 BE) 묻지 않는다.
+  선택지 글자는 보호자 화면과 같은 "이름 + 호칭"(wardRelation)이다. relation(보호자가 어르신에게 누구인지)은 쓰지 않는다(2026-11-25).
 - 선택지 값은 각 wardId(보호자 본인 "나"는 없다). FE 는 고른 값을 uiSelection 과 함께 그 턴부터 context.wardId 에 싣는다(BE 가 검증).
 - 이 턴의 wardId 가 고른 값과 같을 때만 그 피보호자로 예약을 시작한다 - AI 는 wardId 를 스스로 정하지 않는다.
 
@@ -50,11 +51,24 @@ def guardian_wards(payload: ChatRequest) -> list[GuardianWard] | None:
     return wards
 
 
+# 호칭이 없거나 "기타"일 때 보호자 화면이 쓰는 말(FE wardCallName 과 같다)
+_CALL_NAME_FALLBACK = "어르신"
+_CALL_NAME_OTHER = "기타"
+
+
 def option_label(ward: GuardianWard) -> str:
-    """선택지 표시 글자 - "이름(관계)", 관계가 없으면 이름만, 이름이 없으면 "피보호자"."""
-    name = " ".join((ward.name or "").split())[:_NAME_MAX] or "피보호자"
-    relation = " ".join((ward.relation or "").split())[:_RELATION_MAX]
-    return f"{name}({relation})" if relation else name
+    """선택지 표시 글자 - 보호자 화면과 같은 "이름 호칭"(예: "남궁 엄마"). 호칭이 없거나 "기타"면 "이름 어르신",
+    이름이 없으면 "피보호자".
+
+    relation(아들·딸 - 보호자가 어르신에게 누구인지)은 쓰지 않는다. "남궁(아들)"은 보호자에게 "남궁 = 내 아들"로 거꾸로 읽혀
+    보호자 화면에서 이미 걷어 낸 표기다(BE policy-connection "관계는 두 방향을 따로 둔다"). 호칭이 없을 때 대신 쓰지도 않는다."""
+    name = " ".join((ward.name or "").split())[:_NAME_MAX]
+    if not name:
+        return "피보호자"
+    call_name = " ".join((ward.wardRelation or "").split())[:_RELATION_MAX]
+    if not call_name or call_name == _CALL_NAME_OTHER:
+        call_name = _CALL_NAME_FALLBACK
+    return f"{name} {call_name}"
 
 
 # 기록에 남기는 선택지 표시 글자. 이름·관계를 남기지 않는다(BE 2026-11-11 영향 범위 점검 M-1).

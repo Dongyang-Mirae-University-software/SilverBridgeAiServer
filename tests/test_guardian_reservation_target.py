@@ -24,7 +24,11 @@ from app.services import follow_up_questions, reservation_target
 from app.services import router_failure_monitor as rfm
 from app.services.medical_llm_service import MedicalLlmService as M
 
-WARDS = [GuardianWard(wardId="w1", name="김순자", relation="어머니"), GuardianWard(wardId="w2", name="이철수", relation="아버지")]
+# relation = 보호자가 어르신에게 누구인지(아들), wardRelation = 보호자가 어르신을 부르는 호칭(엄마). w2 는 호칭 없는 기존 연결
+WARDS = [
+    GuardianWard(wardId="w1", name="김순자", relation="아들", wardRelation="엄마"),
+    GuardianWard(wardId="w2", name="이철수", relation="딸"),
+]
 
 
 class _Router:
@@ -137,13 +141,15 @@ def test_reservation_without_ward_asks_who_first(env, wards, caplog) -> None:
     assert out["type"] == "ui" and ui["field"] == reservation_target.TARGET_FIELD
     assert out["reply"] == reservation_target.QUESTION
     assert [o["value"] for o in ui["options"]] == [w.wardId for w in wards]
-    assert ui["options"][0]["label"] == "김순자(어머니)"
+    # 보호자 화면과 같은 "이름 호칭" - 호칭 없는 기존 연결은 "어르신", relation(아들·딸)은 쓰지 않는다
+    expected = {"w1": "김순자 엄마", "w2": "이철수 어르신"}
+    assert [o["label"] for o in ui["options"]] == [expected[w.wardId] for w in wards]
     assert "__self__" not in [o["value"] for o in ui["options"]]  # 보호자 본인 예약은 없다
     assert env.orch.calls == [] and env.cred.users == []  # 예약 서비스·예약 키를 부르지 않는다
     assert out["intent"] == "hospital_reservation" and out["suggestedQuestions"] == []
     # 이름은 로그·userContext 에 남기지 않는다(선택지 ui 만).
-    assert "김순자" not in caplog.text
-    ask = _ctx(env, out)["upstreamMeta"]["reservationTargetAsk"]
+    assert "김순자" not in caplog.text and "엄마" not in caplog.text
+    ask =_ctx(env, out)["upstreamMeta"]["reservationTargetAsk"]
     assert ask["wardIds"] == [w.wardId for w in wards] and "김순자" not in json.dumps(ask, ensure_ascii=False)
     assert "guardianWards" not in _ctx(env, out)["userContext"]
 
@@ -151,7 +157,7 @@ def test_reservation_without_ward_asks_who_first(env, wards, caplog) -> None:
 def test_stored_question_row_keeps_no_ward_names(env) -> None:
     """응답 선택지에는 이름이 있지만, 기록(context_json)의 ui 에는 "피보호자"만 남는다(BE 2026-11-11 점검 M-1)."""
     out = _send(env, "내과 예약해줘")
-    assert _ui(out)["options"][0]["label"] == "김순자(어머니)"
+    assert _ui(out)["options"][0]["label"] == "김순자 엄마"
     stored = _ctx(env, out)["ui"]
     assert stored["field"] == reservation_target.TARGET_FIELD
     assert [o["value"] for o in stored["options"]] == ["w1", "w2"]
@@ -320,10 +326,42 @@ def test_ward_consultation_keeps_the_ward_profile(env) -> None:
     assert env.llm.calls[-1]["ctx"] == {"age": 45, "gender": "FEMALE"}  # wardId 가 있으면 BE 가 피보호자 값을 넣는다
 
 
-def test_option_label_shapes() -> None:
-    assert reservation_target.option_label(GuardianWard(wardId="a", name="김순자")) == "김순자"
-    assert reservation_target.option_label(GuardianWard(wardId="a")) == "피보호자"
-    assert reservation_target.option_label(GuardianWard(wardId="a", name="가" * 40, relation="어머니")) == "가" * 20 + "(어머니)"
+@pytest.mark.parametrize(
+    ("ward", "label"),
+    [
+        # 보호자 화면과 같은 "이름 호칭"
+        (GuardianWard(wardId="a", name="김순자", relation="아들", wardRelation="엄마"), "김순자 엄마"),
+        (GuardianWard(wardId="a", name="  김  순자 ", wardRelation=" 외할머니 "), "김 순자 외할머니"),
+        # 호칭이 없거나 기타·공백이면 "어르신" - relation(아들)으로 대신하지 않는다(거꾸로 읽힌다)
+        (GuardianWard(wardId="a", name="김순자", relation="아들"), "김순자 어르신"),
+        (GuardianWard(wardId="a", name="김순자", relation="아들", wardRelation="기타"), "김순자 어르신"),
+        (GuardianWard(wardId="a", name="김순자", wardRelation="   "), "김순자 어르신"),
+        (GuardianWard(wardId="a", name="김순자"), "김순자 어르신"),
+        # 이름이 없으면 "피보호자"
+        (GuardianWard(wardId="a"), "피보호자"),
+        (GuardianWard(wardId="a", name=" ", wardRelation="엄마"), "피보호자"),
+        # 길이는 이름 20자·호칭 10자에서 자른다
+        (GuardianWard(wardId="a", name="가" * 40, wardRelation="나" * 15), "가" * 20 + " " + "나" * 10),
+    ],
+)
+def test_option_label_shapes(ward: GuardianWard, label: str) -> None:
+    assert reservation_target.option_label(ward) == label
+
+
+def test_option_label_never_shows_relation() -> None:
+    """relation(보호자가 어르신에게 누구인지)은 어떤 경우에도 선택지에 나오지 않는다 - "김순자(아들)"는 "내 아들"로 읽힌다."""
+    for ward in [
+        GuardianWard(wardId="a", name="김순자", relation="아들"),
+        GuardianWard(wardId="a", name="김순자", relation="아들", wardRelation="기타"),
+        GuardianWard(wardId="a", name="김순자", relation="아들", wardRelation="엄마"),
+    ]:
+        assert "아들" not in reservation_target.option_label(ward)
+
+
+def test_old_be_guardian_ward_without_ward_relation_still_parses() -> None:
+    """옛 BE(wardRelation 키 없음)가 보낸 항목도 받는다 - 호칭이 없어 "어르신"."""
+    ward = GuardianWard.model_validate({"wardId": "w9", "name": "박영희", "relation": "딸"})
+    assert ward.wardRelation is None and reservation_target.option_label(ward) == "박영희 어르신"
 
 
 def test_duplicate_wards_are_listed_once() -> None:

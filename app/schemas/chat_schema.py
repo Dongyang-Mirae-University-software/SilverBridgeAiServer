@@ -14,7 +14,10 @@ class GuardianWard(BaseModel):
 
     wardId: MemberId
     name: str | None = None
+    # 보호자가 어르신에게 누구인지(아들·딸) - 어르신 화면용. 선택지에 쓰지 않는다(보호자에게는 "남궁(아들)"이 거꾸로 읽힌다)
     relation: str | None = None
+    # 보호자가 어르신을 부르는 호칭(엄마·아빠 - BE 2026-11-25, V74). 선택지 글자에 쓴다. 옛 BE·기존 연결은 None
+    wardRelation: str | None = None
 
 
 class ChatContext(BaseModel):
