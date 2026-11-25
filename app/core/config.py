@@ -515,6 +515,9 @@ class Settings(BaseModel):
     companion_reply_similar_ratio: float = _as_float("COMPANION_REPLY_SIMILAR_RATIO", 0.65)
     # 비슷해서 다시 만들 때의 온도. 평소 온도(0.1)로는 같은 문장이 다시 나온다 (11/13)
     companion_reply_redo_temperature: float = _as_float("COMPANION_REPLY_REDO_TEMPERATURE", 0.7)
+    # 꼬리질문이 막연하면("특별히 ~ 있으신가요", "함께 하시는 활동은", "그때까지 어떻게 지내실 계획") 한 번 다시 만든다 (11/25).
+    #   다시 만들 때만 "대답 속 낱말로 구체적으로" 한 줄을 프롬프트 끝에 붙이고, 그래도 막연하면 대체 문장. 기본 끔 - 채택 측정 전
+    companion_reply_vague_redo: bool = _as_bool("COMPANION_REPLY_VAGUE_REDO", False)
     # 대답 프롬프트에 이 대화의 흐름을 넣는다 (11/15, A안). summary = 말벗 문장 + 어르신 말 한 줄 요약(원문 아님),
     #   마지막 인사에도 직전 질문을 넣는다(reply-v4 · reply-v2-last, 11/21 전 reply-v3). off = 직전 문장 하나 + 이번 대답만(reply-v2, 전과 같음)
     #   11/20~21 cc7 에서는 summary 가 off 보다 나빠 기본 off 였다. 11/21 흐름 형식으로 학습한 cc8b 와 짝지어 기본 summary
