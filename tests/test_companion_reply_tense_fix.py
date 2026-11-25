@@ -89,6 +89,12 @@ def test_rewrite_tense(body, transcript, expected):
     assert rewrite_tense(body, transcript) == expected
 
 
+def test_rewrite_tense_state_ending_for_iss():
+    # '수 있으셨나요'는 상태로 본다 ("쉬실 수 있으실 건가요?"가 되지 않게)
+    assert rewrite_tense("텃밭 가시는군요. 텃밭에서는 좀 쉬실 수 있으셨나요?", "오후엔 텃밭에 물 주려고") == \
+        "텃밭 가시는군요. 텃밭에서는 좀 쉬실 수 있으신가요?"
+
+
 def test_rewrite_tense_gives_up_when_ending_unknown():
     assert rewrite_tense("텃밭에 가시는군요. 텃밭 일은 몇 시간이었나요?", "오후엔 텃밭에 물 주려고") is None
 
@@ -130,6 +136,9 @@ def test_rewrite_vague_drops_subject_particle_ga():
     # 띄어 쓴 '마음이'의 '이'는 조사다
     ("마음이 무거우시겠어요. 특별히 걱정되는 일이 있으신가요?", "허리가 아파서 마음이 무거워",
      "마음이 무거우시겠어요. 마음 이야기 조금 더 들려주시겠어요?"),
+    # '과'로 끝나는 이름말은 떼지 않는다
+    ("이비인후과 예약이 잡히셨군요. 특별히 걱정되는 점이 있으신가요?", "이비인후과 예약했어",
+     "이비인후과 예약이 잡히셨군요. 이비인후과 이야기 조금 더 들려주시겠어요?"),
     # '~요일'은 시간 낱말
     ("금요일에 오신다니 반가우시겠어요. 그때 어떤 계획을 세우고 계신가요?", "금요일에 온대",
      "금요일에 오신다니 반가우시겠어요. 금요일에는 뭐 하실 거예요?"),
@@ -142,6 +151,15 @@ def test_rewrite_vague_picks_nouns_only(body, transcript, expected):
 def test_rewrite_tense_gives_up_on_copula_and_negation(question):
     body = "손자분 오시는군요. " + question
     assert rewrite_tense(body, "다음 주에 손자 오려고") is None
+
+
+@pytest.mark.parametrize("body,transcript", [
+    ("심심하시겠네요. 특별히 좋아하시는 놀이가 있으신가요?", "그래도 하루 종일 심심하고 처지네"),  # '심심하고'는 이름말이 아니다
+    ("비가 올까 걱정되시는군요. 특별히 챙기실 물건이 있으신가요?", "비가 올까 걱정이야 우산이 없어서"),  # '올까'는 동사
+])
+def test_rewrite_vague_skips_verbs_and_adjectives(body, transcript):
+    out = rewrite_vague(body, transcript)
+    assert out is None or ("심심 이야기" not in out and "올까" not in out.split(". ")[-1])
 
 
 def test_rewrite_vague_skips_one_letter_word_with_particle():

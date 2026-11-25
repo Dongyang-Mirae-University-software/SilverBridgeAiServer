@@ -276,7 +276,7 @@ TENSE_REDO_HINT = "\n(다시 쓰기) 어르신이 앞으로 하실 일은 앞으
 _PART_SPLIT = re.compile(r"(?<=[.?!,])\s+")
 # 질문 어미를 앞일로: 상태(어렵다·좋다…)는 지금으로, 동작은 앞으로
 _Q_HOW = re.compile(r"어떠셨(?:나요|어요|습니까)\?$")
-_Q_STATE = re.compile(r"(어려우|좋으|힘드|즐거우|괜찮으|재미있으|맛있으|편하|바쁘|기쁘|설레|피곤하)셨(?:나요|어요|습니까)\?$")
+_Q_STATE = re.compile(r"(어려우|좋으|힘드|즐거우|괜찮으|재미있으|맛있으|편하|바쁘|기쁘|설레|피곤하|있으)셨(?:나요|어요|습니까)\?$")
 _Q_ACTION = re.compile(r"([가-힣])셨(?:나요|어요|습니까)\?$")
 
 
@@ -368,7 +368,7 @@ _PARTICLE_TAIL = re.compile(r"(?:에서|에게|한테|이랑|하고|까지|부�
 # 이름말이 아닌 말(부사·꾸밈말·홀로 못 쓰는 말). 틀 질문에 넣으면 "혼자 이야기", "나쁜 이야기", "다음은 어떻게"가 된다
 NOT_TOPIC_WORDS = frozenset({"혼자", "다음", "하루", "요즘", "아까", "방금", "그냥", "정말", "너무", "같이", "함께", "조금", "많이", "다시",
                              "혹시", "그래도", "나쁜", "좋은", "이따", "나중", "자꾸", "벌써", "아직", "계속", "항상", "가끔", "매일"})
-_VERBISH_TAIL = tuple("어아야요고대해했지네다서면게던는니려")
+_VERBISH_TAIL = tuple("어아야요고대해했지네다서면게던는니려까")
 # 앞일 틀 질문의 조사: 시간 낱말은 "~에는", 장소는 "~에서는", 사람은 "~과는", 그 밖은 "~은" (11/25 "주말은 어떻게 하실 거예요?"가 어색했다)
 TIME_NOUNS = ("주말", "내일", "모레", "저녁", "오후", "오늘", "아침", "점심")  # '~요일'도 시간 낱말로 본다
 PLACE_NOUNS = ("경로당", "회관", "복지관", "시장", "병원", "교회", "성당", "목욕탕", "미용실", "센터", "공원", "마트", "텃밭", "약국",
@@ -404,10 +404,19 @@ def _topic_word(transcript: str, body: str) -> tuple[str, bool] | None:
             stripped = _PARTICLE_TAIL.sub("", raw)
             # 조사를 떼면 한 글자가 되는 낱말(집에 → 집)은 쓰지 않는다 - 조사째 쓰면 "집에 이야기"가 된다
             #   '이'로 끝나는 이름말(분갈이)은 그대로를 먼저 본다. '가'는 거의 늘 조사라 뗀다 ("손주가와는" 방지)
-            forms = [raw, stripped] if raw[-1] == "이" else [stripped]
+            #   '과·와'로 끝나는 낱말은 대답에 그 꼴 그대로 나오면 이름말이다 (정형외과 → "정형외" 방지)
+            if raw[-1] == "이":
+                forms = [raw, stripped]
+            elif raw[-1] in "과와" and raw in body:
+                forms = [raw]
+            else:
+                forms = [stripped]
             for f in forms:
                 if (len(f) < 2 or f.endswith(_VERBISH_TAIL) or f in FLAT_ANSWER_WORDS or f in NOT_TOPIC_WORDS
                         or f not in body):
+                    continue
+                # 대답에서 '~하·해·히'로 이어지면 이름말이 아니다 ("답답하고" → "답답"을 떼어 "답답 이야기"가 되지 않게)
+                if re.search(re.escape(f) + r"(?:하|해|히|스러)", body):
                     continue
                 if f == raw and raw[-1] == "이" and not re.search(re.escape(f) + r"[가-힣]", body):
                     continue
