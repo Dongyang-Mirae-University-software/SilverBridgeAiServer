@@ -519,10 +519,10 @@ class Settings(BaseModel):
     #   다시 만들 때만 "대답 속 낱말로 구체적으로" 한 줄을 프롬프트 끝에 붙이고, 그래도 막연하면 대체 문장. 기본 끔 - 채택 측정 전
     companion_reply_vague_redo: bool = _as_bool("COMPANION_REPLY_VAGUE_REDO", False)
     # 꼬리질문이 어르신이 앞으로 하실 일을 이미 한 일처럼 받으면(앞일 절의 낱말 + 과거형) 고쳐 쓴다 (11/25).
-    #   rewrite = 질문 어미를 앞일로 바꾸고(어려우셨나요 → 어려우신가요, 나누셨나요 → 나누실 건가요) 틀린 공감 문장은 "그러시군요."로
-    #   redo = 힌트 한 줄을 붙여 한 번 다시 만들고, 그래도 틀리면 rewrite. 고쳐도 규칙에 걸리면 모델 원문을 둔다 (대체 문장으로 바꾸지 않는다)
-    #   off = 보지 않는다 (전과 같다). 기본 off - 채택 측정 전
-    companion_reply_tense_fix: str = _as_choice("COMPANION_REPLY_TENSE_FIX", "off", ("off", "rewrite", "redo"))
+    #   rewrite = 질문 어미를 앞일로 바꾸고(어려우셨나요 → 어려우신가요, 나누셨나요 → 나누실 건가요) 틀린 공감 문장은 "그러시군요."로.
+    #   고쳐도 규칙에 걸리면 모델 원문을 둔다 (대체 문장으로 바꾸지 않는다). off = 보지 않는다 (전과 같다). 기본 off - 채택 측정 전
+    #   11/26 점검 H-2: redo(힌트로 다시 만들기)는 없앴다 - 엉뚱함이 늘었고 한 번뿐인 다시 만들기 기회를 먼저 썼다. 예전 값 redo 는 경고 후 off
+    companion_reply_tense_fix: str = _as_choice("COMPANION_REPLY_TENSE_FIX", "off", ("off", "rewrite"))
     # 꼬리질문이 막연하면 공감 문장은 두고 질문만 어르신 말의 낱말로 만든 틀 질문으로 바꾼다 (11/25). 낱말을 못 찾으면 원문을 둔다.
     #   대체 문장으로 바꾸면 대화가 밋밋해져서(VAGUE_REDO 측정, 회차당 대체 +7~8) 모델 공감 문장을 살린다. 기본 끔 - 채택 측정 전
     companion_reply_vague_rewrite: bool = _as_bool("COMPANION_REPLY_VAGUE_REWRITE", False)

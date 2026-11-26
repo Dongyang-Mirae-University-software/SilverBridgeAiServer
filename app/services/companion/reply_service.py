@@ -258,26 +258,36 @@ def is_vague_question(body: str, transcript: str) -> bool:
 #   ("국수 삶는 건 어려우셨나요?"). 마지막 인사 ① 검사(STRICT_FUTURE_MARK)는 시간 낱말만으로 앞일로 보고 과거형 질문을 못 잡아 따로 둔다.
 #   앞일은 동사 끝으로만 본다(시간 낱말만 보면 "주말에 왔어"도 걸린다). 짐작("괜찮아질 거야", "비가 올 거 같아")은 앞일이 아니다.
 #   DGX 대조(CareCall 상담 대화, 사람 대답): 앞일 절이 있는 587쌍 중 5쌍이 걸렸고 그중 2쌍은 사람 대답이 실제로 틀렸다.
+#   11/26 점검 H-1: 지난 일과 앞일이 섞인 말("어제 감기 걸렸는데 내일 병원 가려고요")에서 맞는 공감 문장("감기에 걸리셨군요.")을
+#   바꿨다 - 지난 일 절이 있으면 질문 문장만 본다. 지금 마음을 받는 "~셨겠어요"(걱정되셨겠어요)는 과거형으로 보지 않는다.
 TENSE_FUT_END = re.compile(r"려고|려구|려던|기로\s?했|(?<![가-힣])[온간]대|할\s?까\s?해|해야\s?(?:해|돼|지|겠)|[갈볼]\s?까")
 TENSE_GUESS = re.compile(r"거\s?같|질\s?거|될\s?거|있을\s?거|없을\s?거|수\s?있을")
-TENSE_CLAUSE = re.compile(r"[,.]|(?<=[었았했왔갔켰줬잤])고\s|(?<=[었았했왔])는데\s")
-TENSE_PAST = re.compile(r"(?:셨|었|았|했|왔|갔)(?:나요|어요|군요|네요|다니|구나|다는|겠어요|을\s?것|던|습니까|지요|죠|는지|을까요|니)"
+# 절 나누기: 쉼표·마침표, 앞일 어미 뒤("가려고 우유가 떨어졌어"), 받침 ㅆ(지난 일 표지) 글자 뒤의 연결어미(고·는데·더니·지만·거든).
+#   11/26 점검 H-1: 처음에는 었·았·했 같은 글자 목록이라 "아팠는데"·"샀는데"를 못 나눠 지난 일 절이 앞일 절에 섞였다
+TENSE_CLAUSE = re.compile(r"[,.]|(?<=려고)\s|(?<=려구)\s")
+_PAST_LINK = re.compile(r"([가-힣])(고|는데|더니|지만|거든)\s")
+_JONG_SS = 20  # 받침 ㅆ
+TENSE_PAST = re.compile(r"(?:셨|었|았|했|왔|갔|였)(?:나요|어요|군요|네요|다니|구나|다는|을\s?것|던|습니까|지요|죠|는지|을까요|니)"
                         r"|어떠셨|어땠")
 # 미리 정한 일·하려던 마음을 묻는 과거형은 맞다 ("가시기로 하셨군요", "메뉴는 정하셨어요?", "준비는 해 두셨어요?")
 TENSE_OK_PAST = re.compile(r"(?:려고|기로|실\s?거라고|실\s?생각|겠다고)\s?(?:하셨|하신|하시)|정하셨|두셨|준비하셨|계획하셨|예약하셨|생각하셨|마음먹으셨")
 TENSE_TIME_STEMS = ("이따", "내일", "모레", "다음", "주말", "나중", "저녁", "오후", "오늘", "그래", "그리", "있다")
-# 앞일 절의 동사가 오다·가다·먹다면 대답의 그 동사 과거형도 본다 ("손주가 온대" → "손주가 오셨다니")
+# 어르신 말이 전부 앞일일 때만, 앞일 절의 동사가 오다·가다·먹다면 대답의 그 동사 과거형도 본다 ("사촌이 온대" → "사촌이 오셨다니")
 TENSE_VERBS = (
     (re.compile(r"(?<![가-힣])온대|올\s?거|오려|오기로|온다"), re.compile(r"오셨|왔다|왔군|다녀가셨|와\s?주셨")),
     (re.compile(r"(?<![가-힣])간대|갈\s?거|가려|가\s?보려|가기로|간다"), re.compile(r"(?<![하드])가셨|다녀오셨|갔다|갔군|가\s?보셨")),
     (re.compile(r"먹으려|먹을\s?거|먹기로"), re.compile(r"드셨|잡수셨|먹었")),
 )
-TENSE_REDO_HINT = "\n(다시 쓰기) 어르신이 앞으로 하실 일은 앞으로의 일로 받고 묻습니다. 이미 하신 일처럼 묻지 않습니다."
 _PART_SPLIT = re.compile(r"(?<=[.?!,])\s+")
-# 질문 어미를 앞일로: 상태(어렵다·좋다…)는 지금으로, 동작은 앞으로
-_Q_HOW = re.compile(r"어떠셨(?:나요|어요|습니까)\?$")
-_Q_STATE = re.compile(r"(어려우|좋으|힘드|즐거우|괜찮으|재미있으|맛있으|편하|바쁘|기쁘|설레|피곤하|있으)셨(?:나요|어요|습니까)\?$")
-_Q_ACTION = re.compile(r"([가-힣])셨(?:나요|어요|습니까)\?$")
+# 질문 어미를 앞일로: 상태(어렵다·아프다…)는 지금으로("~신가요"), 동작은 앞으로("~실 건가요")
+#   11/26 점검 M-1: "아프셨나요" → "아프실 건가요"처럼 상태를 동작으로 바꿨다 - 상태 목록을 넓히고, 목록에 없는 '-하셨·-되셨'은 고치지 않는다
+_Q_TAIL = r"셨(?:나요|어요|습니까)\?$"
+_Q_HOW = re.compile(r"어떠" + _Q_TAIL)
+_Q_BETTER = re.compile(r"(?:나아지|나으)" + _Q_TAIL)
+_Q_STATE = re.compile(r"(어려우|좋으|힘드|즐거우|괜찮으|재미있으|맛있으|편하|바쁘|기쁘|설레|피곤하|있으|아프|행복하|궁금하|외로우|걱정되|"
+                      r"불편하|서운하|섭섭하|반가우|슬프|무서우|아쉬우|편안하|심심하|답답하)" + _Q_TAIL)
+_Q_GIVE_UP = re.compile(r"(?:이|않으|없으|니|하|되)" + _Q_TAIL)  # 이다·않다·없다·아니다, 목록에 없는 '-하다·-되다'
+_Q_ACTION = re.compile(r"([가-힣])" + _Q_TAIL)
 
 
 def _rieul_geo(clause: str) -> bool:
@@ -293,11 +303,22 @@ def _is_future_clause(clause: str) -> bool:
 
 
 def _clauses(transcript: str) -> list[str]:
-    return [c for c in TENSE_CLAUSE.split(transcript or "") if c and c.strip()]
+    out = []
+    for piece in TENSE_CLAUSE.split(transcript or ""):
+        start = 0
+        for m in _PAST_LINK.finditer(piece):
+            if (ord(m.group(1)) - 0xAC00) % 28 == _JONG_SS:
+                out.append(piece[start:m.end()])
+                start = m.end()
+        out.append(piece[start:])
+    return [c for c in out if c and c.strip()]
 
 
 def _tense_bad_sentences(body: str, transcript: str) -> set[int]:
-    """앞일을 한 일로 받은 문장 번호 (_SENT_SPLIT 기준). 어르신 말에 앞일 절이 없으면 빈 집합."""
+    """앞일을 한 일로 받은 문장 번호 (_SENT_SPLIT 기준). 어르신 말에 앞일 절이 없으면 빈 집합.
+
+    어르신 말에 지난 일 절도 있으면 질문(마지막 문장)만 본다 - 공감 문장의 과거형은 지난 일을 받은 것일 수 있다 (11/26 H-1).
+    """
     cls = _clauses(transcript)
     fut = [c for c in cls if _is_future_clause(c)]
     if not fut:
@@ -305,21 +326,27 @@ def _tense_bad_sentences(body: str, transcript: str) -> set[int]:
     done = [c for c in cls if not _is_future_clause(c)]
     fut_words = [w for c in fut for w in re.findall(r"[가-힣]+", c) if len(w) >= 2 and w[:2] not in TENSE_TIME_STEMS]
     elder_words = [w for w in re.findall(r"[가-힣]+", transcript) if len(w) >= 2]
-    verbs = [vp for vf, vp in TENSE_VERBS
-             if any(vf.search(c) for c in fut) and not any(vf.search(c) or vp.search(c) for c in done)]
+    verbs = [] if done else [vp for vf, vp in TENSE_VERBS if any(vf.search(c) for c in fut)]
+    # 지난 일 절이 있을 때 질문에 앞일 절에만 나온 시간 낱말이 있으면 그 질문의 과거형은 앞일을 한 일로 받은 것이다 ("주말에 … 보내셨나요?")
+    fut_times = [t for t in TENSE_TIME_STEMS[:8] if any(t in c for c in fut) and not any(t in c for c in done)] if done else []
     sents = [x for x in _SENT_SPLIT.split(body.strip()) if x]
+    last = len(sents) - 1
     bad = set()
     for i, sent in enumerate(sents):
+        if done and i != last:
+            continue
         plain = TENSE_OK_PAST.sub("", sent)
         for part in _PART_SPLIT.split(plain):
             if TENSE_PAST.search(part) and any(w[:2] in part for w in fut_words):
                 bad.add(i)
             elif any(vp.search(part) for vp in verbs):
                 bad.add(i)
-        # 어르신 말이 전부 앞일이면, 어르신 말을 받은 질문의 과거형도 본다 ("주말에 온대" → "주말 동안 하신 일이 있으셨나요?").
+        # 어르신 말이 전부 앞일이면, 어르신 말을 받은 질문의 과거형도 본다 ("모레 사촌이 온대" → "모레 무엇을 하셨나요?").
         #   나가기 전 준비를 묻는 질문("우산은 챙기셨나요?")은 어르신 낱말이 없어 걸리지 않는다
-        if (not done and i == len(sents) - 1 and plain.endswith("?") and TENSE_PAST.search(plain)
+        if (not done and i == last and plain.endswith("?") and TENSE_PAST.search(plain)
                 and any(w[:2] in plain for w in elder_words)):
+            bad.add(i)
+        if done and i == last and plain.endswith("?") and TENSE_PAST.search(plain) and any(t in plain for t in fut_times):
             bad.add(i)
     return bad
 
@@ -332,13 +359,18 @@ def is_tense_error(body: str, transcript: str) -> bool:
 def _future_question(q: str) -> str | None:
     """과거 어미 질문을 앞일 질문으로 바꾼다. 바꿀 수 없으면 None.
 
-    '이셨'(이다: "어떤 맛이셨나요")·'않으셨'(않다)은 앞일로 바꾸면 말이 안 돼("맛이실 건가요") 포기한다.
+    '이셨'(이다: "어떤 맛이셨나요")·'않으셨'·'아니셨'과 상태 목록에 없는 '-하셨·-되셨'은 앞일로 바꾸면 말이 어색해 포기한다.
     """
-    if re.search(r"(?:이|않으|없으)셨(?:나요|어요|습니까)\?$", q):
+    if _Q_HOW.search(q):
+        return _Q_HOW.sub("어떠실 것 같으세요?", q)
+    if _Q_BETTER.search(q):  # "좀 나으셨나요?" → "좀 나아지실까요?" ("나으실 건가요"는 어색하다)
+        return _Q_BETTER.sub("나아지실까요?", q)
+    if _Q_STATE.search(q):
+        return _Q_STATE.sub(r"\1신가요?", q)
+    if _Q_GIVE_UP.search(q):
         return None
-    for pat, rep in ((_Q_HOW, "어떠실 것 같으세요?"), (_Q_STATE, r"\1신가요?"), (_Q_ACTION, r"\1실 건가요?")):
-        if pat.search(q):
-            return pat.sub(rep, q)
+    if _Q_ACTION.search(q):
+        return _Q_ACTION.sub(r"\1실 건가요?", q)
     return None
 
 
@@ -369,7 +401,7 @@ _PARTICLE_TAIL = re.compile(r"(?:에서|에게|한테|이랑|하고|까지|부�
 NOT_TOPIC_WORDS = frozenset({"혼자", "다음", "하루", "요즘", "아까", "방금", "그냥", "정말", "너무", "같이", "함께", "조금", "많이", "다시",
                              "혹시", "그래도", "나쁜", "좋은", "이따", "나중", "자꾸", "벌써", "아직", "계속", "항상", "가끔", "매일"})
 _VERBISH_TAIL = tuple("어아야요고대해했지네다서면게던는니려까")
-# 앞일 틀 질문의 조사: 시간 낱말은 "~에는", 장소는 "~에서는", 사람은 "~과는", 그 밖은 "~은" (11/25 "주말은 어떻게 하실 거예요?"가 어색했다)
+# 앞일 틀 질문은 시간("~에는")·장소("~에서는")·사람("~과는") 낱말에만 쓴다. 그 밖은 "~ 이야기 조금 더" (11/26 점검 M-4: "목욕은 어떻게 하실 거예요?")
 TIME_NOUNS = ("주말", "내일", "모레", "저녁", "오후", "오늘", "아침", "점심")  # '~요일'도 시간 낱말로 본다
 PLACE_NOUNS = ("경로당", "회관", "복지관", "시장", "병원", "교회", "성당", "목욕탕", "미용실", "센터", "공원", "마트", "텃밭", "약국",
                "은행", "아들네", "딸네", "동네", "학교")
@@ -396,11 +428,13 @@ def _topic_word(transcript: str, body: str) -> tuple[str, bool] | None:
     앞일 절의 낱말을 먼저, 시간 낱말(주말·내일…)은 맨 나중에 고른다. 못 찾으면 None.
     '이'로 끝나는 낱말은 대답에서 그 뒤에 글자가 바로 붙어 쓰였을 때만 그대로 쓴다(분갈이라니·분갈이는 → 분갈이).
     "마음이 쓰여"처럼 띄어 쓰였으면 '이'는 조사라 뗀다(마음이 → 마음).
+    사람 낱말 두 개가 이어지고 대답에도 그렇게 쓰였으면 붙여 쓴다 ("사촌 동생" - 11/26 점검 M-4).
     """
     picks: list[tuple[int, int, str, bool]] = []
     for ci, c in enumerate(_clauses(transcript)):
         fut = _is_future_clause(c)
-        for raw in re.findall(r"[가-힣]+", c):
+        raws = re.findall(r"[가-힣]+", c)
+        for ri, raw in enumerate(raws):
             stripped = _PARTICLE_TAIL.sub("", raw)
             # 조사를 떼면 한 글자가 되는 낱말(집에 → 집)은 쓰지 않는다 - 조사째 쓰면 "집에 이야기"가 된다
             #   '이'로 끝나는 이름말(분갈이)은 그대로를 먼저 본다. '가'는 거의 늘 조사라 뗀다 ("손주가와는" 방지)
@@ -420,6 +454,10 @@ def _topic_word(transcript: str, body: str) -> tuple[str, bool] | None:
                     continue
                 if f == raw and raw[-1] == "이" and not re.search(re.escape(f) + r"[가-힣]", body):
                     continue
+                if f in PERSON_STEMS and ri + 1 < len(raws):
+                    nxt = _PARTICLE_TAIL.sub("", raws[ri + 1])
+                    if nxt in PERSON_STEMS and f"{f} {nxt}" in body:
+                        f = f"{f} {nxt}"
                 rank = 2 if (f[:2] in TENSE_TIME_STEMS or f.endswith("요일")) else (0 if fut else 1)
                 picks.append((rank, ci, f, fut))
                 break
@@ -441,47 +479,40 @@ def rewrite_vague(body: str, transcript: str) -> str | None:
         q = word + "에는 뭐 하실 거예요?"
     elif fut and word.endswith(PLACE_NOUNS):
         q = word + "에서는 뭐 하실 거예요?"
-    elif fut and word.startswith(PERSON_STEMS):
+    elif fut and word.split()[-1] in PERSON_STEMS:
         q = _josa(word, "과는", "와는") + " 뭐 하실 거예요?"
-    elif fut:
-        q = _josa(word, "은", "는") + " 어떻게 하실 거예요?"
     else:
         q = word + " 이야기 조금 더 들려주시겠어요?"
     return " ".join(head[:1] + [q])
 
 
-def _apply_followup_fixes(llm: LlmClient, prompt: str, text: str, transcript: str, text_mood: dict | None,
-                          redone: bool) -> tuple[str, bool]:
+def _apply_followup_fixes(text: str, transcript: str, text_mood: dict | None, past_replies=()) -> str:
     """규칙을 통과한 꼬리질문의 시제·막연한 질문을 고쳐 쓴다 (11/25, 스위치마다 기본 끔). 고친 문장도 규칙에 걸리면 원문을 둔다.
 
-    반환: (문장, 다시 만들기를 썼는가). 다시 만들기는 한 대답에 한 번만이라 '반복' 다시 만들기와 같은 표시를 쓴다 (11/14 L-4).
+    LLM 을 다시 부르지 않는다 (11/26 점검 H-2: 다시 만들기(redo)를 없앴다 - 측정에서 엉뚱함이 늘었고, 한 번뿐인 다시 만들기 기회를 먼저 썼다).
+    고친 문장이 이 대화의 지난 말벗 문장과 비슷하면 원문을 둔다 (M-3 - 틀 질문이 되풀이되지 않게).
+    글 기분이 부정인 턴은 막연한 질문을 고치지 않는다 (L-4 - 힘든 이야기에 낱말 틀 질문을 들이밀지 않게).
     로그에는 동작 이름만 남긴다 (대답·어르신 말 원문 없음).
     """
     s = get_settings()
-    if s.companion_reply_tense_fix != "off" and is_tense_error(text, transcript):
-        fixed, action = None, "keep"
-        if s.companion_reply_tense_fix == "redo" and not redone:
-            redone = True
-            try:
-                raw = _generate(llm, prompt + TENSE_REDO_HINT, False, temperature=s.companion_reply_redo_temperature)
-                t2 = trim_reply(fix_split_words(re.sub(r"\s+", " ", raw).strip(), transcript), False)
-                if not check_reply(t2, False, transcript, text_mood) and not is_tense_error(t2, transcript):
-                    fixed, action = t2, "redo"
-            except LlmUnavailable:
-                pass
-        if fixed is None:
-            t3 = rewrite_tense(text, transcript)
-            if t3 is not None and not check_reply(t3, False, transcript, text_mood):
-                fixed, action = t3, "rewrite"
-        logger.info("[COMPANION-REPLY-TENSE] action=%s", action)
-        text = fixed or text
-    if s.companion_reply_vague_rewrite and is_vague_for_rewrite(text, transcript):
+
+    def usable(t: str | None) -> bool:
+        return (t is not None and not check_reply(t, False, transcript, text_mood) and not is_tense_error(t, transcript)
+                and not is_similar_to_past(t, past_replies))
+
+    if s.companion_reply_tense_fix == "rewrite" and is_tense_error(text, transcript):
+        t = rewrite_tense(text, transcript)
+        ok = usable(t)
+        logger.info("[COMPANION-REPLY-TENSE] action=%s", "rewrite" if ok else "keep")
+        if ok:
+            text = t
+    if s.companion_reply_vague_rewrite and not is_negative_mood(text_mood) and is_vague_for_rewrite(text, transcript):
         v = rewrite_vague(text, transcript)
-        ok = v is not None and not check_reply(v, False, transcript, text_mood) and not is_tense_error(v, transcript)
+        ok = usable(v)
         logger.info("[COMPANION-REPLY-VAGUE-REWRITE] ok=%s", ok)
         if ok:
             text = v
-    return text, redone
+    return text
 
 
 def strict_failures(body: str, is_last_turn: bool, transcript: str) -> list[str]:
@@ -737,7 +768,7 @@ def generate_reply(
         text = trim_reply(fix_split_words(re.sub(r"\s+", " ", raw).strip(), transcript), is_last_turn)
         failures = check_reply(text, is_last_turn, transcript, text_mood)
         if not failures and not is_last_turn:  # 11/25 시제·막연한 질문 고쳐 쓰기 (스위치마다 기본 끔)
-            text, redone = _apply_followup_fixes(llm, prompt, text, transcript, text_mood, redone)
+            text = _apply_followup_fixes(text, transcript, text_mood, past_replies)
         vague = not failures and _vague_redo_on(is_last_turn) and is_vague_question(text, transcript)
         if not failures and (vague or is_similar_to_past(text, past_replies)):
             if redone:  # 11/14 점검 L-4: 다시 생성은 한 대답에 한 번만 (재시도 설정과 곱해지지 않게)
