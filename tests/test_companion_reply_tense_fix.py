@@ -11,7 +11,7 @@ import pytest
 from app.core.config import get_settings
 from app.services.companion import reply_service
 from app.services.companion.reply_service import (
-    FALLBACK_AVOID, FALLBACK_EMPATHY, FALLBACK_FOLLOWUP, FALLBACK_NO_RESPONSE, TENSE_REDO_HINT, TOPIC_SWITCH,
+    FALLBACK_AVOID, FALLBACK_EMPATHY, FALLBACK_FOLLOWUP, FALLBACK_NO_RESPONSE, TOPIC_SWITCH,
     generate_reply, is_tense_error, is_vague_for_rewrite, rewrite_tense, rewrite_vague,
 )
 
@@ -68,7 +68,7 @@ def test_future_taken_as_done_is_detected(body, transcript):
     ("모임이 있으시군요. 장소는 정하셨어요?", "모레 계모임 하려고"),
     ("비 소식이 있네요. 우산은 챙기셨나요?", "비가 올 거 같아"),  # 짐작은 앞일이 아니다
     ("곧 나으실 거예요. 병원은 다녀오셨어요?", "괜찮아질 거야"),
-    ("즐거우셨다니 다행이네요. 오늘 뭐 하셨어요?", "덕분에 즐거웠어요"),  # '즐거'의 '거'는 앞일 표지가 아니다
+    ("즐거우셨다니 다행이네요. 오후에는 무엇을 하셨어요?", "덕분에 즐거웠어요"),  # '즐거'의 '거'는 앞일 표지가 아니다
     ("나가신다니 좋네요. 옷은 따뜻하게 입으셨어요?", "동네 한 바퀴 돌려고"),  # 준비를 묻는 질문 (어르신 낱말 없음)
 ])
 def test_correct_tense_is_not_flagged(body, transcript):
@@ -196,18 +196,6 @@ def test_rewrite_mode_fixes_ending_without_new_generation(settings):
     assert len(llm.prompts) == 1
 
 
-def test_redo_mode_uses_hint_once(settings):
-    settings(companion_reply_tense_fix="redo")
-    llm = _SeqLlm(TENSE_BAD, TENSE_GOOD)
-    out = generate_reply(llm, "장 보러 가세요?", T, None, False, 2)
-    assert out.text == TENSE_GOOD and len(llm.prompts) == 2 and llm.prompts[1].endswith(TENSE_REDO_HINT)
-
-
-def test_redo_still_wrong_falls_back_to_rewrite_not_fallback(settings):
-    settings(companion_reply_tense_fix="redo")
-    llm = _SeqLlm(TENSE_BAD, TENSE_BAD)
-    out = generate_reply(llm, "장 보러 가세요?", T, None, False, 2)
-    assert out.text == "고등어 사러 가시는군요. 고등어 고르기는 어려우신가요?" and out.source == "LLM"
 
 
 def test_unfixable_keeps_original(settings):
@@ -220,7 +208,7 @@ def test_unfixable_keeps_original(settings):
 def test_vague_rewrite_on(settings):
     settings(companion_reply_vague_rewrite=True)
     body = "화단 정리하셨군요. 특별히 좋아하시는 꽃이 있으신가요?"
-    out = generate_reply(_SeqLlm(body), "오늘 뭐 하셨어요?", "아까 화단 정리했어", None, False, 2)
+    out = generate_reply(_SeqLlm(body), "오전엔 무엇을 하셨어요?", "아까 화단 정리했어", None, False, 2)
     assert out.text == "화단 정리하셨군요. 화단 이야기 조금 더 들려주시겠어요?"
 
 
@@ -237,3 +225,133 @@ def test_logs_have_no_text(settings, caplog):
         generate_reply(_SeqLlm(TENSE_BAD), "장 보러 가세요?", T, None, False, 2)
     joined = " ".join(r.getMessage() for r in caplog.records)
     assert "[COMPANION-REPLY-TENSE] action=rewrite" in joined and "고등어" not in joined
+
+
+# ── 5. 11/26 기능 점검 반영 ──
+
+@pytest.mark.parametrize("body,transcript", [
+    # H-1: 지난 일 절이 있으면 공감 문장의 과거형은 지난 일을 받은 것일 수 있다
+    ("감기에 걸리셨군요. 병원은 어디로 가실 거예요?", "어제 감기 걸렸는데 내일 병원 가려고요"),
+    ("손주가 오셨군요. 내일은 손주와 뭐 하실 거예요?", "어제 손주가 왔다 갔는데 내일 또 온대요"),
+    ("어제도 가셨군요. 시장에서는 뭘 사실 거예요?", "이따 시장 가려고요, 어제도 갔어요"),
+    # H-1: 지금 마음을 받는 "~셨겠어요"는 과거형이 아니다
+    ("걱정되셨겠어요. 검사는 어디서 받으세요?", "내일 검사받으려고요 걱정돼요"),
+])
+def test_correct_empathy_with_past_clause_is_kept(body, transcript):
+    assert not is_tense_error(body, transcript)
+
+
+@pytest.mark.parametrize("body,transcript", [
+    # 받침 ㅆ 글자 뒤 연결어미(는데·고·더니)와 앞일 어미 뒤에서 절을 나눈다 - 지난 일 절의 공감 문장은 맞다
+    ("손이 많이 시리셨군요. 장갑은 어디서 사실 거예요?", "손이 시렸는데 이따 장갑 사러 갈 거야"),
+    ("이사하셨군요. 짐 정리는 누가 도와주실 거예요?", "그저께 이사했는데 내일 짐 정리하려고"),
+    ("우유가 떨어지셨군요. 마트에서 또 뭘 사실 거예요?", "이따 마트 가려고 우유가 떨어졌거든"),
+    ("다리가 아프셨군요. 오늘은 집에서 쉬실 거예요?", "어제 많이 걸었더니 다리가 아파서 오늘은 쉬려고"),
+])
+def test_past_clause_split_by_final_ss_and_future_ending(body, transcript):
+    assert not is_tense_error(body, transcript)
+
+
+def test_time_word_only_in_future_clause_marks_question():
+    # 지난 일 절이 있어도 질문에 앞일 절의 시간 낱말 + 과거형이면 앞일을 한 일로 받은 것이다
+    body = "따님이 다녀가셨군요. 다음 달에 따님과 어디 다녀오셨어요?"
+    assert rewrite_tense(body, "주말에 딸이 왔었고 다음 달에 또 오기로 했어") == \
+        "따님이 다녀가셨군요. 다음 달에 따님과 어디 다녀오실 건가요?"
+
+
+def test_question_is_still_checked_when_past_clause_exists():
+    # 지난 일 절이 있어도 앞일을 과거로 묻는 질문은 본다
+    body = "감기에 걸리셨군요. 병원은 잘 다녀오셨나요?"
+    assert is_tense_error(body, "어제 감기 걸렸는데 내일 병원 가려고요")
+
+
+@pytest.mark.parametrize("question,expected", [
+    ("허리가 많이 아프셨나요?", "허리가 많이 아프신가요?"),  # M-1 상태 형용사는 지금으로
+    ("동창 만나서 행복하셨어요?", "동창 만나서 행복하신가요?"),
+    ("병원 다녀오시면 허리가 좀 나으셨나요?", "병원 다녀오시면 허리가 좀 나아지실까요?"),
+])
+def test_state_adjectives_become_present(question, expected):
+    body = "그러시군요. " + question
+    out = rewrite_tense(body, "허리가 아파서 내일 병원 가서 동창 만나려고")
+    assert out == "그러시군요. " + expected
+
+
+@pytest.mark.parametrize("question", ["동창분이 아니셨나요?", "동창 만나서 이야기하셨나요?", "동창 만나서 안심되셨나요?"])
+def test_unknown_hada_doeda_and_anida_endings_are_not_rewritten(question):
+    assert rewrite_tense("동창 만나시는군요. " + question, "내일 동창 만나려고") is None
+
+
+def test_past_with_yeot_is_detected():
+    # M-2 '였'도 과거형 (바꿀 어미가 없어 고치지는 않는다)
+    body = "산책 가시는군요. 산책하기 좋은 날씨였나요?"
+    assert is_tense_error(body, "이따 공원에 산책 가려고")
+    assert rewrite_tense(body, "이따 공원에 산책 가려고") is None
+
+
+def test_future_template_only_for_time_place_person():
+    # M-4 그 밖의 낱말은 "~ 이야기 조금 더"
+    out = rewrite_vague("미역국 끓이시는군요. 특별히 좋아하시는 재료가 있으신가요?", "내일 미역국 끓이려고")
+    assert out == "미역국 끓이시는군요. 미역국 이야기 조금 더 들려주시겠어요?"
+
+
+def test_compound_person_words_are_joined():
+    out = rewrite_vague("사촌 동생 만나시는군요. 함께 하실 계획이 있으신가요?", "내일 사촌 동생 만나려고")
+    assert out == "사촌 동생 만나시는군요. 사촌 동생과는 뭐 하실 거예요?"
+
+
+def test_redo_value_falls_back_to_off(monkeypatch, caplog):
+    # H-2 redo 는 없앴다 - 예전 값은 경고 후 off
+    from app.core.config import _as_choice
+    monkeypatch.setenv("COMPANION_REPLY_TENSE_FIX", "redo")
+    with caplog.at_level("WARNING"):
+        assert _as_choice("COMPANION_REPLY_TENSE_FIX", "off", ("off", "rewrite")) == "off"
+    assert "redo" not in " ".join(r.getMessage() for r in caplog.records)  # 값은 로그에 남기지 않는다
+
+
+def test_switches_off_call_llm_once(settings):
+    # L-1 스위치를 끄면 LLM 을 한 번만 부른다 (고쳐 쓰기가 다시 부르지 않는다)
+    llm = _SeqLlm(TENSE_BAD)
+    generate_reply(llm, "장 보러 가세요?", T, None, False, 2)
+    assert len(llm.prompts) == 1
+
+
+def test_rewrite_never_calls_llm_again(settings):
+    settings(companion_reply_tense_fix="rewrite", companion_reply_vague_rewrite=True)
+    llm = _SeqLlm(TENSE_BAD)
+    generate_reply(llm, "장 보러 가세요?", T, None, False, 2)
+    assert len(llm.prompts) == 1
+
+
+def test_rewritten_text_similar_to_past_keeps_original(settings):
+    # M-3 고친 문장이 지난 말벗 문장과 비슷하면 원문을 둔다 (원문이 지난 문장과 다르면 그대로 나간다)
+    settings(companion_reply_vague_rewrite=True)
+    body = "화단 정리하셨군요. 특별히 좋아하시는 꽃이 있으신가요?"
+    past = ("화단 정리하셨군요. 화단 이야기 조금 더 들려주시겠어요?",)
+    out = generate_reply(_SeqLlm(body), "오전엔 무엇을 하셨어요?", "아까 화단 정리했어", None, False, 2, past_replies=past)
+    assert out.text == body and out.source == "LLM"
+
+
+def test_negative_mood_turn_skips_vague_rewrite(settings):
+    # L-4 글 기분이 부정이면 막연한 질문을 고치지 않는다
+    settings(companion_reply_vague_rewrite=True)
+    body = "화단 정리하시느라 힘드셨겠어요. 특별히 걱정되는 일이 있으신가요?"
+    mood = {"usable": True, "turnLabel": "우울"}
+    out = generate_reply(_SeqLlm(body), "오전엔 무엇을 하셨어요?", "아까 화단 정리했어 힘들어", None, False, 2, text_mood=mood)
+    assert out.text == body
+
+
+def test_retry_setting_with_rewrite(settings):
+    # L-1 재시도 설정이 있어도 고쳐 쓴 대답이 바로 나간다
+    settings(companion_reply_tense_fix="rewrite", companion_llm_retry=1)
+    llm = _SeqLlm(TENSE_BAD)
+    out = generate_reply(llm, "장 보러 가세요?", T, None, False, 2)
+    assert out.text == "고등어 사러 가시는군요. 고등어 고르기는 어려우신가요?" and len(llm.prompts) == 1
+
+
+def test_vague_redo_and_rewrite_together(settings):
+    # L-1 VAGUE_REDO 와 함께 켜면 고쳐 쓰기가 먼저 - 고친 문장은 막연하지 않아 다시 만들지 않는다
+    settings(companion_reply_vague_rewrite=True, companion_reply_vague_redo=True)
+    body = "화단 정리하셨군요. 특별히 좋아하시는 꽃이 있으신가요?"
+    llm = _SeqLlm(body)
+    out = generate_reply(llm, "오전엔 무엇을 하셨어요?", "아까 화단 정리했어", None, False, 2)
+    assert out.text == "화단 정리하셨군요. 화단 이야기 조금 더 들려주시겠어요?" and len(llm.prompts) == 1
