@@ -269,15 +269,17 @@ TENSE_GUESS = re.compile(r"거\s?같|질\s?거|될\s?거|있을\s?거|없을\s?�
 #   11/26 재점검 N-2: '-어서·-서·-은데·-니까'("어제 잠을 못 자서 오늘 일찍 자려고"), N-3: 문장부호 없는 종결("봤어 내일도 볼 거야" -
 #   받아쓰기 글은 문장부호가 자주 빠진다). 종결어미는 받침 ㅆ 일 때만, 연결어미는 받침 ㅆ 이거나 그 앞에 지난 시간 낱말이 있을 때 자른다
 TENSE_CLAUSE = re.compile(r"[,.?!]|(?<=려고)\s|(?<=려구)\s")
-_LINK_END = re.compile(r"([가-힣])(는데|은데|더니|지만|거든|니까|어서|아서|서|고|어요|어|요|다|지|네|죠)\s")
-_SENT_ENDINGS = ("어요", "어", "요", "다", "지", "네", "죠")
+#   11/26 재점검 2 P-2: '-다'는 빼었다 - "내일 병원에 갔다 올 거야"를 "갔다 / 올 거야"로 잘라 앞일 낱말을 잃었다 (어르신 말투는 "-었어"가 대부분)
+_LINK_END = re.compile(r"([가-힣])(는데|은데|더니|지만|거든|니까|어서|아서|서|고|어요|어|요|지|네|죠)\s")
+_SENT_ENDINGS = ("어요", "어", "요", "지", "네", "죠")
+_REASON_LINKS = ("서", "어서", "아서", "니까", "는데", "은데")
 _PAST_TIME = re.compile(r"어제|그저께|그제|아까|방금|지난|옛날|예전")
 _JONG_SS = 20  # 받침 ㅆ (있·겠은 지난 일이 아니라 뺀다)
 _FUT_TIME = ("이따", "내일", "모레", "다음", "주말", "나중", "저녁", "오후", "좀 있다", "있다가")
 TENSE_PAST = re.compile(r"(?:셨|었|았|했|왔|갔|였)(?:나요|어요|군요|네요|다니|구나|다는|을\s?것|던|습니까|지요|죠|는지|을까요|니)"
                         r"|어떠셨|어땠")
 # 미리 정한 일·하려던 마음을 묻는 과거형은 맞다 ("가시기로 하셨군요", "메뉴는 정하셨어요?", "준비는 해 두셨어요?")
-TENSE_OK_PAST = re.compile(r"(?:려고|기로|실\s?거라고|실\s?생각|겠다고)\s?(?:하셨|하신|하시)|정하셨|두셨|준비하셨|계획하셨|예약하셨|생각하셨|마음먹으셨")
+TENSE_OK_PAST = re.compile(r"(?:려고|기로|실\s?거라고|실\s?생각|겠다고)\s?(?:하셨|하신|하시)|정하셨|두셨|준비하셨|계획하셨|예약하셨|생각하셨|마음먹으셨|챙기셨|챙겨\s?가셨")  # 나가기 전 준비를 묻는 말(챙기셨어요?)도 맞다
 TENSE_TIME_STEMS = ("이따", "내일", "모레", "다음", "주말", "나중", "저녁", "오후", "오늘", "그래", "그리", "있다")
 # 어르신 말이 전부 앞일일 때만, 앞일 절의 동사가 오다·가다·먹다면 대답의 그 동사 과거형도 본다 ("사촌이 온대" → "사촌이 오셨다니")
 TENSE_VERBS = (
@@ -295,6 +297,14 @@ _Q_STATE = re.compile(r"(어려우|좋으|힘드|즐거우|괜찮으|재미있�
                       r"불편하|서운하|섭섭하|반가우|슬프|무서우|아쉬우|편안하|심심하|답답하)" + _Q_TAIL)
 _Q_GIVE_UP = re.compile(r"(?:이|않으|없으|니|하|되|지)" + _Q_TAIL)  # 이다·않다·없다·아니다, 목록에 없는 '-하다·-되다', '-어지다'(N-6)
 _Q_ACTION = re.compile(r"([가-힣])" + _Q_TAIL)
+_STILL_PAST = re.compile(TENSE_PAST.pattern + r"|던가요")
+_SS_Q_END = re.compile(r"([가-힣])(?:나요|어요|습니까|죠|지요|니)\?$")
+
+
+def _still_past(q: str) -> bool:
+    """질문이 아직 과거형인가 - 받침 ㅆ(있·겠 제외) 글자 + 물음 어미 ("잘 말랐나요?")까지 본다 (재점검 2 P-4)."""
+    m = _SS_Q_END.search(q)
+    return bool(_STILL_PAST.search(q) or (m and _is_ss(m.group(1))))
 
 
 def _rieul_geo(clause: str) -> bool:
@@ -314,9 +324,21 @@ def _rieul_kka(clause: str) -> bool:
     return any((ord(m.group(1)) - 0xAC00) % 28 == 8 for m in re.finditer(r"([가-힣])\s?까\s?(?:해|싶|하)", clause))
 
 
+# 11/26 재점검 2 P-3: 앞일 표지 없는 현재형("내일 소풍 가")은 앞일 시간 낱말 + 지난 일 표지 없음으로 본다.
+#   '저녁·오후'는 "저녁 먹어"처럼 지금 일에도 쓰여 뺀다
+_PLAIN_FUT_TIME = re.compile(r"이따|내일|모레|다음\s?(?:주|달|번)|주말|나중에|좀\s?있다|있다가")
+
+
+def _nieun_dago(clause: str) -> bool:
+    """받침 ㄴ + '다고·대'로 전하는 앞일("전화한다고 했어", "준대")인가."""
+    return any((ord(m.group(1)) - 0xAC00) % 28 == 4 for m in re.finditer(r"([가-힣])(?:다고|대)", clause))
+
+
 def _is_future_clause(clause: str) -> bool:
-    return bool(TENSE_FUT_END.search(clause) or _rieul_kka(clause)
-                or (_rieul_geo(clause) and not TENSE_GUESS.search(clause)))
+    if (TENSE_FUT_END.search(clause) or _rieul_kka(clause) or _nieun_dago(clause)
+            or (_rieul_geo(clause) and not TENSE_GUESS.search(clause))):
+        return True
+    return bool(_PLAIN_FUT_TIME.search(clause)) and not any(_is_ss(ch) for ch in clause)
 
 
 def _split_pieces(transcript: str) -> list[str]:
@@ -326,7 +348,12 @@ def _split_pieces(transcript: str) -> list[str]:
         for m in _LINK_END.finditer(piece):
             ch, end = m.group(1), m.group(2)
             past_before = _PAST_TIME.search(piece[start:m.start()])
-            if _is_ss(ch) or (end not in _SENT_ENDINGS and past_before):
+            # 이유·배경을 잇는 어미 뒤에 앞일이 오면 그 앞은 지금 상태·까닭이다 ("다리가 아파서 / 오늘은 쉬려고" - 재점검 2 P-1)
+            #   왼쪽에 앞일 시간 낱말이 있으면 이어지는 동작("내일 가서 볼 거야")이라 자르지 않는다
+            left = piece[start:m.start()]
+            reason_then_future = (end in _REASON_LINKS and not _is_future_clause(left) and not _PLAIN_FUT_TIME.search(left)
+                                  and _is_future_clause(piece[m.end():]))
+            if _is_ss(ch) or (end not in _SENT_ENDINGS and past_before) or reason_then_future:
                 out.append(piece[start:m.end()])
                 start = m.end()
         out.append(piece[start:])
@@ -360,14 +387,12 @@ def _clause_tags(transcript: str) -> list[tuple[str, bool]]:
     return tags
 
 
-def _clauses(transcript: str) -> list[str]:
-    return [c for c, _ in _clause_tags(transcript)]
-
-
 def _tense_bad_sentences(body: str, transcript: str) -> set[int]:
     """앞일을 한 일로 받은 문장 번호 (_SENT_SPLIT 기준). 어르신 말에 앞일 절이 없으면 빈 집합.
 
-    어르신 말에 지난 일 절도 있으면 질문(마지막 문장)만 본다 - 공감 문장의 과거형은 지난 일을 받은 것일 수 있다 (11/26 H-1).
+    어르신 말에 지난 일 절도 있으면 **앞일 절에만 나온 낱말**(지난 일 절에 없는 낱말)과 과거형이 함께 있을 때만 잡는다 -
+    지난 일을 받은 공감("점심 드셨군요")은 맞다 (11/26 H-1, 재점검 2 P-1: 처음에는 공감 문장을 아예 안 봐
+    "점심은 먹었고 저녁엔 국수 …" + "국수를 드셨군요"를 놓쳤다).
     """
     tags = _clause_tags(transcript)
     fut = [c for c, f in tags if f]
@@ -375,6 +400,8 @@ def _tense_bad_sentences(body: str, transcript: str) -> set[int]:
         return set()
     done = [c for c, f in tags if not f]
     fut_words = [w for c in fut for w in re.findall(r"[가-힣]+", c) if len(w) >= 2 and w[:2] not in TENSE_TIME_STEMS]
+    if done:
+        fut_words = [w for w in fut_words if not any(w[:2] in c for c in done)]
     elder_words = [w for w in re.findall(r"[가-힣]+", transcript) if len(w) >= 2]
     verbs = [] if done else [vp for vf, vp in TENSE_VERBS if any(vf.search(c) for c in fut)]
     # 지난 일 절이 있을 때 질문에 앞일 절에만 나온 시간 낱말이 있으면 그 질문의 과거형은 앞일을 한 일로 받은 것이다 ("주말에 … 보내셨나요?")
@@ -383,8 +410,6 @@ def _tense_bad_sentences(body: str, transcript: str) -> set[int]:
     last = len(sents) - 1
     bad = set()
     for i, sent in enumerate(sents):
-        if done and i != last:
-            continue
         plain = TENSE_OK_PAST.sub("", sent)
         for part in _PART_SPLIT.split(plain):
             if TENSE_PAST.search(part) and any(w[:2] in part for w in fut_words):
@@ -396,7 +421,9 @@ def _tense_bad_sentences(body: str, transcript: str) -> set[int]:
         if (not done and i == last and plain.endswith("?") and TENSE_PAST.search(plain)
                 and any(w[:2] in plain for w in elder_words)):
             bad.add(i)
-        if done and i == last and plain.endswith("?") and TENSE_PAST.search(plain) and any(t in plain for t in fut_times):
+        # 쉼표로 이어진 부분마다 본다 ("내일은 잘 되실 거예요, 많이 지치셨어요?"의 '지치셨'은 오늘 일)
+        if done and i == last and plain.endswith("?") and any(
+                TENSE_PAST.search(part) and any(t in part for t in fut_times) for part in _PART_SPLIT.split(plain)):
             bad.add(i)
     return bad
 
@@ -439,6 +466,12 @@ def rewrite_tense(body: str, transcript: str) -> str | None:
     head = [s for i, s in enumerate(sents[:last]) if i not in bad]
     if len(head) < last:  # 틀린 공감 문장은 받아 주는 말 하나로
         head = ["그러시군요."] + head
+    # 11/26 재점검 2 P-4: 어르신 말이 전부 앞일인데 질문이 여전히 과거형이면("그러시군요. 간은 잘 맞았어요?") 앞일 절 낱말의 틀 질문으로.
+    #   낱말을 못 찾으면 공감 문장만 고친 결과를 둔다 (원문은 공감·질문이 둘 다 틀렸다)
+    if all(f for _, f in _clause_tags(transcript)) and _still_past(TENSE_OK_PAST.sub("", question)):
+        picked = _topic_word(transcript, body)
+        if picked is not None:
+            question = _template_question(picked[0], True)
     text = " ".join(head + [question])
     return None if is_tense_error(text, transcript) else text
 
@@ -528,17 +561,19 @@ def rewrite_vague(body: str, transcript: str) -> str | None:
     picked = _topic_word(transcript, body)
     if not sents or picked is None:
         return None
-    word, fut = picked
     head = [s for s in sents[:-1] if not is_tense_error(s, transcript)] or ["그러시군요."]
+    return " ".join(head[:1] + [_template_question(*picked)])
+
+
+def _template_question(word: str, fut: bool) -> str:
+    """낱말 틀 질문. 앞일이면 시간 "~에는"·장소 "~에서는"·사람 "~과는 뭐 하실 거예요?", 그 밖은 "~ 이야기 조금 더 들려주시겠어요?"."""
     if fut and (word in TIME_NOUNS or word.endswith("요일")):
-        q = word + "에는 뭐 하실 거예요?"
-    elif fut and word.endswith(PLACE_NOUNS):
-        q = word + "에서는 뭐 하실 거예요?"
-    elif fut and word.split()[-1] in PERSON_STEMS:
-        q = _josa(word, "과는", "와는") + " 뭐 하실 거예요?"
-    else:
-        q = word + " 이야기 조금 더 들려주시겠어요?"
-    return " ".join(head[:1] + [q])
+        return word + "에는 뭐 하실 거예요?"
+    if fut and word.endswith(PLACE_NOUNS):
+        return word + "에서는 뭐 하실 거예요?"
+    if fut and word.split()[-1] in PERSON_STEMS:
+        return _josa(word, "과는", "와는") + " 뭐 하실 거예요?"
+    return word + " 이야기 조금 더 들려주시겠어요?"
 
 
 def _apply_followup_fixes(text: str, transcript: str, text_mood: dict | None, past_replies=()) -> str:

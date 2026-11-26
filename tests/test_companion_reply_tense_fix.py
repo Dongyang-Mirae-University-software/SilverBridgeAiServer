@@ -266,13 +266,14 @@ def test_question_is_still_checked_when_past_clause_exists():
 
 
 @pytest.mark.parametrize("question,expected", [
-    ("허리가 많이 아프셨나요?", "허리가 많이 아프신가요?"),  # M-1 상태 형용사는 지금으로
+    ("등산은 많이 힘드셨나요?", "등산은 많이 힘드신가요?"),  # M-1 상태 형용사는 지금으로
     ("동창 만나서 행복하셨어요?", "동창 만나서 행복하신가요?"),
     ("병원 다녀오시면 허리가 좀 나으셨나요?", "병원 다녀오시면 허리가 좀 나아지실까요?"),
 ])
 def test_state_adjectives_become_present(question, expected):
+    # 재점검 2: 예문을 앞일 행사에 대한 상태 질문으로 바꿨다 ("허리가 아파서 …"의 허리 통증은 지금 상태라 시제 오류가 아니다)
     body = "그러시군요. " + question
-    out = rewrite_tense(body, "허리가 아파서 내일 병원 가서 동창 만나려고")
+    out = rewrite_tense(body, "모레 등산 가서 동창 만나고 병원 가서 허리 치료 받으려고")
     assert out == "그러시군요. " + expected
 
 
@@ -424,3 +425,71 @@ def test_agreement_geuraeyaji_is_not_future():
 ])
 def test_must_ending_marker(transcript, future):
     assert any(f for _, f in reply_service._clause_tags(transcript)) is future
+
+
+# ── 7. 11/26 재점검 2 반영 ──
+
+@pytest.mark.parametrize("body,transcript", [
+    # P-1 지난 일 절이 있어도 앞일 절에만 나온 낱말 + 과거형이면 공감 문장도 잡는다
+    ("국수를 드셨군요. 맛은 어떠셨어요?", "점심은 먹었고 저녁엔 국수 삶아 먹으려고"),
+    ("김장을 끝내셨군요. 김치 맛은 어떻게 나왔어요?", "배추 사다 놨어 내일 김장할 거야"),
+    ("병원에 다녀오셨군요. 의사 선생님은 뭐라고 하셨어요?", "어제부터 배가 아파서 내일 병원 가려고"),
+])
+def test_empathy_about_future_part_is_caught_with_past_clause(body, transcript):
+    assert is_tense_error(body, transcript)
+
+
+def test_empathy_about_past_part_is_kept():
+    # 지난 일 절의 낱말(점심)을 받은 공감은 맞다
+    assert not is_tense_error("점심 맛있게 드셨군요. 국수는 무슨 국수로 하실 거예요?", "점심은 먹었고 저녁엔 국수 삶아 먹으려고")
+
+
+@pytest.mark.parametrize("transcript,future", [
+    ("내일 병원에 갔다 올 거야", True),  # P-2 '-다'에서 자르지 않는다
+    ("내일 소풍 가", True), ("다음 주에 손주 돌잔치 가", True),  # P-3 앞일 시간 낱말 + 현재형
+    ("딸이 주말에 전화한다고 했어", True), ("아들이 용돈 준대", True),  # P-3 '-ㄴ다고·-ㄴ대'
+    ("저녁 먹어", False), ("내일이 아니라 어제 갔어", False),  # 저녁은 앞일 시간 낱말에서 뺀다 / 지난 일 표지가 있으면 아니다
+])
+def test_future_clause_detection_recheck2(transcript, future):
+    assert any(f for _, f in reply_service._clause_tags(transcript)) is future
+
+
+@pytest.mark.parametrize("transcript,pieces", [
+    ("시간이 있었어 내일도 갈 거야", 2),  # P-5 '있었'의 '었'에서 자른다
+    ("애들이 밥은 먹었겠지 내일 가서 볼 거야", 1),  # '겠'(짐작)에서는 자르지 않는다
+    ("시간이 있어 내일 갈 거야", 1),  # '있'은 지난 일이 아니다
+])
+def test_iss_gess_are_not_past_markers(transcript, pieces):
+    assert len(reply_service._clause_tags(transcript)) == pieces
+
+
+def test_still_past_question_becomes_template_in_pure_future():
+    # P-4 전부 앞일인데 질문이 과거형으로 남으면 앞일 절 낱말의 틀 질문으로
+    out = rewrite_tense("된장찌개를 맛있게 드셨군요. 간은 잘 맞았어요?", "오늘 저녁엔 된장찌개 끓일 거야")
+    assert out == "그러시군요. 된장찌개 이야기 조금 더 들려주시겠어요?"
+
+
+def test_word_in_both_past_and_future_clause_is_not_future_only():
+    # P-1 지난 일 절에도 나온 낱말(병원)은 앞일 절에만 나온 낱말이 아니다
+    assert not is_tense_error("병원 다녀오셨군요. 다음 주엔 몇 시에 가세요?", "어제 병원 다녀왔는데 다음 주에 또 병원 가야 해")
+
+
+def test_compound_gatda_ol_is_one_future_clause():
+    # P-2 "갔다 올 거야"를 자르지 않아야 앞일 낱말(병원)을 지킨다
+    assert is_tense_error("병원에는 잘 다녀오셨나요? 결과는 괜찮으셨어요?", "내일 병원에 갔다 올 거야")
+
+
+def test_preparation_question_with_elder_word_is_ok():
+    # 나가기 전 준비를 묻는 말은 어르신 낱말이 있어도 맞다
+    assert not is_tense_error("비 소식이 있네요. 장화는 챙기셨어요?", "모레 장화 신고 장 보러 가야지")
+
+
+def test_time_word_rule_is_per_comma_part():
+    # 쉼표 뒤 '지치셨어요'는 오늘 일 - 앞일 시간 낱말이 있는 부분만 본다
+    assert not is_tense_error("오늘 고단하셨군요. 모레는 괜찮으실 거예요, 많이 지치셨어요?", "오늘은 고단했지만 모레는 괜찮을 거야")
+
+
+def test_still_past_generic_ss_question_becomes_template():
+    # P-4 '말랐나요'처럼 받침 ㅆ 일반형 과거 질문도 틀 질문으로
+    out = rewrite_tense("이불까지 빨아 놓으셨다니 개운하시겠어요. 잘 말랐나요?", "이따 이불 빨 거야")
+    assert out == "그러시군요. 이불 이야기 조금 더 들려주시겠어요?"
