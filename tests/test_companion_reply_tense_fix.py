@@ -493,3 +493,14 @@ def test_still_past_generic_ss_question_becomes_template():
     # P-4 '말랐나요'처럼 받침 ㅆ 일반형 과거 질문도 틀 질문으로
     out = rewrite_tense("이불까지 빨아 놓으셨다니 개운하시겠어요. 잘 말랐나요?", "이따 이불 빨 거야")
     assert out == "그러시군요. 이불 이야기 조금 더 들려주시겠어요?"
+
+
+
+@pytest.mark.parametrize("body,transcript", [
+    # 11/26 모델 재생성 측정: 부사는 틀 질문 낱말로 고르지 않는다 (품질 세트 문구와 다른 새 문장)
+    ("남은 걸로 대강 차리셨군요. 특별히 좋아하시는 반찬이 있으신가요?", "남은 걸로 대강 차렸어"),
+    ("천천히 걸으셨군요. 특별히 좋아하시는 길이 있으신가요?", "공원을 천천히 걸었어"),
+])
+def test_adverbs_are_not_topic_words(body, transcript):
+    out = rewrite_vague(body, transcript)
+    assert out is None or not any(w in out.split(". ")[-1] for w in ("대강", "천천히"))
