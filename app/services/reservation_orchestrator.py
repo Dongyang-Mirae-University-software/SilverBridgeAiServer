@@ -582,9 +582,11 @@ class ReservationOrchestrator(ReservationFlowMixin):
         typed: bool = False,
     ) -> dict[str, Any]:
         """지역을 묻는다(2026-11-04: 글 입력 대신 선택지).
-        - 프로필 주소(또는 고른 시·도)가 있으면 같은 시·도에서 그 진료과 병원이 있는 지역 최대 6개 + [다른 시·도] + [직접 입력]
-        - 시·도를 모르면(또는 [다른 시·도]) 시·도 선택지(location_sido) + [직접 입력]
-        - [직접 입력]을 눌렀거나 병원 목록 조회가 실패하면 예전처럼 글 입력."""
+        - 프로필 주소(또는 고른 시·도)가 있으면 같은 시·도에서 그 진료과 병원이 있는 지역 최대 6개 + [다른 지역]
+        - 시·도를 모르면(또는 [다른 지역]) 병원이 등록된 시·도 선택지(location_sido)
+        - 선택지는 모두 병원 예약 서비스에 병원이 등록된 지역뿐이라 [직접 입력]은 두지 않는다(2026-11-26 사용자 결정).
+          글로 말한 지역은 그대로 받고, 예전 [직접 입력] 버튼 값(TYPE_LOCATION_OPTION)도 계속 처리한다.
+        - 병원 목록 조회가 실패하면 예전처럼 글 입력."""
         _trace(meta, "reservation_gap", missing="location")
         # "병원 어디로 가야 돼요?"에는 먼저 어느 과인지 답하고, 가까운 곳을 찾으려 지역을 묻는다(예약 양식처럼 보이지 않게).
         reply = (
@@ -596,7 +598,7 @@ class ReservationOrchestrator(ReservationFlowMixin):
         if sido:
             reply = f"{sido}에서 어느 지역으로 찾을까요?"
         elif sido_list:
-            reply = "어느 시·도에서 찾을까요?"
+            reply = "어느 지역에서 찾을까요?"
         elif exclude is not None:
             reply = "다른 지역 어디에서 찾을까요?"
         text_ui = UiPayload(kind="text", field="location", label="지역을 입력해 주세요", placeholder="예: 서울 강남구")
@@ -605,7 +607,6 @@ class ReservationOrchestrator(ReservationFlowMixin):
         regions = self._regions(department, api_key, meta)
         if not regions:
             return self._ui_reply(meta, reply, text_ui)
-        type_option = UiOption(value=TYPE_LOCATION_OPTION, label="직접 입력")
         profile = self._profile_address(req)
         base_sido = None if sido_list else (sido or _sido_of(profile))
         if base_sido:
@@ -615,7 +616,8 @@ class ReservationOrchestrator(ReservationFlowMixin):
             if in_sido:
                 _trace(meta, "region_options", sido=base_sido, count=min(len(in_sido), MAX_REGION_OPTIONS))
                 options = [UiOption(value=r, label=r) for r in in_sido[:MAX_REGION_OPTIONS]]
-                options += [UiOption(value=MORE_SIDO_OPTION, label="다른 시·도"), type_option]
+                # 버튼 이름은 "다른 지역"으로 통일한다(병원 목록의 [다른 지역으로 찾기]와 같은 말, 2026-11-26)
+                options.append(UiOption(value=MORE_SIDO_OPTION, label="다른 지역"))
                 return self._ui_reply(meta, reply, UiPayload(kind="select", field="location", label="지역을 선택해 주세요", options=options))
         sidos: list[str] = []
         for r in regions:  # 병원 많은 지역 순서 그대로 - 병원이 많은 시·도가 앞에 온다
@@ -625,8 +627,8 @@ class ReservationOrchestrator(ReservationFlowMixin):
         if not sidos:
             return self._ui_reply(meta, reply, text_ui)
         _trace(meta, "region_options", sido=None, count=len(sidos))
-        options = [UiOption(value=s_, label=s_) for s_ in sidos] + [type_option]
-        return self._ui_reply(meta, reply, UiPayload(kind="select", field="location_sido", label="시·도를 선택해 주세요", options=options))
+        options = [UiOption(value=s_, label=s_) for s_ in sidos]
+        return self._ui_reply(meta, reply, UiPayload(kind="select", field="location_sido", label="지역을 선택해 주세요", options=options))
 
     @staticmethod
     def _location_candidates(req: ChatRequest, draft_location: str | None) -> list[str]:
