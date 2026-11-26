@@ -185,7 +185,9 @@ def test_type_option_falls_back_to_text_input() -> None:
         s.say("신경과 예약해줘")
         if field == "location":
             s.pick("location_sido", "서울")
-        typed = s.pick(field, TYPE_LOCATION_OPTION)
+        assert TYPE_LOCATION_OPTION not in _values(s.prev)  # 버튼은 더 이상 보이지 않는다
+        # 화면 선택지 검사(pick)를 건너뛰고 예전 버튼 값을 그대로 보낸다
+        typed = s._turn("", (field, TYPE_LOCATION_OPTION))
         assert typed["ui"].kind == "text" and typed["ui"].field == "location"
 
 
