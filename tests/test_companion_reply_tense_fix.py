@@ -323,12 +323,14 @@ def test_rewrite_never_calls_llm_again(settings):
 
 
 def test_rewritten_text_similar_to_past_keeps_original(settings):
-    # M-3 고친 문장이 지난 말벗 문장과 비슷하면 원문을 둔다 (원문이 지난 문장과 다르면 그대로 나간다)
+    # M-3 고친 문장이 지난 말벗 문장과 비슷하면 원문을 둔다 - 고쳐 쓰기 단계만 직접 본다 (11/26 재점검 N-7:
+    #   generate_reply 로 보면 뒤이은 반복 검사가 같은 원문을 다시 만들어 조치를 지워도 통과했다)
+    from app.services.companion.reply_service import _apply_followup_fixes
     settings(companion_reply_vague_rewrite=True)
     body = "화단 정리하셨군요. 특별히 좋아하시는 꽃이 있으신가요?"
     past = ("화단 정리하셨군요. 화단 이야기 조금 더 들려주시겠어요?",)
-    out = generate_reply(_SeqLlm(body), "오전엔 무엇을 하셨어요?", "아까 화단 정리했어", None, False, 2, past_replies=past)
-    assert out.text == body and out.source == "LLM"
+    assert _apply_followup_fixes(body, "아까 화단 정리했어", None, past) == body
+    assert _apply_followup_fixes(body, "아까 화단 정리했어", None, ()) == past[0]
 
 
 def test_negative_mood_turn_skips_vague_rewrite(settings):
@@ -355,3 +357,70 @@ def test_vague_redo_and_rewrite_together(settings):
     llm = _SeqLlm(body)
     out = generate_reply(llm, "오전엔 무엇을 하셨어요?", "아까 화단 정리했어", None, False, 2)
     assert out.text == "화단 정리하셨군요. 화단 이야기 조금 더 들려주시겠어요?" and len(llm.prompts) == 1
+
+
+# ── 6. 11/26 재점검 반영 (조치 작성자와 다른 작성자의 문장에서 나온 오탐) ──
+
+@pytest.mark.parametrize("body,transcript", [
+    # N-1 지난 의도·목적의 '려고'는 앞일이 아니다
+    ("비 때문에 못 가셨군요. 친구분은 만나셨나요?", "친구 만나러 가려고 했는데 비가 와서 못 갔어"),
+    ("복지관에 가시려고 하셨군요. 복지관에는 가 보셨나요?", "복지관에 가려고 했어 어제"),
+    ("당면을 불리셨군요. 잡채는 완성하셨나요?", "잡채를 하려고 당면을 불렸어"),
+    # N-2 '-어서' 연결의 지난 일
+    ("약을 드셨군요. 약은 잘 들으셨나요?", "약을 먹었어서 괜찮은데 이따 병원 가 보려고"),
+    ("잠을 못 주무셨군요. 어제는 왜 못 주무셨나요?", "어제 잠을 못 자서 오늘 일찍 자려고"),
+    # N-3 문장부호 없이 이어진 지난 일
+    ("드라마 보셨군요. 어떤 내용이었나요?", "어제 드라마를 봤어 내일도 볼 거야"),
+])
+def test_recheck_false_positives_are_gone(body, transcript):
+    assert not is_tense_error(body, transcript)
+
+
+def test_purpose_with_future_time_word_is_still_future():
+    # 앞일 시간 낱말이 있으면 '려고' 뒤가 지난 일이어도 앞일이다 ("이따 마트 가려고 우유가 떨어졌거든")
+    assert is_tense_error("우유가 떨어지셨군요. 마트에서는 뭘 사셨나요?", "이따 마트 가려고 우유가 떨어졌거든")
+
+
+@pytest.mark.parametrize("body,transcript", [
+    # N-4 앞일 표지 확장
+    ("아드님이 오신다니 좋으시겠어요. 저녁에 아드님과 무엇을 드셨나요?", "저녁에 아들이 온다고 해서 장을 봤어"),
+    ("상추 심으시려는군요. 상추는 잘 자라셨나요?", "주말에 상추를 심을까 해"),
+    ("병원에 가셔야 하는군요. 다음 주 병원은 어떠셨나요?", "다음 주에 병원 가야 돼"),
+])
+def test_recheck_missed_future_markers_are_caught(body, transcript):
+    assert is_tense_error(body, transcript)
+
+
+def test_wish_is_not_future():
+    # 소망은 앞일로 보지 않는다
+    assert not is_tense_error("꽃구경 좋으시죠. 꽃구경은 다녀오셨나요?", "꽃구경 가고 싶어")
+
+
+def test_become_ending_is_not_rewritten():
+    # N-6 '-어지셨'(상태 변화)은 고치지 않는다
+    assert rewrite_tense("눈이 침침하시군요. 눈이 왜 침침해지셨어요?", "눈이 침침해서 안과에 가 보려고") is None
+
+
+def test_person_followed_by_noun_does_not_use_person_template():
+    # N-5 "남편 산소" - 사람 틀("남편과는 뭐 하실 거예요?")을 쓰지 않는다
+    out = rewrite_vague("남편 산소에 가시는군요. 그날 특별히 하실 계획이 있으신가요?", "주말에 남편 산소에 가려고")
+    assert out is None or "남편과는" not in out
+
+
+def test_past_intention_with_future_time_word_is_not_future():
+    # '려고' 바로 뒤가 '했'이면 지난 의도다 - 앞일 시간 낱말(저녁)이 있어도 ("저녁에 가려고 했는데 비가 와서 못 갔어")
+    assert not is_tense_error("비 때문에 못 가셨군요. 저녁에는 집에서 뭐 하셨어요?", "저녁에 가려고 했는데 비가 와서 못 갔어")
+
+
+def test_agreement_geuraeyaji_is_not_future():
+    # 맞장구 "그래야지"는 앞일 표지가 아니다
+    assert not is_tense_error("불면증이 있으시군요. 어떻게 심해지셨나요?", "그래야지 근데 불면증이 있는데 요새 더 심해져서 큰일이야")
+
+
+@pytest.mark.parametrize("transcript,future", [
+    ("내일 병원 가야 돼", True), ("이따 고기 구워야겠어", True), ("모레는 꼭 가야지", True),
+    ("손주가 아직 아기야 지금은 잘 자", False),  # '야' 뒤 띄어 쓴 '지금'은 앞일이 아니다
+    ("그래야 돼 다들 그렇게 해", False),
+])
+def test_must_ending_marker(transcript, future):
+    assert any(f for _, f in reply_service._clause_tags(transcript)) is future
