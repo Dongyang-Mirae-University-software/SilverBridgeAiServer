@@ -100,13 +100,16 @@ def test_ward_self_without_address_books_by_choices_only() -> None:
 
     first = s.say("신경과 예약은 어떻게 하면 되나요?")
     assert first["ui"].field == "location_sido"
-    assert _values(first) == ["서울", "경기", "부산", TYPE_LOCATION_OPTION]  # 병원 많은 시·도 순 + 직접 입력은 맨 끝
+    # 병원 많은 시·도 순, 병원이 등록된 지역뿐이라 [직접 입력]은 없다(2026-11-26)
+    assert _values(first) == ["서울", "경기", "부산"]
+    assert first["reply"].startswith("신경과로 가시면 돼요.") and first["ui"].label == "지역을 선택해 주세요"
     assert fake.region_departments == ["신경과"]  # 그 과가 있는 병원의 지역만
 
     regions = s.pick("location_sido", "서울")
     assert regions["ui"].field == "location" and regions["ui"].kind == "select"
     assert _values(regions)[:MAX_REGION_OPTIONS] == REGIONS[:2] + REGIONS[3:7]  # 서울만, 최대 6개
-    assert _values(regions)[-2:] == [MORE_SIDO_OPTION, TYPE_LOCATION_OPTION]
+    assert _values(regions)[-1] == MORE_SIDO_OPTION and TYPE_LOCATION_OPTION not in _values(regions)
+    assert regions["ui"].options[-1].label == "다른 지역"  # "다른 시·도"가 아니라 "다른 지역"(2026-11-26)
 
     found = s.pick("location", "서울 서초구")
     assert found["tool"] == "search_hospital" and fake.searched_regions[0] == "서울 서초구"
@@ -136,7 +139,7 @@ def test_guardian_proxy_with_address_books_by_choices_only() -> None:
     regions = s.pick("location_confirm", OTHER_REGION_OPTION)
     assert regions["ui"].field == "location"
     assert "서울 강남구" not in _values(regions)  # 방금 찾은 지역은 뺀다
-    assert all(v.startswith("서울 ") for v in _values(regions)[:-2])
+    assert all(v.startswith("서울 ") for v in _values(regions)[:-1])
 
     s.pick("location", "서울 송파구")
     assert fake.searched_regions[-1] == "서울 송파구"
@@ -161,9 +164,9 @@ def test_profile_region_comes_first_and_other_sido_lists_sidos() -> None:
     assert "서울 송파구" not in _values(regions)
 
     sidos = s.pick("location", MORE_SIDO_OPTION)
-    assert sidos["ui"].field == "location_sido" and _values(sidos)[-1] == TYPE_LOCATION_OPTION
+    assert sidos["ui"].field == "location_sido" and TYPE_LOCATION_OPTION not in _values(sidos)
     gyeonggi = s.pick("location_sido", "경기")
-    assert _values(gyeonggi) == ["경기 성남시", MORE_SIDO_OPTION, TYPE_LOCATION_OPTION]
+    assert _values(gyeonggi) == ["경기 성남시", MORE_SIDO_OPTION]
 
 
 def test_province_long_name_and_city_district_match() -> None:
@@ -175,7 +178,7 @@ def test_province_long_name_and_city_district_match() -> None:
 
 
 def test_type_option_falls_back_to_text_input() -> None:
-    """[직접 입력]을 누르면 그때만 글 입력 칸을 준다(시·도·지역 선택지 어느 쪽에서든)."""
+    """[직접 입력] 버튼은 더 이상 주지 않지만(2026-11-26), 이전 대화에 남은 그 버튼 값이 오면 여전히 글 입력 칸을 준다."""
     for field in ("location_sido", "location"):
         fake = _fake()
         s = _Session(fake, SELF_NO_ADDRESS)
@@ -306,7 +309,7 @@ def test_follow_up_region_questions_do_not_repeat_first_question() -> None:
     first = s.say("신경과 예약해줘")
     assert first["reply"].startswith("신경과로 가시면 돼요.")
     assert s.pick("location_sido", "서울")["reply"] == "서울에서 어느 지역으로 찾을까요?"
-    assert s.pick("location", MORE_SIDO_OPTION)["reply"] == "어느 시·도에서 찾을까요?"
+    assert s.pick("location", MORE_SIDO_OPTION)["reply"] == "어느 지역에서 찾을까요?"
     s.pick("location_sido", "서울")
     s.pick("location", "서울 서초구")
     assert s.pick("location_confirm", OTHER_REGION_OPTION)["reply"] == "다른 지역 어디에서 찾을까요?"
