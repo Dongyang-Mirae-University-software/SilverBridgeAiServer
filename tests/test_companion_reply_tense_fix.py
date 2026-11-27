@@ -504,3 +504,16 @@ def test_still_past_generic_ss_question_becomes_template():
 def test_adverbs_are_not_topic_words(body, transcript):
     out = rewrite_vague(body, transcript)
     assert out is None or not any(w in out.split(". ")[-1] for w in ("대강", "천천히"))
+
+
+def test_switch_defaults_are_on(monkeypatch):
+    # 11/27 사용자 결정: 시제 rewrite·막연한 질문 고쳐 쓰기 기본 켬 (환경변수가 없을 때)
+    from app.core.config import _as_bool, _as_choice
+    monkeypatch.delenv("COMPANION_REPLY_TENSE_FIX", raising=False)
+    monkeypatch.delenv("COMPANION_REPLY_VAGUE_REWRITE", raising=False)
+    assert _as_choice("COMPANION_REPLY_TENSE_FIX", "rewrite", ("off", "rewrite")) == "rewrite"
+    assert _as_bool("COMPANION_REPLY_VAGUE_REWRITE", True) is True
+    import inspect
+    from app.core import config
+    src = inspect.getsource(config)
+    assert '_as_choice("COMPANION_REPLY_TENSE_FIX", "rewrite"' in src and '_as_bool("COMPANION_REPLY_VAGUE_REWRITE", True)' in src
