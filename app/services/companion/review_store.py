@@ -4,12 +4,12 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import DateTime, String, Text, create_engine, inspect, select, text
+from sqlalchemy import DateTime, String, Text, inspect, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Mapped, mapped_column, sessionmaker
 
 from app.core.config import get_settings
-from app.database.companion_base import CompanionBase
+from app.database.companion_base import CompanionBase, create_review_engine
 
 # 검수 목록 (명세 9-1 5·6번). AI가 만든 문장과 질문만 담는다. 어르신 대답 원문은 저장하지 않는다 (명세 9-4).
 STATUSES = ("pending", "approved", "rejected")
@@ -43,7 +43,7 @@ class ReviewStore:
             with self._lock:
                 if self._session_factory is None:
                     url = get_settings().companion_review_database_url
-                    self._engine = create_engine(url, future=True, pool_pre_ping=True)
+                    self._engine = create_review_engine(url)
                     self._prepare(self._engine)
                     self._session_factory = sessionmaker(self._engine, expire_on_commit=False)
         return self._session_factory
@@ -51,7 +51,7 @@ class ReviewStore:
     def reset_engine(self, url: str) -> None:
         """테스트용: 다른 DB 주소로 바꾼다."""
         with self._lock:
-            self._engine = create_engine(url, future=True)
+            self._engine = create_review_engine(url)
             self._prepare(self._engine)
             self._session_factory = sessionmaker(self._engine, expire_on_commit=False)
 

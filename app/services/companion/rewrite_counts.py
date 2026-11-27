@@ -5,12 +5,12 @@ import threading
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Integer, String, create_engine, delete, select, text
+from sqlalchemy import Integer, String, delete, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Mapped, mapped_column, sessionmaker
 
 from app.core.config import get_settings
-from app.database.companion_base import CompanionBase
+from app.database.companion_base import CompanionBase, create_review_engine
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class RewriteCountStore:
         return self._session_factory
 
     def _set_engine(self, url: str) -> None:
-        self._engine = create_engine(url, future=True, pool_pre_ping=True)
+        self._engine = create_review_engine(url)
         CompanionBase.metadata.create_all(self._engine, tables=[RewriteDaily.__table__])
         self._session_factory = sessionmaker(self._engine, expire_on_commit=False)
 

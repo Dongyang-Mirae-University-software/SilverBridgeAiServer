@@ -289,7 +289,11 @@ def _queue_for_review(d: Dialogue, result: dict) -> None:
     version = reply_prompt_version(is_last) if result["replySource"] == "LLM" else reply_service.FALLBACK_VERSION
     signals = result.get("signals") or {}
     risk = bool(result.get("riskFlag")) or bool(signals.get("riskFlag"))
-    review_store.add(d.dialogueId, d.turnNo + 1, result["reply"]["text"], version, risk=risk, ward_id=d.wardId)
+    # 11/27 AI #364 점검 W-1: 검수 쓰기가 실패해도(DB 잠김·디스크) 대답은 나가야 한다 - 경고 로그(클래스명)만 남긴다
+    try:
+        review_store.add(d.dialogueId, d.turnNo + 1, result["reply"]["text"], version, risk=risk, ward_id=d.wardId)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[COMPANION-REVIEW] add failed: %s", type(e).__name__)
 
 
 @router.get(
@@ -319,7 +323,8 @@ def review_decide(item_id: str, body: ReviewDecision) -> dict:
 @router.get(
     "/ops/rewrite-counts",
     summary="꼬리질문 고쳐 쓰기 날짜별 횟수 (운영 점검용, 개수만)",
-    description="KST 날짜별 꼬리질문 검사 턴 수(`followup_checked`)와 시제 고쳐 쓰기(`tense_rewrite`·`tense_keep`), "
+    description="KST 날짜별 꼬리질문 고쳐 쓰기를 판단한 후보 수(`followup_checked` - 최종 대답 수가 아니다. 기본값(COMPANION_LLM_RETRY=0)에서는 "
+                "규칙을 통과한 꼬리질문 턴 수와 같고, 재시도를 켜거나 지난 문장과 비슷해 다시 만든 대답은 한 턴에 두 번 세질 수 있다)와 시제 고쳐 쓰기(`tense_rewrite`·`tense_keep`), "
                 "막연한 질문 고쳐 쓰기(`vague_ok`·`vague_fail`) 횟수. 원문·피보호자 정보 없음. "
                 "`from`·`to`는 YYYY-MM-DD(기본 최근 30일, 최대 90일 - 보관 90일). 형식 오류·범위 초과는 422 DATE_INVALID.",
 )

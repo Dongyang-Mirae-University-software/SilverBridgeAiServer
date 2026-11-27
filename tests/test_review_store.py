@@ -109,3 +109,13 @@ def test_review_risk_reads_top_level_or_signals(client, result, expected):
     items = [i for i in review_store.list_items() if i["dialogueId"] == "d-risk"]
     assert len(items) == 1
     assert items[0]["risk"] is expected
+
+
+# 11/27 AI #364 점검 W-1: 검수 쓰기가 실패해도(DB 잠김 등) 턴 응답은 나간다
+def test_turn_survives_review_write_failure(client, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("database is locked")
+    monkeypatch.setattr(review_store, "add", boom)
+    did = client.post("/companion/dialogues", json={"wardId": "u1", "sessionId": "s1", "slot": "09:00", "question": "잘 주무셨어요?", "questionId": "q-test"}, headers=HDR).json()["data"]["dialogueId"]
+    r = client.post(f"/companion/dialogues/{did}/reply", json={"text": "오늘은 손주가 와서 정말 기분이 좋아요"}, headers=HDR)
+    assert r.status_code == 200 and r.json()["data"]["reply"]["text"]

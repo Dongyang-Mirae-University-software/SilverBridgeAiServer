@@ -95,3 +95,27 @@ def test_endpoint_needs_key_and_valid_range(client):
     assert client.get("/companion/ops/rewrite-counts?from=2026-11-27&to=2026-11-01", headers=HDR).status_code == 422
     assert client.get("/companion/ops/rewrite-counts?from=2026-01-01&to=2026-11-27", headers=HDR).status_code == 422
     assert client.get("/companion/ops/rewrite-counts?from=2026-11-01&to=2026-11-27", headers=HDR).status_code == 200
+
+
+# 11/27 #364 점검 W-3: 날짜는 서버 시간대가 아니라 KST 로 정한다 (UTC 11/26 15:30 = KST 11/27 00:30)
+def test_today_is_kst_date(monkeypatch):
+    from datetime import datetime as real_dt, timezone
+    from app.services.companion import rewrite_counts as rc
+
+    class FakeDateTime(real_dt):
+        @classmethod
+        def now(cls, tz=None):
+            return real_dt(2026, 11, 26, 15, 30, tzinfo=timezone.utc).astimezone(tz)
+    monkeypatch.setattr(rc, "datetime", FakeDateTime)
+    assert rc.today_kst() == date(2026, 11, 27)
+
+
+# 11/27 #364 점검 W-1: sqlite 검수 DB 는 WAL 로 연다 (동시 쓰기 잠금 실패 방지)
+def test_sqlite_review_engine_uses_wal(tmp_path):
+    from sqlalchemy import text as sql
+    from app.database.companion_base import create_review_engine
+    eng = create_review_engine(f"sqlite:///{tmp_path / 'w.db'}")
+    with eng.connect() as c:
+        assert c.execute(sql("PRAGMA journal_mode")).scalar().lower() == "wal"
+        assert c.execute(sql("PRAGMA busy_timeout")).scalar() == 5000
+        assert c.execute(sql("PRAGMA synchronous")).scalar() == 1  # NORMAL
