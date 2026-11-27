@@ -583,3 +583,43 @@ def test_person_tail_is_joined():
     body = "아들 내외분이 오시면 반찬 준비하시느라 바쁘시겠네요. 특별히 좋아하시는 반찬이 있으신가요?"
     out = rewrite_vague(body, "낼모레 주말엔 아들 내외가 온다더라")
     assert out is not None and out.endswith("아들 내외와는 뭐 하실 거예요?")
+
+
+# 11/27 #360 점검 T-4: 할 일이 없다는 말의 낱말 앞부분 - 하나씩 지우면 걸리게
+@pytest.mark.parametrize("elder", ["주말엔 뭐 하나 몰라", "낼은 잘 모르겠네", "주말이 와도 달라질 건 없지", "모레는 아직 생각 안 해 봤어",
+                                   "낼은 별일 없어", "주말은 별다를 거 없어", "낼도 똑같지 뭐", "주말엔 평소대로 있어"])
+def test_no_plan_phrases_are_not_plan_content(elder):
+    from app.services.companion.reply_service import _states_plan_content
+    assert not _states_plan_content(elder)
+
+
+def test_plan_phrases_are_plan_content():
+    from app.services.companion.reply_service import _states_plan_content
+    assert _states_plan_content("낼 보건소 가서 혈압 재야 돼")
+
+
+# 11/27 #360 점검 T-4: 꼬리 낱말마다 이어 붙인다 / '-네' 사람 낱말 (T-3)
+@pytest.mark.parametrize("tail", ["내외", "부부", "식구", "가족"])
+def test_each_person_tail_is_joined(tail):
+    body = f"조카 {tail}분이 오시는군요. 특별히 하실 일이 있으신가요?"
+    out = rewrite_vague(body, f"주말에 조카 {tail}가 온대")
+    josa = "과는" if tail == "가족" else "와는"  # 받침이 있으면 '과는'
+    assert out is not None and out.endswith(f"조카 {tail}{josa} 뭐 하실 거예요?")
+
+
+def test_ne_suffixed_person_is_joined_and_lone_tail_is_not_person():
+    from app.services.companion.reply_service import _template_question
+    out = rewrite_vague("며느리네 식구분들이 오시는군요. 특별히 하실 일이 있으신가요?", "며느리네 식구가 낼 와")
+    assert out is not None and out.endswith("며느리네 식구와는 뭐 하실 거예요?")
+    assert _template_question("식구", True, "주말에 식구가 다 모여") == "식구 이야기 조금 더 들려주시겠어요?"
+
+
+# 11/27 #360 점검 T-4: 조사 '에는'도 뗀다 ('엔'은 위에서 본다)
+def test_particle_eneun_is_stripped():
+    from app.services.companion.reply_service import _topic_word
+    assert _topic_word("주말에는 그냥 쉬어야지", "주말에는 푹 쉬시는군요. 특별히 하실 일이 있으신가요?") == ("주말", True)
+
+
+# 11/27 #360 점검 T-2: 앞일이 아닌 시간 낱말만 남으면 틀 질문을 만들지 않는다
+def test_non_future_time_word_alone_is_not_picked():
+    assert rewrite_vague("토요일이 금방 오네요. 특별히 하실 일이 있으신가요?", "토요일엔 별로 할 게 없어") is None
