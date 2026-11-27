@@ -263,3 +263,5 @@ LLM 실패는 오류로 나가지 않고 미리 정한 대체 문장을 씁니�
 | 4 | 우리 쪽 경로·세션 구조 수정 | AI | 3·4번 결정 후 |
 | 5 | 실제 서버 연결 점검 | AI + BE | 2번 완료 후 |
 | 6 | 전체 시험 결과 확인 및 커밋 | AI | 사용자 확인 후 |
+
+- 검수 DB sqlite 설정 (11/27 AI #364 점검 W-1): 검수 목록·고쳐 쓰기 횟수 엔진 모두 연결마다 `journal_mode=WAL`·`busy_timeout=5000`·`synchronous=NORMAL`(`app/database/companion_base.create_review_engine`). 검수 쓰기가 실패해도 턴 응답은 나간다(경고 로그 `[COMPANION-REVIEW] add failed`). PostgreSQL 로 옮기면 이 설정은 적용되지 않고 UPSERT 를 따로 확인할 것(W-4)
