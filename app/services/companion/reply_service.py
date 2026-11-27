@@ -550,7 +550,8 @@ def _topic_word(transcript: str, body: str) -> tuple[str, bool] | None:
             else:
                 forms = [stripped]
             for f in forms:
-                if (len(f) < 2 or f.endswith(_VERBISH_TAIL) or f.endswith("히") or f in FLAT_ANSWER_WORDS or f in NOT_TOPIC_WORDS
+                ne_person = f.endswith("네") and f[:-1] in PERSON_STEMS  # '며느리네'는 동사 꼴('-네')이 아니다 (T-3)
+                if (len(f) < 2 or (f.endswith(_VERBISH_TAIL) and not ne_person) or f.endswith("히") or f in FLAT_ANSWER_WORDS or f in NOT_TOPIC_WORDS
                         or f not in body):
                     continue
                 # 대답에서 '~하·해·히'로 이어지면 이름말이 아니다 ("답답하고" → "답답"을 떼어 "답답 이야기"가 되지 않게)
@@ -558,7 +559,8 @@ def _topic_word(transcript: str, body: str) -> tuple[str, bool] | None:
                     continue
                 if f == raw and raw[-1] == "이" and not re.search(re.escape(f) + r"[가-힣]", body):
                     continue
-                if f in PERSON_STEMS and ri + 1 < len(raws):
+                # 11/27 #360 점검 T-3: '며느리네'·'언니네'처럼 '-네'가 붙어도 사람 낱말이다 ("며느리네 식구" → 한 낱말)
+                if (f in PERSON_STEMS or ne_person) and ri + 1 < len(raws):
                     nxt = _PARTICLE_TAIL.sub("", raws[ri + 1])
                     if (nxt in PERSON_STEMS or nxt in PERSON_TAILS) and f"{f} {nxt}" in body:
                         f = f"{f} {nxt}"
@@ -578,6 +580,9 @@ def _topic_word(transcript: str, body: str) -> tuple[str, bool] | None:
     #   "내일에는 뭐 하실 거예요?"가 같은 것을 다시 묻는다 - 고르지 않는다 (고쳐 쓰지 않고 원문을 둔다)
     if rank == 2 and _states_plan_content(transcript):
         return None
+    # 11/27 #360 점검 T-2: 앞일이 아닌 시간 낱말만 남으면("토요일엔 별로 할 게 없어") "토요일 이야기 조금 더"가 어색하다 - 고르지 않는다
+    if rank == 2 and not fut:
+        return None
     return word, fut
 
 
@@ -589,12 +594,15 @@ def _states_plan_content(transcript: str) -> bool:
         for raw in re.findall(r"[가-힣]+", c):
             w = _PARTICLE_TAIL.sub("", raw)
             if (len(w) >= 2 and w[:2] not in TENSE_TIME_STEMS and not w.endswith("요일") and not w.endswith(_VERBISH_TAIL)
-                    and w not in NOT_TOPIC_WORDS and w not in FLAT_ANSWER_WORDS and w not in _VAGUE_PLAN_WORDS):
+                    and w not in NOT_TOPIC_WORDS and w not in FLAT_ANSWER_WORDS and not w.startswith(_VAGUE_PLAN_PREFIXES)):
                 return True
     return False
 
 
-_VAGUE_PLAN_WORDS = frozenset({"모르겠", "몰라", "글쎄", "아직", "별로", "생각", "계획"})
+# 할 일이 없다는 말에 나오는 낱말의 앞부분 (11/27 #360 점검 T-1: 정확히 같은 낱말만 보아 '모르겠네'·'하나'('뭐 하나 몰라')·'달라질'을
+#   할 일로 잘못 봤다 - 앞부분이 같은지로 본다)
+_VAGUE_PLAN_PREFIXES = ("모르", "몰라", "몰랐", "글쎄", "아직", "별로", "별일", "별거", "별다", "생각", "계획", "그냥", "하나", "달라",
+                        "특별", "똑같", "마찬", "그대로", "맨날", "매일", "늘상", "평소")
 
 
 def rewrite_vague(body: str, transcript: str) -> str | None:
@@ -619,7 +627,9 @@ def _template_question(word: str, fut: bool, transcript: str = "") -> str:
         return word + "에는 뭐 하실 거예요?"
     if fut and word.endswith(PLACE_NOUNS):
         return word + "에서는 뭐 하실 거예요?"
-    if fut and (word.split()[-1] in PERSON_STEMS or word.split()[-1] in PERSON_TAILS) and not _REMOTE_CONTACT.search(transcript):
+    # 꼬리 낱말('식구'·'부부')은 사람 낱말과 이어 붙었을 때만 사람 틀 (11/27 #360 점검 T-3: 홀로 남은 "식구와는 뭐 하실 거예요?")
+    last = word.split()[-1]
+    if fut and (last in PERSON_STEMS or (last in PERSON_TAILS and " " in word)) and not _REMOTE_CONTACT.search(transcript):
         return _josa(word, "과는", "와는") + " 뭐 하실 거예요?"
     return word + " 이야기 조금 더 들려주시겠어요?"
 
