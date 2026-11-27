@@ -544,3 +544,42 @@ def test_nael_future_clause_with_reason_link():
     elder = "고추가 떨어져서 낼 시장에 가서 두 근 사 와야지"
     assert is_tense_error("시장에서 고추를 사 오셨군요. 장 보시면서 즐거우셨나요?", elder)
     assert not is_tense_error("고추가 떨어지셨군요. 시장은 몇 시쯤 가실 거예요?", elder)
+
+
+# 11/27 #359 점검 S-5: 앞 낱말이 조사로 끝나 앞 낱말 조건을 지나는 동사 '낼'은 뒤 낱말(거·게·수·때)로 가른다
+@pytest.mark.parametrize("verb", ["돈은 내가 낼 거야", "밥값도 우리가 낼 수 있어", "회비는 다음에 낼 때 같이 줘"])
+def test_nael_verb_after_particle_is_not_tomorrow(verb):
+    from app.services.companion.reply_service import _nael_to_tomorrow
+    assert _nael_to_tomorrow(verb) == verb
+
+
+# 11/27 #359 점검 S-5: 연락 낱말마다 사람 틀 질문을 쓰지 않는다
+@pytest.mark.parametrize("contact", ["전화", "통화", "문자", "연락", "카톡", "영상"])
+def test_each_remote_contact_word_skips_person_template(contact):
+    from app.services.companion.reply_service import _template_question
+    assert _template_question("조카", True, f"이따 조카가 {contact} 준대") == "조카 이야기 조금 더 들려주시겠어요?"
+
+
+# 11/27 #359 점검 S-1: 마지막 인사 검사도 '낼'을 앞일로 본다
+def test_last_turn_check_sees_nael():
+    from app.services.companion.reply_service import strict_failures
+    body = "약국 다녀오셨군요. 오늘 하루 수고 많으셨어요. 편히 쉬세요."
+    assert strict_failures(body, True, "낼 약국 가") == ["앞일을 한 일로"]
+    assert strict_failures(body, True, "관리비 낼 날이야") == []
+
+
+# 11/27 #359 점검 S-2: 할 일을 말한 어르신에게 시간 낱말 틀 질문("내일에는 뭐 하실 거예요?")을 쓰지 않는다
+def test_time_word_template_skipped_when_plan_stated():
+    # 대답에 시간 낱말만 있으면 그것밖에 못 고른다 - 어르신이 할 일을 말했으므로 고쳐 쓰지 않는다
+    body = "내일 바쁘시겠네요. 특별히 하실 일이 있으신가요?"
+    assert rewrite_vague(body, "낼 은행 가서 통장 정리해야 돼") is None
+    assert rewrite_vague(body, "내일 은행 가서 통장 정리해야 돼") is None
+    # 할 일을 말하지 않았으면 시간 틀 질문을 그대로 쓴다
+    assert rewrite_vague("주말엔 푹 쉬시는군요. 특별히 하실 일이 있으신가요?", "주말엔 그냥 쉬어야지") == "주말엔 푹 쉬시는군요. 주말에는 뭐 하실 거예요?"
+
+
+# 11/27 #359 점검 S-4: '아들 내외'·'딸네 부부'는 한 낱말로 쓴다
+def test_person_tail_is_joined():
+    body = "아들 내외분이 오시면 반찬 준비하시느라 바쁘시겠네요. 특별히 좋아하시는 반찬이 있으신가요?"
+    out = rewrite_vague(body, "낼모레 주말엔 아들 내외가 온다더라")
+    assert out is not None and out.endswith("아들 내외와는 뭐 하실 거예요?")
