@@ -341,9 +341,24 @@ def _is_future_clause(clause: str) -> bool:
     return bool(_PLAIN_FUT_TIME.search(clause)) and not any(_is_ss(ch) for ch in clause)
 
 
+# 11/27 켠 상태 점검 N-2: 말로 줄인 '낼'(내일)을 시간 낱말로 보지 못해 "낼 … 가게에 가서 / 사 와야 해"를 이유 절로 잘랐다.
+#   절을 나누기 전에 시간 낱말로 쓰인 '낼'만 '내일'로 바꾼다. 동사 '내다'는 뒤 낱말("돈 낼 거야"·"회비 낼 때")과
+#   앞 낱말로 가른다 - 앞에 목적어 이름말이 오면 동사다("세금 낼 날"·"점심값 낼 사람"). 시간 '낼'은 말 첫머리이거나
+#   앞 낱말이 조사·연결 어미로 끝난다("그래서 낼"·"딸이 낼"·"나는 낼")
+_NAEL_CANDIDATE = re.compile(r"(?<![가-힣])낼(?=(?:은|도|부터)?(?:\s+(?!거|게|께|수|때|까|줄|만큼|건|걸)|$))")
+_NAEL_PREV_END = ("서", "고", "데", "니까", "니", "어", "아", "지", "야", "요", "이", "가", "은", "는", "도", "랑", "하고", "나", "난", "응", "그럼", "아마", "또")
+
+
+def _nael_to_tomorrow(text: str) -> str:
+    def sub(m: re.Match) -> str:
+        prev = re.findall(r"[가-힣]+", text[:m.start()])
+        return "내일" if not prev or prev[-1].endswith(_NAEL_PREV_END) else m.group(0)
+    return _NAEL_CANDIDATE.sub(sub, text)
+
+
 def _split_pieces(transcript: str) -> list[str]:
     out = []
-    for piece in TENSE_CLAUSE.split(transcript or ""):
+    for piece in TENSE_CLAUSE.split(_nael_to_tomorrow(transcript or "")):
         start = 0
         for m in _LINK_END.finditer(piece):
             ch, end = m.group(1), m.group(2)
@@ -471,7 +486,7 @@ def rewrite_tense(body: str, transcript: str) -> str | None:
     if all(f for _, f in _clause_tags(transcript)) and _still_past(TENSE_OK_PAST.sub("", question)):
         picked = _topic_word(transcript, body)
         if picked is not None:
-            question = _template_question(picked[0], True)
+            question = _template_question(picked[0], True, transcript)
     text = " ".join(head + [question])
     return None if is_tense_error(text, transcript) else text
 
@@ -566,16 +581,22 @@ def rewrite_vague(body: str, transcript: str) -> str | None:
     if not sents or picked is None:
         return None
     head = [s for s in sents[:-1] if not is_tense_error(s, transcript)] or ["그러시군요."]
-    return " ".join(head[:1] + [_template_question(*picked)])
+    return " ".join(head[:1] + [_template_question(*picked, transcript)])
 
 
-def _template_question(word: str, fut: bool) -> str:
-    """낱말 틀 질문. 앞일이면 시간 "~에는"·장소 "~에서는"·사람 "~과는 뭐 하실 거예요?", 그 밖은 "~ 이야기 조금 더 들려주시겠어요?"."""
+# 11/27 켠 상태 점검 N-1: "며느리가 전화한다고 했으니까" → "며느리와는 뭐 하실 거예요?" - 만나지 않고 연락만 하는 사람에게
+#   함께 할 일을 묻게 된다. 어르신 말에 연락 낱말이 있으면 사람 틀 대신 "~ 이야기 조금 더"를 쓴다
+_REMOTE_CONTACT = re.compile(r"전화|통화|문자|연락|카톡|영상")
+
+
+def _template_question(word: str, fut: bool, transcript: str = "") -> str:
+    """낱말 틀 질문. 앞일이면 시간 "~에는"·장소 "~에서는"·사람 "~과는 뭐 하실 거예요?"(연락만 하는 사람 제외),
+    그 밖은 "~ 이야기 조금 더 들려주시겠어요?"."""
     if fut and (word in TIME_NOUNS or word.endswith("요일")):
         return word + "에는 뭐 하실 거예요?"
     if fut and word.endswith(PLACE_NOUNS):
         return word + "에서는 뭐 하실 거예요?"
-    if fut and word.split()[-1] in PERSON_STEMS:
+    if fut and word.split()[-1] in PERSON_STEMS and not _REMOTE_CONTACT.search(transcript):
         return _josa(word, "과는", "와는") + " 뭐 하실 거예요?"
     return word + " 이야기 조금 더 들려주시겠어요?"
 
