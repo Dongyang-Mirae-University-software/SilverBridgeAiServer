@@ -598,7 +598,9 @@ def _states_plan_content(transcript: str) -> bool:
         for ri, raw in enumerate(raws):
             w = _PARTICLE_TAIL.sub("", raw)
             # 11/27 #361 점검 U-2: '하나'는 "뭐 하나 몰라"처럼 '뭐' 뒤에서만 할 일이 아니다 ("우산 하나 사야지"는 할 일)
-            if w == "하나" and ri > 0 and raws[ri - 1] == "뭐":
+            # 11/27 #362 점검 V-1: '하나도'·'하나 없어'·'하나 안 해'처럼 부정과 함께 쓰여도 할 일이 아니다
+            if w == "하나" and ((ri > 0 and raws[ri - 1] == "뭐") or raw == "하나도"
+                               or (ri + 1 < len(raws) and raws[ri + 1].startswith(("없", "안")))):
                 continue
             if (len(w) >= 2 and w[:2] not in TENSE_TIME_STEMS and not w.endswith("요일") and not w.endswith(_VERBISH_TAIL)
                     and w not in NOT_TOPIC_WORDS and w not in FLAT_ANSWER_WORDS and not w.startswith(_VAGUE_PLAN_PREFIXES)):
