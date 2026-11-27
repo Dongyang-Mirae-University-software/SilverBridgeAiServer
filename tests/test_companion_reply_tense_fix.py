@@ -500,10 +500,12 @@ def test_still_past_generic_ss_question_becomes_template():
     # 11/26 모델 재생성 측정: 부사는 틀 질문 낱말로 고르지 않는다 (품질 세트 문구와 다른 새 문장)
     ("남은 걸로 대강 차리셨군요. 특별히 좋아하시는 반찬이 있으신가요?", "남은 걸로 대강 차렸어"),
     ("천천히 걸으셨군요. 특별히 좋아하시는 길이 있으신가요?", "공원을 천천히 걸었어"),
+    # 11/27 켠 상태 점검 N-3: 목록에 없는 '-히' 부사 (목록 덕에 통과하지 않게)
+    ("넉넉히 해 두셨군요. 특별히 신경 쓰신 게 있으신가요?", "넉넉히 해 뒀어"),
 ])
 def test_adverbs_are_not_topic_words(body, transcript):
     out = rewrite_vague(body, transcript)
-    assert out is None or not any(w in out.split(". ")[-1] for w in ("대강", "천천히"))
+    assert out is None or not any(w in out.split(". ")[-1] for w in ("대강", "천천히", "넉넉히"))
 
 
 def test_switch_defaults_are_on(monkeypatch):
@@ -517,3 +519,28 @@ def test_switch_defaults_are_on(monkeypatch):
     from app.core import config
     src = inspect.getsource(config)
     assert '_as_choice("COMPANION_REPLY_TENSE_FIX", "rewrite"' in src and '_as_bool("COMPANION_REPLY_VAGUE_REWRITE", True)' in src
+
+
+# 11/27 켠 상태 점검 N-1: 연락만 하는 사람에게는 "~와는 뭐 하실 거예요?"를 쓰지 않는다
+def test_person_template_skips_remote_contact():
+    from app.services.companion.reply_service import _template_question
+    assert _template_question("손자", True, "이따 손자가 영상통화 한대") == "손자 이야기 조금 더 들려주시겠어요?"
+    assert _template_question("조카", True, "주말에 조카한테 전화하려고") == "조카 이야기 조금 더 들려주시겠어요?"
+    assert _template_question("손자", True, "이따 손자가 온대") == "손자와는 뭐 하실 거예요?"
+
+
+# 11/27 켠 상태 점검 N-2: 말로 줄인 '낼'(내일)도 앞일 시간 낱말이다 - 동사 '내다'는 아니다
+def test_nael_is_tomorrow_only_as_time_word():
+    from app.services.companion.reply_service import _nael_to_tomorrow as f
+    assert f("낼 아침에 나가") == "내일 아침에 나가"
+    assert f("낼은 쉬어") == "내일은 쉬어"
+    assert f("그래서 낼 병원 가") == "그래서 내일 병원 가"
+    assert f("아들이 낼 들른대") == "아들이 내일 들른대"
+    for verb in ("이번 달 회비 낼 거야", "병원비 낼 때 됐어", "내가 낼게", "돈 낼 수 있어", "관리비 낼 날이 다가와", "밥값 낼 사람 정했어"):
+        assert f(verb) == verb
+
+
+def test_nael_future_clause_with_reason_link():
+    elder = "고추가 떨어져서 낼 시장에 가서 두 근 사 와야지"
+    assert is_tense_error("시장에서 고추를 사 오셨군요. 장 보시면서 즐거우셨나요?", elder)
+    assert not is_tense_error("고추가 떨어지셨군요. 시장은 몇 시쯤 가실 거예요?", elder)
