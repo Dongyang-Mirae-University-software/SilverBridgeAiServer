@@ -494,7 +494,8 @@ def rewrite_tense(body: str, transcript: str) -> str | None:
 # 11/25 막연한 질문 고쳐 쓰기 (COMPANION_REPLY_VAGUE_REWRITE): 다시 만들기(VAGUE_REDO)는 다시 만들어도 막연했고, 대체 문장은 대화를
 #   밋밋하게 만들었다. 모델 공감 문장은 두고 질문만 어르신 말의 낱말로 만든 틀 질문으로 바꾼다.
 VAGUE_PLAN_Q = re.compile(r"하실\s?계획이\s?있으|어떤\s?계획을")  # is_vague_question 에 더해 계획을 캐묻는 막연한 질문도 본다
-_PARTICLE_TAIL = re.compile(r"(?:에서|에게|한테|이랑|하고|까지|부터|으로|에만|이나|처럼|보다|은|는|을|를|에|도|랑|로|와|과|의|만|이|가)$")
+# 11/27 #359 점검 중 발견: '엔'(에는의 준말)을 떼지 않아 "주말엔 이야기 조금 더"가 됐다 - '에는'·'엔'을 더했다
+_PARTICLE_TAIL = re.compile(r"(?:에서|에게|한테|이랑|하고|까지|부터|으로|에만|에는|이나|처럼|보다|엔|은|는|을|를|에|도|랑|로|와|과|의|만|이|가)$")
 # 이름말이 아닌 말(부사·꾸밈말·홀로 못 쓰는 말). 틀 질문에 넣으면 "혼자 이야기", "나쁜 이야기", "다음은 어떻게"가 된다
 #   11/26 모델 재생성 측정: 부사 '대충'을 골라 "대충 이야기 조금 더 들려주시겠어요?"가 됐다 - 흔한 부사를 넓히고, '-히'로 끝나는 말(천천히·열심히)도 뺀다
 NOT_TOPIC_WORDS = frozenset({"혼자", "다음", "하루", "요즘", "아까", "방금", "그냥", "정말", "너무", "같이", "함께", "조금", "많이", "다시",
@@ -507,6 +508,8 @@ _VERBISH_TAIL = tuple("어아야요고대해했지네다서면게던는니려까
 TIME_NOUNS = ("주말", "내일", "모레", "저녁", "오후", "오늘", "아침", "점심")  # '~요일'도 시간 낱말로 본다
 PLACE_NOUNS = ("경로당", "회관", "복지관", "시장", "병원", "교회", "성당", "목욕탕", "미용실", "센터", "공원", "마트", "텃밭", "약국",
                "은행", "아들네", "딸네", "동네", "학교")
+# 사람 낱말 뒤에 붙어 한 사람(들)을 가리키는 말 ("아들 내외"·"딸네 부부" - 11/27 #359 점검 S-4: "내외 이야기"가 됐다)
+PERSON_TAILS = ("내외", "부부", "식구", "가족")
 PERSON_STEMS = ("딸", "아들", "손주", "사촌", "조카", "손녀", "손자", "따님", "아드님", "친구", "며느리", "사위", "남편", "아내", "영감", "언니",
                 "동생", "오빠", "누나", "형님", "이웃", "자식", "애들", "아이들")
 
@@ -557,7 +560,7 @@ def _topic_word(transcript: str, body: str) -> tuple[str, bool] | None:
                     continue
                 if f in PERSON_STEMS and ri + 1 < len(raws):
                     nxt = _PARTICLE_TAIL.sub("", raws[ri + 1])
-                    if nxt in PERSON_STEMS and f"{f} {nxt}" in body:
+                    if (nxt in PERSON_STEMS or nxt in PERSON_TAILS) and f"{f} {nxt}" in body:
                         f = f"{f} {nxt}"
                     elif (len(nxt) >= 2 and not nxt.endswith(_VERBISH_TAIL) and nxt not in NOT_TOPIC_WORDS
                           and nxt not in FLAT_ANSWER_WORDS and nxt[:2] not in TENSE_TIME_STEMS and not nxt.endswith("요일")
@@ -570,8 +573,28 @@ def _topic_word(transcript: str, body: str) -> tuple[str, bool] | None:
                 break
     if not picks:
         return None
-    _, _, word, fut = min(picks, key=lambda x: (x[0], x[1]))
+    rank, _, word, fut = min(picks, key=lambda x: (x[0], x[1]))
+    # 11/27 #359 점검 S-2: 시간 낱말밖에 못 골랐는데 어르신이 그때 할 일을 말했으면("낼 마트 가서 장 봐 올 거야")
+    #   "내일에는 뭐 하실 거예요?"가 같은 것을 다시 묻는다 - 고르지 않는다 (고쳐 쓰지 않고 원문을 둔다)
+    if rank == 2 and _states_plan_content(transcript):
+        return None
     return word, fut
+
+
+def _states_plan_content(transcript: str) -> bool:
+    """앞일 절에 시간 낱말 말고 이름말·동작이 있는가 ("낼 마트 가서" - 있음 / "주말엔 뭐 할지 몰라" - 없음)."""
+    for c, fut in _clause_tags(transcript):
+        if not fut:
+            continue
+        for raw in re.findall(r"[가-힣]+", c):
+            w = _PARTICLE_TAIL.sub("", raw)
+            if (len(w) >= 2 and w[:2] not in TENSE_TIME_STEMS and not w.endswith("요일") and not w.endswith(_VERBISH_TAIL)
+                    and w not in NOT_TOPIC_WORDS and w not in FLAT_ANSWER_WORDS and w not in _VAGUE_PLAN_WORDS):
+                return True
+    return False
+
+
+_VAGUE_PLAN_WORDS = frozenset({"모르겠", "몰라", "글쎄", "아직", "별로", "생각", "계획"})
 
 
 def rewrite_vague(body: str, transcript: str) -> str | None:
@@ -596,7 +619,7 @@ def _template_question(word: str, fut: bool, transcript: str = "") -> str:
         return word + "에는 뭐 하실 거예요?"
     if fut and word.endswith(PLACE_NOUNS):
         return word + "에서는 뭐 하실 거예요?"
-    if fut and word.split()[-1] in PERSON_STEMS and not _REMOTE_CONTACT.search(transcript):
+    if fut and (word.split()[-1] in PERSON_STEMS or word.split()[-1] in PERSON_TAILS) and not _REMOTE_CONTACT.search(transcript):
         return _josa(word, "과는", "와는") + " 뭐 하실 거예요?"
     return word + " 이야기 조금 더 들려주시겠어요?"
 
@@ -634,7 +657,8 @@ def strict_failures(body: str, is_last_turn: bool, transcript: str) -> list[str]
     """11/21 검사 보강 ①~③. 걸린 항목 이름 목록. ③ 계획 질문은 COMPANION_REPLY_STRICT_PLAN(기본 끔)일 때만 (11/22)."""
     out = []
     if is_last_turn:
-        if STRICT_FUTURE_MARK.search(transcript) and STRICT_DONE_FORM.search(body):
+        # 11/27 #359 점검 S-1: 말로 줄인 '낼'(내일)도 앞일로 본다 (꼬리질문 시제 판정과 같은 바꾸기)
+        if STRICT_FUTURE_MARK.search(_nael_to_tomorrow(transcript)) and STRICT_DONE_FORM.search(body):
             out.append("앞일을 한 일로")
         return out
     q = _question_part(body)
