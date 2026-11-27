@@ -648,3 +648,10 @@ def test_each_vague_plan_prefix(word):
     assert word in rs._VAGUE_PLAN_PREFIXES
     w = word + "임"  # 다른 거르기(동사 꼴·조사)에 걸리지 않는 꼴로 앞부분만 본다
     assert not rs._states_plan_content(f"내일은 {w} 하려고")
+
+
+# 11/27 #362 점검 V-1: 부정과 함께 쓰인 '하나'도 할 일이 아니다 (조건마다 하나씩)
+@pytest.mark.parametrize("elder", ["낼은 하나 없어", "주말엔 하나도 할 거 없어", "모레는 하나 안 해"])
+def test_hana_with_negation_is_not_plan(elder):
+    from app.services.companion.reply_service import _states_plan_content
+    assert not _states_plan_content(elder)
