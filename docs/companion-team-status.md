@@ -193,6 +193,7 @@ Written for: 팀원 전체 (BE·FE·관리자 화면·AI 담당). 노션 요구�
 | `COMPANION_REPLY_VAGUE_REWRITE` | true (11/27 false→true) | 꼬리질문이 막연하면(특별히 ~ 있으신가요·하실 계획이 있으신가요 등) 모델 공감 문장은 두고 질문만 어르신 말의 낱말로 만든 틀 질문으로 바꿈 (11/25). 앞일이면 시간 "~에는 뭐 하실 거예요?"·장소 "~에서는"·사람 "~과는"(사촌 동생처럼 이어진 사람 낱말은 붙여), 그 밖은 "~ 이야기 조금 더 들려주시겠어요?". 낱말을 못 찾거나 글 기분이 부정인 턴·지난 말벗 문장과 비슷하면 원문을 둠. 부정 기분 턴 제외는 `COMPANION_RISK_FIRST`(기본 켬)일 때만 작동 - 끄면 대답을 만들 때 글 기분이 없다(11/26 재점검 N-8). 시제 검사가 일부러 보지 않는 것(11/26 재점검 2 P-7): 못 간 일을 다녀온 일로 받는 모순("가려고 했는데 못 갔어" + "사 오셨나요?"), 바람("가고 싶어"), 짐작("올 것 같아") - 시제 오류가 아니라 별도 검사 몫. 로그 `[COMPANION-REPLY-VAGUE-REWRITE] ok=` |
 
 - 고쳐 쓰기 날짜별 횟수 (11/27): `GET /companion/ops/rewrite-counts?from=&to=` (X-API-Key, KST 날짜별 `followup_checked`·`tense_rewrite|keep`·`vague_ok|fail`, 원문 없음, 검수 DB `companion_rewrite_daily`, 보관 90일). 재시작해도 남는다 (gosky 는 볼륨의 sqlite)
+
 | `COMPANION_AVOID_END_COUNT` | 2 | 한 대화에서 이 횟수만큼 말을 피하면(위험 턴 제외) 마무리 문장으로 답하고 `endReason=AVOIDED` 로 끝냄(11/12, BE V72 - 끝내기를 누른 `USER_STOP`과 구별). 0이면 일찍 끝내지 않음 |
 | `COMPANION_BODY_SAFETY_REPLY` | true | 몸 응급 낱말(숨·가슴·쓰러짐·뇌졸중 징후)만 걸린 위험 턴은 "많이 놀라셨겠어요. 몸이 많이 불편하시거나 위급한 상황이면 바로 119에 전화하시고, 가까운 가족에게도 알려 주세요."(본인 몸 응급·"영감이 쓰러졌어" 같은 위급 상황 모두)로 답함 (11/12). 자해·죽음 낱말이 같이 있거나 모델 확률로만 위험이면 기존 안내. false 면 전과 같음 |
 | `COMPANION_CONFIRM_RISK_MODEL` | true | 단어 확인(되묻기) 턴에서도 위험 모델을 돌리고 위험이면 안전 안내 (H-3). false 면 낱말 규칙만 |
