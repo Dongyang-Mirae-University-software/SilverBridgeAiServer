@@ -208,6 +208,8 @@ Written for: 팀원 전체 (BE·FE·관리자 화면·AI 담당). 노션 요구�
 | `COMPANION_PSEUDONYM_SALT` | (비움, 비밀) | 가명 처리 키. 비우면 개선 DB 기능 끔 |
 | `COMPANION_LLM_DTYPE` | bfloat16 | 요약 모델 메모리 설정 |
 
+- 고쳐 쓰기 날짜별 횟수 (11/27): `GET /companion/ops/rewrite-counts?from=&to=` (X-API-Key, KST 날짜별 `followup_checked`·`tense_rewrite|keep`·`vague_ok|fail`, 원문 없음, 검수 DB `companion_rewrite_daily`, 보관 90일). 재시작해도 남는다 (gosky 는 볼륨의 sqlite)
+
 ### 7-5. 오류 코드 (계약 문서 기준)
 
 `docs/companion-contract.md`의 오류 표가 기준입니다. 주요 항목은 다음과 같습니다.

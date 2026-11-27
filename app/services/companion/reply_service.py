@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.services.companion.llm_client import REPLY_ADAPTER, REPLY_LAST_ADAPTER, LlmClient, LlmUnavailable
 from app.services.companion import risk_carry
 from app.services.companion.risk import body_emergency_only, keyword_risk
+from app.services.companion.rewrite_counts import rewrite_counts
 
 logger = logging.getLogger(__name__)
 
@@ -649,9 +650,10 @@ def _apply_followup_fixes(text: str, transcript: str, text_mood: dict | None, pa
     LLM 을 다시 부르지 않는다 (11/26 점검 H-2: 다시 만들기(redo)를 없앴다 - 측정에서 엉뚱함이 늘었고, 한 번뿐인 다시 만들기 기회를 먼저 썼다).
     고친 문장이 이 대화의 지난 말벗 문장과 비슷하면 원문을 둔다 (M-3 - 틀 질문이 되풀이되지 않게).
     글 기분이 부정인 턴은 막연한 질문을 고치지 않는다 (L-4 - 힘든 이야기에 낱말 틀 질문을 들이밀지 않게).
-    로그에는 동작 이름만 남긴다 (대답·어르신 말 원문 없음).
+    로그에는 동작 이름만 남긴다 (대답·어르신 말 원문 없음). 날짜별 횟수도 남긴다 (11/27 - 재시작 뒤에도 운영 점검용, rewrite_counts).
     """
     s = get_settings()
+    counted: list[tuple[str, str]] = [("followup", "checked")]
 
     def usable(t: str | None) -> bool:
         return (t is not None and not check_reply(t, False, transcript, text_mood) and not is_tense_error(t, transcript)
@@ -661,14 +663,17 @@ def _apply_followup_fixes(text: str, transcript: str, text_mood: dict | None, pa
         t = rewrite_tense(text, transcript)
         ok = usable(t)
         logger.info("[COMPANION-REPLY-TENSE] action=%s", "rewrite" if ok else "keep")
+        counted.append(("tense", "rewrite" if ok else "keep"))
         if ok:
             text = t
     if s.companion_reply_vague_rewrite and not is_negative_mood(text_mood) and is_vague_for_rewrite(text, transcript):
         v = rewrite_vague(text, transcript)
         ok = usable(v)
         logger.info("[COMPANION-REPLY-VAGUE-REWRITE] ok=%s", ok)
+        counted.append(("vague", "ok" if ok else "fail"))
         if ok:
             text = v
+    rewrite_counts.record(counted)
     return text
 
 

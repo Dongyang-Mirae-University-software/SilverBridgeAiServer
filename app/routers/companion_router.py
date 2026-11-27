@@ -6,7 +6,9 @@ import time
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, Request
+from datetime import date, timedelta
+
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
@@ -28,6 +30,7 @@ from app.services.companion import risk_carry
 from app.services.companion.risk import body_emergency_only
 from app.services.companion.reply_service import reply_prompt_version
 from app.services.companion.review_store import STATUSES, review_store
+from app.services.companion.rewrite_counts import RETENTION_DAYS, rewrite_counts, today_kst
 from app.services.companion.stt_engine import get_stt_api_transcriber, transcribe_turn_audio
 from app.services.companion.audio_decode import TARGET_RATE, decode_to_pcm16k
 from app.services.companion.stt_service import SttUnavailable
@@ -311,6 +314,24 @@ def review_decide(item_id: str, body: ReviewDecision) -> dict:
     if row is None:
         raise CompanionError(404, "REVIEW_ITEM_NOT_FOUND", "검수 항목을 찾을 수 없습니다.")
     return success_response("검수 결정을 저장했습니다.", row)
+
+
+@router.get(
+    "/ops/rewrite-counts",
+    summary="꼬리질문 고쳐 쓰기 날짜별 횟수 (운영 점검용, 개수만)",
+    description="KST 날짜별 꼬리질문 검사 턴 수(`followup_checked`)와 시제 고쳐 쓰기(`tense_rewrite`·`tense_keep`), "
+                "막연한 질문 고쳐 쓰기(`vague_ok`·`vague_fail`) 횟수. 원문·피보호자 정보 없음. "
+                "`from`·`to`는 YYYY-MM-DD(기본 최근 30일, 최대 90일 - 보관 90일). 형식 오류·범위 초과는 422 DATE_INVALID.",
+)
+def rewrite_count_list(from_: str | None = Query(default=None, alias="from"), to: str | None = None) -> dict:
+    try:
+        end = date.fromisoformat(to) if to else today_kst()
+        start = date.fromisoformat(from_) if from_ else end - timedelta(days=29)
+    except ValueError:
+        raise CompanionError(422, "DATE_INVALID", "from·to 는 YYYY-MM-DD 형식입니다.")
+    if start > end or (end - start).days >= RETENTION_DAYS:
+        raise CompanionError(422, "DATE_INVALID", f"from 은 to 이전이고 기간은 {RETENTION_DAYS}일 이하여야 합니다.")
+    return success_response("고쳐 쓰기 횟수", {"from": start.isoformat(), "to": end.isoformat(), "days": rewrite_counts.by_day(start, end)})
 
 
 @router.delete(
