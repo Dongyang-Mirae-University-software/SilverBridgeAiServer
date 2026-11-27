@@ -623,3 +623,28 @@ def test_particle_eneun_is_stripped():
 # 11/27 #360 점검 T-2: 앞일이 아닌 시간 낱말만 남으면 틀 질문을 만들지 않는다
 def test_non_future_time_word_alone_is_not_picked():
     assert rewrite_vague("토요일이 금방 오네요. 특별히 하실 일이 있으신가요?", "토요일엔 별로 할 게 없어") is None
+
+
+# 11/27 #361 점검 U-1: 지난 일 꼴은 틀 질문 낱말이 아니다
+def test_past_verb_form_is_not_topic_word():
+    from app.services.companion.reply_service import _topic_word
+    assert _topic_word("빨래 다 말랐을 거야", "빨래가 다 말랐을 거라니 좋네요. 특별히 하실 일이 있으신가요?") [0] == "빨래"
+    # 지난 일 꼴만 후보로 남는 말 - 고르지 않는다 (U-1 전에는 "말랐 이야기 조금 더")
+    assert _topic_word("다 말랐을 거야", "다 말랐을 거라니 다행이에요. 특별히 하실 일이 있으신가요?") is None
+
+
+# 11/27 #361 점검 U-2: '하나'는 '뭐 하나'일 때만 할 일이 아니다
+def test_hana_only_vague_after_mwo():
+    from app.services.companion.reply_service import _states_plan_content
+    assert not _states_plan_content("주말엔 뭐 하나 몰라")
+    assert _states_plan_content("낼 우산 하나 사야지")
+
+
+# 11/27 #361 점검 U-4: 앞부분 목록 항목마다 홀로 쓰여도 할 일로 보지 않는다 (다른 거르기와 겹치지 않는 꼴)
+@pytest.mark.parametrize("word", ["모르", "몰라", "몰랐", "글쎄", "아직", "별로", "별일", "별거", "별다", "생각", "계획", "그냥", "달라",
+                                  "특별", "똑같", "마찬", "그대로", "맨날", "매일", "늘상", "평소"])
+def test_each_vague_plan_prefix(word):
+    from app.services.companion import reply_service as rs
+    assert word in rs._VAGUE_PLAN_PREFIXES
+    w = word + "임"  # 다른 거르기(동사 꼴·조사)에 걸리지 않는 꼴로 앞부분만 본다
+    assert not rs._states_plan_content(f"내일은 {w} 하려고")

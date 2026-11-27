@@ -551,6 +551,9 @@ def _topic_word(transcript: str, body: str) -> tuple[str, bool] | None:
                 forms = [stripped]
             for f in forms:
                 ne_person = f.endswith("네") and f[:-1] in PERSON_STEMS  # '며느리네'는 동사 꼴('-네')이 아니다 (T-3)
+                # 11/27 #361 점검 U-1: 조사를 떼고 남은 지난 일 꼴('말랐을' → '말랐')은 이름말이 아니다 ("말랐 이야기 조금 더" 방지)
+                if f and _is_ss(f[-1]):
+                    continue
                 if (len(f) < 2 or (f.endswith(_VERBISH_TAIL) and not ne_person) or f.endswith("히") or f in FLAT_ANSWER_WORDS or f in NOT_TOPIC_WORDS
                         or f not in body):
                     continue
@@ -591,8 +594,12 @@ def _states_plan_content(transcript: str) -> bool:
     for c, fut in _clause_tags(transcript):
         if not fut:
             continue
-        for raw in re.findall(r"[가-힣]+", c):
+        raws = re.findall(r"[가-힣]+", c)
+        for ri, raw in enumerate(raws):
             w = _PARTICLE_TAIL.sub("", raw)
+            # 11/27 #361 점검 U-2: '하나'는 "뭐 하나 몰라"처럼 '뭐' 뒤에서만 할 일이 아니다 ("우산 하나 사야지"는 할 일)
+            if w == "하나" and ri > 0 and raws[ri - 1] == "뭐":
+                continue
             if (len(w) >= 2 and w[:2] not in TENSE_TIME_STEMS and not w.endswith("요일") and not w.endswith(_VERBISH_TAIL)
                     and w not in NOT_TOPIC_WORDS and w not in FLAT_ANSWER_WORDS and not w.startswith(_VAGUE_PLAN_PREFIXES)):
                 return True
@@ -601,7 +608,7 @@ def _states_plan_content(transcript: str) -> bool:
 
 # 할 일이 없다는 말에 나오는 낱말의 앞부분 (11/27 #360 점검 T-1: 정확히 같은 낱말만 보아 '모르겠네'·'하나'('뭐 하나 몰라')·'달라질'을
 #   할 일로 잘못 봤다 - 앞부분이 같은지로 본다)
-_VAGUE_PLAN_PREFIXES = ("모르", "몰라", "몰랐", "글쎄", "아직", "별로", "별일", "별거", "별다", "생각", "계획", "그냥", "하나", "달라",
+_VAGUE_PLAN_PREFIXES = ("모르", "몰라", "몰랐", "글쎄", "아직", "별로", "별일", "별거", "별다", "생각", "계획", "그냥", "달라",
                         "특별", "똑같", "마찬", "그대로", "맨날", "매일", "늘상", "평소")
 
 
