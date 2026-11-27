@@ -43,7 +43,8 @@ def settings(monkeypatch):
          companion_reply_similar_ratio=0.65, companion_reply_redo_temperature=0.7, companion_llm_retry=0,
          companion_risk_first=True, companion_reply_relax_calm=True, companion_avoid_reply=True,
          companion_keep_fixed_replies=True, companion_llm_temperature=0.1,
-         companion_flat_topic_switch=0)  # #279 동작만 본다 (짧은 대답 화제 전환은 test_companion_flat_topic_switch)
+         companion_flat_topic_switch=0,  # #279 동작만 본다 (짧은 대답 화제 전환은 test_companion_flat_topic_switch)
+         companion_reply_tense_fix="off", companion_reply_vague_rewrite=False)  # 고쳐 쓰기(11/27 기본 켬)는 test_companion_reply_tense_fix
     return set_
 
 

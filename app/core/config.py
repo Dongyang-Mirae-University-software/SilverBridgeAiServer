@@ -520,12 +520,15 @@ class Settings(BaseModel):
     companion_reply_vague_redo: bool = _as_bool("COMPANION_REPLY_VAGUE_REDO", False)
     # 꼬리질문이 어르신이 앞으로 하실 일을 이미 한 일처럼 받으면(앞일 절의 낱말 + 과거형) 고쳐 쓴다 (11/25).
     #   rewrite = 질문 어미를 앞일로 바꾸고(어려우셨나요 → 어려우신가요, 나누셨나요 → 나누실 건가요) 틀린 공감 문장은 "그러시군요."로.
-    #   고쳐도 규칙에 걸리면 모델 원문을 둔다 (대체 문장으로 바꾸지 않는다). off = 보지 않는다 (전과 같다). 기본 off - 채택 측정 전
+    #   고쳐도 규칙에 걸리면 모델 원문을 둔다 (대체 문장으로 바꾸지 않는다). off = 보지 않는다 (전과 같다). (11/27부터 기본 rewrite - 아래)
     #   11/26 점검 H-2: redo(힌트로 다시 만들기)는 없앴다 - 엉뚱함이 늘었고 한 번뿐인 다시 만들기 기회를 먼저 썼다. 예전 값 redo 는 경고 후 off
-    companion_reply_tense_fix: str = _as_choice("COMPANION_REPLY_TENSE_FIX", "off", ("off", "rewrite"))
+    #   11/27 기본 rewrite (사용자 결정): 판정 세트 앞일 오류 13→7·26→9, 품질 세트 고쳐 쓴 턴 38 중 규칙 실패 1·어색 0/19.
+    #   품질 세트 2차 기준은 6회 중 3회 미달이었으나 늘어난 실패는 고쳐 쓰기와 상관없는 턴에서 났다 (측정 기록 2026-11-20 문서 마지막 절)
+    companion_reply_tense_fix: str = _as_choice("COMPANION_REPLY_TENSE_FIX", "rewrite", ("off", "rewrite"))
     # 꼬리질문이 막연하면 공감 문장은 두고 질문만 어르신 말의 낱말로 만든 틀 질문으로 바꾼다 (11/25). 낱말을 못 찾으면 원문을 둔다.
-    #   대체 문장으로 바꾸면 대화가 밋밋해져서(VAGUE_REDO 측정, 회차당 대체 +7~8) 모델 공감 문장을 살린다. 기본 끔 - 채택 측정 전
-    companion_reply_vague_rewrite: bool = _as_bool("COMPANION_REPLY_VAGUE_REWRITE", False)
+    #   대체 문장으로 바꾸면 대화가 밋밋해져서(VAGUE_REDO 측정, 회차당 대체 +7~8) 모델 공감 문장을 살린다. (11/27부터 기본 켬 - 아래)
+    #   11/27 기본 켬 (사용자 결정, 위와 같은 측정 - 판정 세트 막연한 질문 11→3·16→10)
+    companion_reply_vague_rewrite: bool = _as_bool("COMPANION_REPLY_VAGUE_REWRITE", True)
     # 대답 프롬프트에 이 대화의 흐름을 넣는다 (11/15, A안). summary = 말벗 문장 + 어르신 말 한 줄 요약(원문 아님),
     #   마지막 인사에도 직전 질문을 넣는다(reply-v4 · reply-v2-last, 11/21 전 reply-v3). off = 직전 문장 하나 + 이번 대답만(reply-v2, 전과 같음)
     #   11/20~21 cc7 에서는 summary 가 off 보다 나빠 기본 off 였다. 11/21 흐름 형식으로 학습한 cc8b 와 짝지어 기본 summary

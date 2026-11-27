@@ -23,7 +23,9 @@ def settings(monkeypatch):
     def set_(**kw):
         for k, v in kw.items():
             monkeypatch.setattr(s, k, v)
-    set_(companion_reply_vague_redo=True, companion_reply_strict=False, companion_reply_lora=False, companion_llm_retry=0,
+    # 다시 만들기(VAGUE_REDO)만 본다 - 고쳐 쓰기(11/27 기본 켬)는 끈다 (test_companion_reply_tense_fix 가 본다)
+    set_(companion_reply_tense_fix="off", companion_reply_vague_rewrite=False,
+         companion_reply_vague_redo=True, companion_reply_strict=False, companion_reply_lora=False, companion_llm_retry=0,
          companion_reply_history="off", companion_reply_similar_ratio=0.65)
     return set_
 
