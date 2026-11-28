@@ -179,6 +179,99 @@ _ALMOST_AFTER = re.compile(r"^[가-힣]{0,3}뻔")
 _WORRY_SENSITIVE = ("못일어나", "쓰러지", "쓰러져", "쓰러짐")
 _WORRY_AFTER = re.compile(r"^[가-힣]{0,3}(까봐|까싶|까걱정|면어떡|면어쩌|면어떻|지않게|지않도록|ㄹ때|면뭘)")
 
+# ---- 과다 복용을 수량·"한꺼번에"·최대 초과·중복으로 말한 꼴(2026-11-28 전체 점검 H-1) ----------------------------------------
+# "수면제 5알 먹었는데 괜찮나요?"는 키워드 "약을많이먹·약을한꺼번에·과다복용"에 걸리지 않아 상담으로 남았고, 약 질문 119 빼기가
+# 답의 119 문장까지 지웠다(라우터 실패 턴 확정 재현). 키워드는 그대로 두고 그 밖의 꼴만 본다. 공백 뺀 문장, 폭 제한 패턴.
+# 먹었다는 말은 과거·완료 꼴만 본다 - "5알씩 먹으려구요"·"몇 알까지 먹어도"·"또 먹어도 되나요"(앞으로의 일)는 아니다.
+# 사용자 결정(2026-11-28): 수량은 3 이상(2알은 정량인 경우가 많다) / 중복 복용은 위험 약(당뇨약·인슐린·수면제·안정제·항응고제)만
+# 응급, 그 밖의 약 중복은 응급이 아니고 119 문장만 지우지 않는다(overdose_told).
+_OD_GAP = r"[^.!?。,]"
+_OD_INTAKE = r"(먹었|드셨|드신(?!다)|먹은(?!적)|삼켰|삼킨|복용했|복용한(?!다)|먹어버렸|먹어버린|드셔버렸|털어넣|털어먹)"
+_OD_INJECT = r"(맞았|맞은(?!적)|놓았|놨|주사했)"  # 인슐린
+_OD_DRUG = re.compile(
+    r"(?<![예요절])약(?![간해하속])|수면제|수면유도제|진통제|해열제|타이레놀|게보린|펜잘|판콜|판피린|아스피린|인슐린|안정제|항우울제|알약|캡슐|정제"
+)
+_OD_SUPPLEMENT = re.compile(r"비타민|영양제|유산균|오메가|루테인|홍삼|칼슘|철분|마그네슘|밀크씨슬|프로폴리스|글루코사민|코큐텐|사탕|젤리|과자|껌")
+# 용법·처방을 말한 수량("2알씩", "처방대로 3알", "하루 세 번")은 과다 복용이 아니다.
+_OD_REGIMEN = re.compile(r"씩|처방대로|처방받은대로|처방된대로|처방량|시킨대로|말씀대로|먹으라|드시라|복용하라|하루에?(\d|한|두|세|네)번")
+_OD_UNIT = r"(알|정(?![도제적])|봉지|봉(?!투)|캡슐|포(?!기)|병(?!원))"
+_OD_COUNT = re.compile(
+    rf"(?<![\d.])([3-9]|[1-9]\d{{1,2}}|세|네|다섯|여섯|일곱|여덟|아홉|열|스무|서른|수십|몇십){_OD_UNIT}{_OD_GAP}{{0,10}}{_OD_INTAKE}"
+)
+_OD_BULK = re.compile(
+    rf"(한꺼번에|한번에|몽땅|통째로|한움큼|한주먹|다털어|한통을?다|한봉지를?다|약통을?다){_OD_GAP}{{0,12}}{_OD_INTAKE}"
+)
+_OD_BULK_SMALL = re.compile(rf"(?<![\d.])(1|2|한|두){_OD_UNIT}")  # "한 번에 2알" - 정량일 수 있어 수량 꼴(중복)로 넘긴다
+_OD_REFILL = re.compile(r"더받|다시받|새로받|떨어|타러|타와|받으러|받아야")  # "한 통을 다 먹었어요, 더 받아야" - 약이 떨어짐
+_OD_MAX = re.compile(rf"(최대|최고|정해진|정량|적정){_OD_GAP}{{0,12}}(넘게|넘겨|넘어|넘는|초과|보다많이|보다더){_OD_GAP}{{0,8}}{_OD_INTAKE}")
+_OD_MAX_NUM = re.compile(
+    rf"최대(\d{{1,3}}){_OD_UNIT}?(인데|이라는데|라는데|까지인데|까지라는데|이지만)(\d{{1,3}}){_OD_UNIT}?{_OD_GAP}{{0,6}}{_OD_INTAKE}"
+)
+_OD_DUP = re.compile(
+    rf"(또(?!는|한|래)|(?<!하루)(?<!하루에)두번(?!째)|두차례|한번더|중복으로?|이중으로?|두배로?){_OD_GAP}{{0,4}}({_OD_INTAKE}|{_OD_INJECT})"
+)
+_OD_HIGH_RISK = re.compile(
+    r"당뇨약|혈당약|혈당강하제|인슐린|메트포르민|글리메피리드|아마릴|다이아벡스|자누비아|수면제|수면유도제|졸피뎀|스틸녹스"
+    r"|안정제|알프라졸람|자낙스|로라제팜|아티반|와파린|쿠마딘|항응고제|피를?묽게|엘리퀴스|자렐토|프라닥사|릭시아나"
+)
+_OVERDOSE_KEYWORDS = ("약을많이먹", "약을한꺼번에", "과다복용")
+
+
+def _od_count_hit(c: str) -> bool:
+    # 영양제 이름은 붙은 숫자·영문까지 지우고 본다("오메가3 2캡슐"이 "32캡슐"로 읽히지 않게, "비타민d").
+    # 영양제만 말한 수량("유산균 3알")은 아니다 - 지우고도 약 낱말이 남아야 한다.
+    rest = re.sub(rf"({_OD_SUPPLEMENT.pattern})[a-z0-9]*", " ", c)
+    if not _OD_COUNT.search(rest) or _OD_REGIMEN.search(c):
+        return False
+    return rest == c or bool(_OD_DRUG.search(rest) or _OD_HIGH_RISK.search(rest))
+
+
+def _od_bulk_hit(c: str) -> bool:
+    for m in _OD_BULK.finditer(c):
+        word = m.group(1)
+        if word in ("한꺼번에", "한번에") and _OD_BULK_SMALL.search(m.group(0)):
+            continue
+        if word == "한번에" and _OD_REGIMEN.search(c):
+            continue
+        if word.endswith("다") and _OD_REFILL.search(c):
+            continue
+        return True
+    return False
+
+
+def overdose_signals(text: str) -> list[str]:
+    """과다 복용 응급 신호 이름(H-1). 기존 키워드에 이미 걸린 문장은 그 키워드가 맡는다. 라우터 성공·실패 모두(emergency_signals)."""
+    c = _plain(text)
+    if not (_OD_DRUG.search(c) or _OD_HIGH_RISK.search(c)):
+        return []
+    hits: list[str] = []
+    if _od_count_hit(c):
+        hits.append("과다복용:수량")
+    if _od_bulk_hit(c):
+        hits.append("과다복용:한꺼번에")
+    if _OD_MAX.search(c) or any(int(m.group(4)) > int(m.group(1)) for m in _OD_MAX_NUM.finditer(c)):
+        hits.append("과다복용:최대초과")
+    if _OD_DUP.search(c) and _OD_HIGH_RISK.search(c):
+        hits.append("과다복용:위험약중복")
+    return hits
+
+
+def overdose_told(text: str) -> bool:
+    """과다 복용·중복 복용을 말했는가(응급 신호 + 위험 약이 아닌 약의 중복). 약 질문 119 빼기의 예외로 쓴다(H-1 목표 2)."""
+    c = _plain(text)
+    return bool(overdose_signals(text)) or any(k in c for k in _OVERDOSE_KEYWORDS) or bool((_OD_DRUG.search(c) or _OD_HIGH_RISK.search(c)) and _OD_DUP.search(c))
+
+
+class _OverdoseActionSignal:
+    """응급 행동 표(_EMERGENCY_ACTIONS)의 signal 자리 - re.Pattern 처럼 search 만 쓴다. 키워드 꼴과 새 꼴을 함께 본다."""
+
+    def search(self, text: str) -> bool:
+        c = _plain(text)
+        return any(k in c for k in _OVERDOSE_KEYWORDS) or bool(overdose_signals(text))
+
+
+OVERDOSE_ACTION_SIGNAL = _OverdoseActionSignal()
+
 
 def emergency_signals(text: str) -> list[str]:
     """문장에 든 응급 키워드(공백 뺀 소문자 문장에 부분 일치). 비어 있지 않으면 응급이다. 라우터 성공·실패 모두 쓴다."""
@@ -189,6 +282,8 @@ def emergency_signals(text: str) -> list[str]:
             hits.remove(keyword)
     if "목에걸려" in hits and _PILL_FORM.search(c) and not _AIRWAY_DISTRESS.search(c) and not _CHOKING_FOOD.search(c):
         hits.remove("목에걸려")
+    if not any(k in hits for k in _OVERDOSE_KEYWORDS):
+        hits += overdose_signals(text)  # 수량·한꺼번에·최대 초과·위험 약 중복(H-1) - 기존 키워드 목록은 그대로
     return hits
 
 
