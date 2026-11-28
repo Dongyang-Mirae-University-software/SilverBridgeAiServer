@@ -238,6 +238,11 @@ _OVERDOSE_TOLD = re.compile(
 )
 
 
+def _overdose_told(message: str) -> bool:
+    """_OVERDOSE_TOLD 또는 수량·한꺼번에·최대 초과·중복 꼴(2026-11-28 H-1 - "수면제 5알 먹었는데"의 119 문장이 지워졌다)."""
+    return bool(_OVERDOSE_TOLD.search(message or "")) or chat_keywords.overdose_told(message or "")
+
+
 
 class _DrugDirectRule(NamedTuple):
     """약 질문 유형별 직접 안내(2026-10-29 F-1: 판정자 12회 모두 "의사·약사에게 물어보세요"만 있고 핵심 거절이 없다고 지적).
@@ -477,6 +482,12 @@ _EMERGENCY_ACTIONS = (
         "vomiting_blood",
         re.compile(r"피를토|토혈|커피색|피가섞인구토|피섞인구토"),
         "토한 것이 목에 걸리지 않게 옆으로 누우시고, 아무것도 먹거나 마시지 마세요.",
+    ),
+    # 2026-11-28 H-1(사용자 승인 고정 문장): 과다 복용 - 약 상자·봉지를 구급대에 보이고, 억지로 토하게 하지 않는다(중독 응급처치 기준).
+    _EmergencyAction(
+        "overdose",
+        chat_keywords.OVERDOSE_ACTION_SIGNAL,  # type: ignore[arg-type]  # search 만 쓰는 대체 객체
+        "드신 약의 상자나 봉지를 챙겨 119 대원에게 보여 주시고, 억지로 토하게 하지 마세요.",
     ),
     _EmergencyAction(
         "collapse_fall",
@@ -721,6 +732,7 @@ _SENTENCE_TABLE: dict[str, tuple[str, str | None]] = {
     "_EMERGENCY_ACTIONS.breathing": ("self", "편하게 앉은 자세로 숨을 쉬게 하고, 꽉 끼는 옷은 풀어 주세요."),
     "_EMERGENCY_ACTIONS.vomiting_blood": ("self", "토한 것이 목에 걸리지 않게 옆으로 눕히고, 아무것도 먹이거나 마시게 하지 마세요."),
     "_EMERGENCY_ACTIONS.collapse_fall": ("self", "무리하게 일으키지 말고 편한 자세로 눕혀 두세요."),
+    "_EMERGENCY_ACTIONS.overdose": ("neutral", None),  # 본인·곁에 있는 사람 모두에게 맞는 말(2026-11-28 H-1)
 }
 
 
@@ -1042,7 +1054,7 @@ class MedicalLlmService:
         """약 복용 문의 답에서 119 문장을 뺀다(프롬프트 규칙 4를 코드로 보장 - 2026-10-29 qa.F1 "혈압이 다시 떨어지면 119" 1/3).
         과다 복용을 말한 질문은 그대로 둔다. 응급 답은 호출하는 쪽(품질 후처리 대상 밖)에서 빠진다. (고친 답, 뺀 문장 수)."""
         compact = re.sub(r"\s+", "", message or "")
-        if not (_MEDICATION_119_WORD.search(compact) and _MEDICATION_119_ASK.search(compact)) or _OVERDOSE_TOLD.search(message or ""):
+        if not (_MEDICATION_119_WORD.search(compact) and _MEDICATION_119_ASK.search(compact)) or _overdose_told(message):
             return reply, 0
         removed = 0
         lines: list[str] = []
@@ -1062,7 +1074,7 @@ class MedicalLlmService:
     def drug_direct_sentences(message: str, reply: str, proxy: bool = False) -> list[tuple[str, str]]:
         """약 질문 유형별로 덧붙일 (규칙 이름, 문장). 과다 복용을 말한 질문의 "두 번 몫" 안내는 빼고, 답에 같은 뜻이 있으면 생략한다."""
         compact = re.sub(r"\s+", "", message or "")
-        overdose = bool(_OVERDOSE_TOLD.search(message or ""))
+        overdose = _overdose_told(message)
         out: list[tuple[str, str]] = []
         for rule in _DRUG_DIRECT_RULES + _LIFESTYLE_RULES + _SYMPTOM_RULES:
             if not rule.ask.search(compact) or rule.covered.search(reply or "") or rule.sentence.pick(proxy) in (reply or ""):
